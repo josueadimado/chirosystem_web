@@ -10,7 +10,7 @@ From this folder (`apps/web`):
 docker compose up --build
 ```
 
-Uses `docker-compose.yml` (dev). Open **http://localhost:3001** (host port **3001** avoids clashes with other apps on **3000**). Production build: `docker compose -f docker-compose.prod.yml up --build`. Set **`NEXT_PUBLIC_API_BASE_URL`** to your Django API base (default dev Docker: `http://localhost:8001/api/v1`).
+Uses `docker-compose.yml` (dev). Open **http://localhost:3001** (host port **3001** avoids clashes with other apps on **3000**). Production build: `docker compose -f docker-compose.prod.yml up --build` — defaults to API **`https://api.reliefchiropractic.net/api/v1`** (override with **`NEXT_PUBLIC_API_BASE_URL`** if needed). Local dev API via Docker is typically `http://localhost:8001/api/v1`.
 
 ### Local Node (no Docker)
 

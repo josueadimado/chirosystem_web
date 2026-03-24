@@ -1,6 +1,6 @@
 # Production frontend — build with your public API URL baked into the client bundle.
-# From this folder:
-#   NEXT_PUBLIC_API_BASE_URL=https://api.yourdomain.com/api/v1 docker compose -f docker-compose.prod.yml up --build -d
+# Default API: https://api.reliefchiropractic.net/api/v1
+# Override: NEXT_PUBLIC_API_BASE_URL=https://other.example/api/v1 docker compose -f docker-compose.prod.yml up --build -d
 # Or put NEXT_PUBLIC_API_BASE_URL in a .env file next to this compose file.
 
 services:
@@ -9,9 +9,18 @@ services:
       context: .
       dockerfile: Dockerfile.prod
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.reliefchiropractic.net/api/v1}
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://api.reliefchiropractic.net/api/v1}
     restart: unless-stopped
+    expose:
+      - "3000"
+    networks:
+      - chiroflow-network
+networks:
+  chiroflow-network:
+    external: true
+
+
