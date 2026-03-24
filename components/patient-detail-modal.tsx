@@ -4,9 +4,43 @@ import { DoctorSectionLabel } from "@/components/doctor-shell";
 import { Loader } from "@/components/loader";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
+
+type VisitHistoryLine = {
+  service_name: string;
+  billing_code: string;
+  quantity: number;
+  unit_price: string;
+  line_total: string;
+};
+
+type VisitHistory = {
+  id: number;
+  status: string;
+  reason_for_visit: string;
+  doctor_notes: string;
+  diagnosis: string;
+  completed_at: string | null;
+  rendered_services: VisitHistoryLine[];
+};
+
+type AppointmentHistoryRow = {
+  id: number;
+  appointment_date: string;
+  start_time: string;
+  end_time: string;
+  service: string | null;
+  provider: string | null;
+  provider_id: number;
+  status: string;
+  clinical_handoff_notes: string;
+  can_edit_handoff_notes: boolean;
+  visit: VisitHistory | null;
+  invoice: { invoice_number: string; total_amount: string; status: string } | null;
+};
 
 type PatientDetail = {
   id: number;
@@ -23,14 +57,7 @@ type PatientDetail = {
   card_brand: string;
   card_last4: string;
   has_saved_card?: boolean;
-  appointments: Array<{
-    id: number;
-    appointment_date: string;
-    start_time: string;
-    service: string | null;
-    provider: string | null;
-    status: string;
-  }>;
+  appointments: AppointmentHistoryRow[];
 };
 
 type Tab = "overview" | "intake" | "history";
@@ -71,6 +98,34 @@ export function PatientDetailModal({
     date_of_birth: "",
   });
 
+  const [portalReady, setPortalReady] = useState(false);
+  /** Local text for “chart / handoff” notes per appointment row (synced when detail loads). */
+  const [handoffEdits, setHandoffEdits] = useState<Record<number, string>>({});
+  const [savingHandoffId, setSavingHandoffId] = useState<number | null>(null);
+  const [handoffMsg, setHandoffMsg] = useState("");
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!detail?.appointments) return;
+    const m: Record<number, string> = {};
+    for (const a of detail.appointments) {
+      m[a.id] = a.clinical_handoff_notes ?? "";
+    }
+    setHandoffEdits(m);
+  }, [detail]);
+
+  useEffect(() => {
+    if (patientId === null) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [patientId]);
+
   useEffect(() => {
     if (!patientId) {
       setDetail(null);
@@ -102,8 +157,30 @@ export function PatientDetailModal({
 
   const intakeSavePath =
     detailPath === "/admin/patient_detail" ? "/admin/patient_intake/" : "/doctor/patient_intake/";
+  const handoffSavePath =
+    detailPath === "/admin/patient_detail" ? "/admin/appointment_handoff/" : "/doctor/appointment_handoff/";
   const canSaveIntake =
     detailPath === "/doctor/patient_detail" || detailPath === "/admin/patient_detail";
+
+  const saveAppointmentHandoff = async (appointmentId: number) => {
+    setSavingHandoffId(appointmentId);
+    setHandoffMsg("");
+    try {
+      await apiPatch(handoffSavePath, {
+        appointment_id: appointmentId,
+        clinical_handoff_notes: handoffEdits[appointmentId] ?? "",
+      });
+      setHandoffMsg("Chart note saved.");
+      if (patientId) {
+        const refreshed = await apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`);
+        setDetail(refreshed);
+      }
+    } catch (e) {
+      setHandoffMsg(e instanceof ApiError ? e.message : "Could not save chart note.");
+    } finally {
+      setSavingHandoffId(null);
+    }
+  };
 
   const saveIntake = async () => {
     if (!patientId || !canSaveIntake) {
@@ -156,28 +233,30 @@ export function PatientDetailModal({
   };
 
   if (patientId === null) return null;
+  if (!portalReady) return null;
 
   const tabs: { id: Tab; label: string; hint: string }[] = [
     { id: "overview", label: "Overview", hint: "Summary & demographics" },
     { id: "intake", label: "Patient intake", hint: "Address & contacts" },
-    { id: "history", label: "Appointments", hint: "Visit history" },
+    { id: "history", label: "Record history", hint: "Visits, chart notes & billing" },
   ];
 
   const displayInitial = (d: PatientDetail) =>
     (d.first_name?.trim().charAt(0) || d.last_name?.trim().charAt(0) || "?").toUpperCase();
 
-  return (
+  return createPortal(
     <div
-      className="animate-overlay-enter fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+      className="animate-overlay-enter fixed inset-0 z-[200] overflow-y-auto bg-slate-900/45 backdrop-blur-[2px]"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="patient-modal-title"
     >
-      <div
-        className="animate-modal-enter relative max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-400/25 ring-1 ring-emerald-100/40"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex min-h-[100dvh] items-center justify-center p-4 py-16 sm:py-20">
+        <div
+          className="animate-modal-enter relative max-h-[min(92vh,100dvh-8rem)] w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-400/25 ring-1 ring-emerald-100/40"
+          onClick={(e) => e.stopPropagation()}
+        >
         <div className="sticky top-0 z-10 border-b border-emerald-100/60 bg-gradient-to-br from-white via-white to-emerald-50/40 px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -217,14 +296,14 @@ export function PatientDetailModal({
               >
                 <span className="hidden sm:inline">{t.label}</span>
                 <span className="sm:hidden">
-                  {t.id === "overview" ? "Info" : t.id === "intake" ? "Intake" : "Visits"}
+                  {t.id === "overview" ? "Info" : t.id === "intake" ? "Intake" : "History"}
                 </span>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="max-h-[calc(92vh-10.5rem)] overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
+        <div className="max-h-[calc(min(92vh,100dvh-8rem)-10.5rem)] overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
           {loading ? (
             <div className="py-8">
               <Loader variant="page" label="Loading chart" sublabel="Opening patient record…" />
@@ -405,39 +484,168 @@ export function PatientDetailModal({
 
               {tab === "history" && (
                 <div className="animate-fade-in space-y-4">
-                  <DoctorSectionLabel>Appointment history</DoctorSectionLabel>
+                  <DoctorSectionLabel>Patient record history</DoctorSectionLabel>
+                  <p className="text-sm leading-relaxed text-slate-600">
+                    Each visit is expandable. <strong>Chart note for the team</strong> stays on that appointment so another
+                    doctor can read it tomorrow. Visit notes and diagnosis come from completed encounters; procedures show what
+                    was billed.
+                  </p>
+                  {handoffMsg ? (
+                    <p
+                      className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                        handoffMsg === "Chart note saved." ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-950"
+                      }`}
+                    >
+                      {handoffMsg}
+                    </p>
+                  ) : null}
                   {detail.appointments.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-slate-200/90 bg-slate-50/50 px-5 py-10 text-center">
                       <p className="font-medium text-slate-700">No appointments on file</p>
                       <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-                        When this patient books or you add visits, they will appear here with date, time, and status.
+                        When this patient books or you add visits, they will appear here with clinical and billing detail.
                       </p>
                     </div>
                   ) : (
-                    <ul className="space-y-2.5">
+                    <ul className="space-y-3">
                       {detail.appointments.map((a) => (
                         <li
                           key={a.id}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 px-4 py-3.5 text-sm shadow-sm transition hover:border-[#16a349]/25 hover:shadow-md"
+                          className="overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 text-sm shadow-sm ring-1 ring-slate-100/80"
                         >
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                              <span className="font-bold tabular-nums text-slate-900">{a.appointment_date}</span>
-                              <span className="text-slate-300">·</span>
-                              <span className="font-semibold text-[#0d5c2e]">{a.start_time}</span>
+                          <details className="group">
+                            <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3.5 marker:hidden [&::-webkit-details-marker]:hidden">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                  <span className="font-bold tabular-nums text-slate-900">{a.appointment_date}</span>
+                                  <span className="text-slate-300">·</span>
+                                  <span className="font-semibold text-[#0d5c2e]">{a.start_time}</span>
+                                  {a.end_time ? (
+                                    <>
+                                      <span className="text-slate-300">–</span>
+                                      <span className="text-slate-600">{a.end_time}</span>
+                                    </>
+                                  ) : null}
+                                </div>
+                                {a.provider ? (
+                                  <p className="mt-1 text-xs font-medium text-slate-600">
+                                    Provider: <span className="text-[#16a349]">{a.provider}</span>
+                                  </p>
+                                ) : null}
+                                {a.service ? <p className="mt-0.5 text-slate-500">{a.service}</p> : null}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <span
+                                  className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
+                                >
+                                  {a.status.replace(/_/g, " ")}
+                                </span>
+                                <span className="text-xs font-semibold text-slate-400 group-open:hidden">Expand</span>
+                                <span className="hidden text-xs font-semibold text-slate-400 group-open:inline">Hide</span>
+                              </div>
+                            </summary>
+                            <div className="space-y-4 border-t border-slate-200/80 bg-white/80 px-4 py-4">
+                              <div>
+                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                  Chart note for the team (handoff)
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {a.can_edit_handoff_notes
+                                    ? "Visible on this patient’s chart to every provider. Saved on this appointment only."
+                                    : "Only the assigned provider or admin can edit this note. You can still read it for continuity of care."}
+                                </p>
+                                {a.can_edit_handoff_notes ? (
+                                  <div className="mt-2 space-y-2">
+                                    <textarea
+                                      className={`${inputClass} min-h-[88px] resize-y`}
+                                      value={handoffEdits[a.id] ?? ""}
+                                      onChange={(e) =>
+                                        setHandoffEdits((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                      }
+                                      placeholder="e.g. Follow-up on L4 tenderness; patient prefers morning slots; coordinate with massage…"
+                                      aria-label={`Chart handoff note for appointment ${a.id}`}
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={savingHandoffId === a.id}
+                                      onClick={() => void saveAppointmentHandoff(a.id)}
+                                      className="rounded-xl bg-[#16a349] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                                    >
+                                      {savingHandoffId === a.id ? "Saving…" : "Save chart note"}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-slate-800">
+                                    {a.clinical_handoff_notes?.trim() ? a.clinical_handoff_notes : "—"}
+                                  </p>
+                                )}
+                              </div>
+
+                              {a.visit ? (
+                                <div className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-3">
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                    Completed visit record
+                                  </p>
+                                  {a.visit.reason_for_visit?.trim() ? (
+                                    <p className="mt-2 text-xs">
+                                      <span className="font-semibold text-slate-600">Reason: </span>
+                                      <span className="text-slate-800">{a.visit.reason_for_visit}</span>
+                                    </p>
+                                  ) : null}
+                                  {a.visit.diagnosis?.trim() ? (
+                                    <p className="mt-2 text-xs">
+                                      <span className="font-semibold text-slate-600">Diagnosis (bill): </span>
+                                      <span className="text-slate-800">{a.visit.diagnosis}</span>
+                                    </p>
+                                  ) : null}
+                                  {a.visit.doctor_notes?.trim() ? (
+                                    <p className="mt-2 text-xs">
+                                      <span className="font-semibold text-slate-600">Visit notes: </span>
+                                      <span className="whitespace-pre-wrap text-slate-800">{a.visit.doctor_notes}</span>
+                                    </p>
+                                  ) : null}
+                                  {a.visit.rendered_services.length > 0 ? (
+                                    <div className="mt-3">
+                                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                        Procedures billed
+                                      </p>
+                                      <ul className="mt-1.5 space-y-1 text-xs text-slate-700">
+                                        {a.visit.rendered_services.map((line, idx) => (
+                                          <li key={idx} className="flex flex-wrap gap-x-2 border-b border-slate-200/60 py-1 last:border-0">
+                                            <span className="font-mono text-[11px] text-slate-500">
+                                              {line.billing_code || "—"}
+                                            </span>
+                                            <span>{line.service_name}</span>
+                                            <span className="text-slate-500">
+                                              ×{line.quantity} · ${line.line_total}
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null}
+                                  {a.visit.completed_at ? (
+                                    <p className="mt-2 text-[10px] text-slate-400">
+                                      Completed {a.visit.completed_at}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500">No completed visit documentation on file yet for this slot.</p>
+                              )}
+
+                              {a.invoice ? (
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                                  <span className="font-semibold text-slate-700">Invoice</span>
+                                  <span className="font-mono">{a.invoice.invoice_number}</span>
+                                  <span>·</span>
+                                  <span>${a.invoice.total_amount}</span>
+                                  <span>·</span>
+                                  <span className="uppercase">{a.invoice.status}</span>
+                                </div>
+                              ) : null}
                             </div>
-                            {a.provider ? (
-                              <p className="mt-1 text-xs font-medium text-slate-600">
-                                Provider: <span className="text-[#16a349]">{a.provider}</span>
-                              </p>
-                            ) : null}
-                            {a.service ? <p className="mt-0.5 text-slate-500">{a.service}</p> : null}
-                          </div>
-                          <span
-                            className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
-                          >
-                            {a.status.replace(/_/g, " ")}
-                          </span>
+                          </details>
                         </li>
                       ))}
                     </ul>
@@ -447,7 +655,9 @@ export function PatientDetailModal({
             </>
           ) : null}
         </div>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

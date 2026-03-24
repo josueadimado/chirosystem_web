@@ -2,6 +2,18 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+### Docker (with API running separately)
+
+From this folder (`apps/web`):
+
+```bash
+docker compose up --build
+```
+
+Uses `docker-compose.yml` (dev). Open **http://localhost:3001** (host port **3001** avoids clashes with other apps on **3000**). Production build: `docker compose -f docker-compose.prod.yml up --build`. Set **`NEXT_PUBLIC_API_BASE_URL`** to your Django API base (default dev Docker: `http://localhost:8001/api/v1`).
+
+### Local Node (no Docker)
+
 First, run the development server:
 
 ```bash

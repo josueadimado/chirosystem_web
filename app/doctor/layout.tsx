@@ -85,20 +85,20 @@ function DoctorHeader({
   });
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm shadow-slate-200/40 backdrop-blur-md sm:px-6 sm:py-3.5">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/90 px-4 py-3 shadow-sm shadow-black/[0.04] backdrop-blur-md sm:px-6 sm:py-3.5">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           onClick={onSidebarToggle}
-          className="shrink-0 rounded-xl p-2 text-slate-600 transition-colors hover:bg-emerald-50 hover:text-[#0d5c2e]"
+          className="shrink-0 rounded-xl p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
           title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
           <IconMenu className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900">{title}</h1>
-          <p className="hidden text-xs text-slate-500 sm:block">{todayLine}</p>
+          <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
+          <p className="hidden text-xs text-muted-foreground sm:block">{todayLine}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -106,7 +106,7 @@ function DoctorHeader({
         <button
           type="button"
           onClick={handleLogout}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 sm:px-4"
+          className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/60 sm:px-4"
         >
           Log out
         </button>

@@ -4,6 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { IconEye, IconEyeOff } from "@/components/icons";
 import { Loader } from "@/components/loader";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { apiPost } from "@/lib/api";
 import { setRoleCookie } from "@/lib/auth";
 import { UserRole } from "@/lib/types";
@@ -57,23 +62,21 @@ export default function SignInPage() {
   };
 
   return (
-    <main className="flex min-h-screen">
+    <main className="flex min-h-screen bg-background">
       {/* Left panel - branding */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#16a349] via-[#13823d] to-[#0d5c2e]">
+      <div className="relative hidden overflow-hidden bg-gradient-to-br from-primary via-teal-700 to-teal-900 lg:flex lg:w-1/2">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.06\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-40" />
-        <div className="relative flex flex-col justify-between p-12 text-white">
+        <div className="relative flex flex-col justify-between p-12 text-primary-foreground">
           <div>
             <span className="text-2xl font-extrabold tracking-tight text-white/95">Relief Chiropractic</span>
           </div>
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold leading-tight max-w-sm">
-              Your clinic operations, simplified.
-            </h2>
-            <p className="text-white/80 max-w-sm text-lg">
+            <h2 className="max-w-sm text-3xl leading-tight font-bold">Your clinic operations, simplified.</h2>
+            <p className="max-w-sm text-lg text-white/80">
               Sign in to manage appointments, view patient records, and keep your practice running smoothly.
             </p>
           </div>
-          <div className="relative h-56 rounded-xl overflow-hidden border border-white/20 shadow-2xl">
+          <div className="relative h-56 overflow-hidden rounded-xl border border-white/20 shadow-2xl">
             <Image
               src="/images/clinic-reception.png"
               alt="Clinic"
@@ -87,97 +90,86 @@ export default function SignInPage() {
 
       {/* Right panel - form */}
       <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-12 lg:px-16">
-        <div className="content-fade-in mx-auto w-full max-w-sm">
-          {/* Mobile branding */}
-          <div className="lg:hidden mb-8 text-center">
-            <span className="text-2xl font-extrabold text-[#16a349]">Relief Chiropractic</span>
+        <div className="content-fade-in mx-auto w-full max-w-md">
+          <div className="mb-8 text-center lg:hidden">
+            <span className="text-2xl font-extrabold text-primary">Relief Chiropractic</span>
           </div>
 
-          <div className="space-y-8">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Welcome back</h1>
-              <p className="mt-1 text-slate-600">Sign in to your staff account</p>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleLogin();
-              }}
-              className="space-y-5"
-            >
-              <div>
-                <label htmlFor="username" className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Username
-                </label>
-                <input
-                  id="username"
-                  type="text"
-                  autoComplete="username"
-                  className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-[#16a349] focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 transition"
-                  placeholder="Enter your username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Password
-                </label>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 pr-12 text-slate-900 placeholder-slate-400 focus:border-[#16a349] focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 transition"
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                    title={showPassword ? "Hide password" : "Show password"}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? (
-                      <IconEyeOff className="h-5 w-5" />
-                    ) : (
-                      <IconEye className="h-5 w-5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {errorMessage && (
-                <div className="animate-fade-in rounded-lg bg-rose-50 border border-rose-200 px-4 py-3 text-sm font-medium text-rose-800">
-                  {errorMessage}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#e9982f] px-4 py-3 text-base font-semibold text-white shadow-sm hover:bg-[#cf8727] focus:outline-none focus:ring-2 focus:ring-[#e9982f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition"
+          <Card className="border-border/80 shadow-md">
+            <CardHeader className="space-y-1 pb-2">
+              <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
+              <CardDescription>Sign in to your staff account</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleLogin();
+                }}
+                className="space-y-5"
               >
-                {isSubmitting ? (
-                  <Loader variant="spinner" label="Signing in…" />
-                ) : (
-                  "Sign in"
-                )}
-              </button>
-            </form>
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    type="text"
+                    autoComplete="username"
+                    className="h-11 px-4"
+                    placeholder="Enter your username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                </div>
 
-            <p className="text-center text-sm text-slate-500">
-              Staff access only. Patients should{" "}
-              <Link href="/" className="font-medium text-[#16a349] hover:text-[#13823d] hover:underline">
-                book an appointment
-              </Link>{" "}
-              instead.
-            </p>
-          </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      className="h-11 pr-12 pl-4"
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute top-1/2 right-3 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title={showPassword ? "Hide password" : "Show password"}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <IconEyeOff className="h-5 w-5" /> : <IconEye className="h-5 w-5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {errorMessage ? (
+                  <Alert variant="destructive" className="border-destructive/30 bg-destructive/5 py-3">
+                    <AlertTitle className="text-sm">Sign-in failed</AlertTitle>
+                    <AlertDescription>{errorMessage}</AlertDescription>
+                  </Alert>
+                ) : null}
+
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="h-11 w-full rounded-lg bg-[#e9982f] text-base font-semibold text-white shadow-sm hover:bg-[#cf8727] disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader variant="spinner" label="Signing in…" /> : "Sign in"}
+                </Button>
+              </form>
+
+              <p className="mt-6 text-center text-sm text-muted-foreground">
+                Staff access only. Patients should{" "}
+                <Link href="/" className="font-medium text-primary underline-offset-2 hover:underline">
+                  book an appointment
+                </Link>{" "}
+                instead.
+              </p>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </main>

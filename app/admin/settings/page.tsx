@@ -1,8 +1,10 @@
 "use client";
 
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
+import { Button } from "@/components/ui/button";
 import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
 import { getRoleCookie } from "@/lib/auth";
 import { useCallback, useEffect, useState } from "react";
@@ -30,17 +32,16 @@ function emptyProfile(): ClinicProfile {
 }
 
 export default function AdminSettingsPage() {
+  const { runWithFeedback } = useAppFeedback();
   const [draft, setDraft] = useState<ClinicProfile>(emptyProfile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [saveMessage, setSaveMessage] = useState("");
   const [canSave, setCanSave] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    setSaveMessage("");
     try {
       const data = await apiGetAuth<ClinicProfile>("/admin/clinic_profile/");
       setDraft({
@@ -71,7 +72,6 @@ export default function AdminSettingsPage() {
 
   const updateField = (field: keyof Omit<ClinicProfile, "business_hours">, value: string) => {
     setDraft((d) => ({ ...d, [field]: value }));
-    setSaveMessage("");
   };
 
   const updateHourRow = (index: number, key: "day" | "hours", value: string) => {
@@ -81,39 +81,40 @@ export default function AdminSettingsPage() {
       next[index] = row;
       return { ...d, business_hours: next };
     });
-    setSaveMessage("");
   };
 
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
     setError("");
-    setSaveMessage("");
-    try {
-      const updated = await apiPatch<ClinicProfile>("/admin/clinic_profile/", {
-        clinic_name: draft.clinic_name,
-        address_line1: draft.address_line1,
-        city_state_zip: draft.city_state_zip,
-        phone: draft.phone,
-        email: draft.email,
-        pos_default: draft.pos_default,
-        business_hours: draft.business_hours,
-      });
-      setDraft({
-        clinic_name: updated.clinic_name ?? "",
-        address_line1: updated.address_line1 ?? "",
-        city_state_zip: updated.city_state_zip ?? "",
-        phone: updated.phone ?? "",
-        email: updated.email ?? "",
-        pos_default: updated.pos_default ?? "11",
-        business_hours: Array.isArray(updated.business_hours) ? updated.business_hours : [],
-      });
-      setSaveMessage("Settings saved. Printed bills and this page will use these values.");
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not save settings.");
-    } finally {
-      setSaving(false);
-    }
+    await runWithFeedback(
+      async () => {
+        const updated = await apiPatch<ClinicProfile>("/admin/clinic_profile/", {
+          clinic_name: draft.clinic_name,
+          address_line1: draft.address_line1,
+          city_state_zip: draft.city_state_zip,
+          phone: draft.phone,
+          email: draft.email,
+          pos_default: draft.pos_default,
+          business_hours: draft.business_hours,
+        });
+        setDraft({
+          clinic_name: updated.clinic_name ?? "",
+          address_line1: updated.address_line1 ?? "",
+          city_state_zip: updated.city_state_zip ?? "",
+          phone: updated.phone ?? "",
+          email: updated.email ?? "",
+          pos_default: updated.pos_default ?? "11",
+          business_hours: Array.isArray(updated.business_hours) ? updated.business_hours : [],
+        });
+      },
+      {
+        loadingMessage: "Saving clinic settings…",
+        successMessage: "Settings saved. Printed bills and this page will use these values.",
+        errorFallback: "Could not save settings.",
+      },
+    );
+    setSaving(false);
   };
 
   return (
@@ -127,12 +128,6 @@ export default function AdminSettingsPage() {
       {error && (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
       )}
-      {saveMessage && (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900">
-          {saveMessage}
-        </p>
-      )}
-
       {loading ? (
         <Loader variant="page" label="Loading settings" sublabel="Reading clinic profile…" />
       ) : (
@@ -235,25 +230,26 @@ export default function AdminSettingsPage() {
       {!loading && (
         <div className="flex flex-wrap items-center gap-3">
           {canSave ? (
-            <button
+            <Button
               type="button"
               onClick={() => void handleSave()}
               disabled={saving}
-              className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm"
             >
               {saving ? "Saving…" : "Save settings"}
-            </button>
+            </Button>
           ) : (
-            <p className="text-sm text-slate-500">Sign in as owner or staff to edit these fields.</p>
+            <p className="text-sm text-muted-foreground">Sign in as owner or staff to edit these fields.</p>
           )}
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => void load()}
             disabled={loading || saving}
-            className="text-sm font-semibold text-slate-600 underline-offset-2 hover:underline disabled:opacity-50"
+            className="h-auto px-2 text-sm font-semibold underline-offset-2 hover:underline"
           >
             Reload from server
-          </button>
+          </Button>
         </div>
       )}
     </div>

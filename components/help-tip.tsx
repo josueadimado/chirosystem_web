@@ -81,7 +81,7 @@ export function HelpTip({
       <div
         ref={tipRef}
         role="tooltip"
-        className={`fixed z-[60] w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-xs leading-relaxed text-slate-700 shadow-xl shadow-slate-400/20 ring-1 ring-slate-100 ${
+        className={`fixed z-[205] w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-xs leading-relaxed text-slate-700 shadow-xl shadow-slate-400/20 ring-1 ring-slate-100 ${
           align === "center" ? "-translate-x-1/2" : ""
         }`}
         style={{ top: tipPos.top, left: tipPos.left }}

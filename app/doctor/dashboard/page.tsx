@@ -1,14 +1,16 @@
 "use client";
 
+import { useAppFeedback } from "@/components/app-feedback";
 import { DoctorEmptyWell, DoctorPageIntro, DoctorSectionLabel, DoctorStatsRow, doctorGreeting } from "@/components/doctor-shell";
 import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
-import { StripeTerminalCollect } from "@/components/stripe-terminal-collect";
-import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
+import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { openPatientBillPrint } from "@/lib/patient-bill-print";
+import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 
 type Appointment = {
@@ -17,18 +19,28 @@ type Appointment = {
   patient_id: number;
   service: string;
   booked_service_id: number | null;
+  /** YYYY-MM-DD — used when rescheduling from this screen. */
+  appointment_date: string;
+  /** e.g. "09:30:00" — send to the API when changing start time. */
+  start_time_iso: string;
   start_time: string;
   end_time: string;
   status: string;
   reason_for_visit: string;
-  visit_id?: number;
+  visit_id?: number | null;
+  /** Persistent note on this appointment; visible to other providers on the patient chart. */
+  clinical_handoff_notes?: string;
+  /** Set when status is awaiting_payment — use Collect payment to reopen the green banner. */
+  invoice_id?: number;
+  invoice_number?: string;
+  invoice_total?: string;
 };
 
 type ServiceOpt = {
   id: number;
   name: string;
   price: string;
-  billing_code: string;
+  billing_code?: string;
   is_active: boolean;
 };
 
@@ -50,6 +62,7 @@ type PaymentFollowUp = {
 };
 
 export default function DoctorDashboardPage() {
+  const { runWithFeedback, toast } = useAppFeedback();
   const todayStr = new Date().toISOString().slice(0, 10);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [services, setServices] = useState<ServiceOpt[]>([]);
@@ -66,9 +79,17 @@ export default function DoctorDashboardPage() {
   const [chargeSavedCard, setChargeSavedCard] = useState(true);
   const [paymentFollowUp, setPaymentFollowUp] = useState<PaymentFollowUp | null>(null);
   const [terminalBusy, setTerminalBusy] = useState(false);
-  const [terminalClientSecret, setTerminalClientSecret] = useState<string | null>(null);
-  const [terminalLocationId, setTerminalLocationId] = useState<string | null>(null);
+  /** Square Terminal API checkout id — we poll until the physical device completes payment. */
+  const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
+  /** Saved on the appointment row for handoff / next doctor (separate from visit-only notes). */
+  const [handoffNotes, setHandoffNotes] = useState("");
+  const [savingHandoff, setSavingHandoff] = useState(false);
+  /** Simple modal to move a visit to another date/time (only before the visit is in progress). */
+  const [rescheduleAppt, setRescheduleAppt] = useState<Appointment | null>(null);
+  const [resDate, setResDate] = useState("");
+  const [resTime, setResTime] = useState("09:00");
+  const [savingDesk, setSavingDesk] = useState(false);
 
   useEffect(() => {
     setDisplayName(localStorage.getItem("chiroflow_user_name") || "");
@@ -112,9 +133,6 @@ export default function DoctorDashboardPage() {
       setAppointments(appts);
       const inConsult = appts.find((a) => a.status === "in_consultation");
       setActiveAppt(inConsult ?? null);
-      if (inConsult?.visit_id) {
-        setDoctorNotes("");
-      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load.");
       setAppointments([]);
@@ -133,38 +151,72 @@ export default function DoctorDashboardPage() {
       .catch(() => setServices([]));
   }, []);
 
-  /** Terminal internet readers need a location id from the API; simulated mode works in Stripe test without it. */
   useEffect(() => {
-    if (!paymentFollowUp || paymentFollowUp.payment.charged) {
-      setTerminalLocationId(null);
-      return;
-    }
-    apiGetAuth<{ location_id: string; has_location: boolean }>("/doctor/terminal_reader_config/")
-      .then((c) => setTerminalLocationId(c.has_location && c.location_id ? c.location_id : null))
-      .catch(() => setTerminalLocationId(null));
-  }, [paymentFollowUp]);
+    setDoctorNotes("");
+  }, [activeAppt?.id]);
 
   useEffect(() => {
-    if (!activeAppt?.booked_service_id) {
+    if (!activeAppt) {
+      setBillLines([]);
+      setDiagnosis("");
+      setHandoffNotes("");
+      return;
+    }
+    setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
+    if (!activeAppt.booked_service_id) {
       setBillLines([]);
       setDiagnosis("");
       return;
     }
     setBillLines([{ service_id: activeAppt.booked_service_id, quantity: "1", unit_price: "" }]);
     setDiagnosis("");
-  }, [activeAppt?.id, activeAppt?.booked_service_id]);
+  }, [activeAppt?.id, activeAppt?.booked_service_id, activeAppt?.clinical_handoff_notes]);
+
+  useEffect(() => {
+    if (!rescheduleAppt) return;
+    setResDate(rescheduleAppt.appointment_date || selectedDate);
+    const iso = rescheduleAppt.start_time_iso || "";
+    setResTime(iso.length >= 5 ? iso.slice(0, 5) : "09:00");
+  }, [rescheduleAppt?.id, rescheduleAppt?.appointment_date, rescheduleAppt?.start_time_iso, selectedDate]);
+
+  const saveHandoffNote = async () => {
+    if (!activeAppt) return;
+    setSavingHandoff(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch("/doctor/appointment_handoff/", {
+            appointment_id: activeAppt.id,
+            clinical_handoff_notes: handoffNotes,
+          });
+          await load();
+        },
+        {
+          loadingMessage: "Saving chart note…",
+          successMessage: "Chart note saved — other providers can see it on this patient’s history.",
+          errorFallback: "Could not save chart note.",
+        },
+      );
+    } finally {
+      setSavingHandoff(false);
+    }
+  };
 
   const startVisit = async (appt: Appointment) => {
     setIsStarting(true);
     setError("");
-    try {
-      await apiPost(`/doctor/${appt.id}/start_visit/`, {});
-      await load();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to start visit.");
-    } finally {
-      setIsStarting(false);
-    }
+    await runWithFeedback(
+      async () => {
+        await apiPost(`/doctor/${appt.id}/start_visit/`, {});
+        await load();
+      },
+      {
+        loadingMessage: "Starting visit…",
+        successMessage: "Visit started — chart and billing are open.",
+        errorFallback: "Could not start this visit.",
+      },
+    );
+    setIsStarting(false);
   };
 
   const completeVisit = async () => {
@@ -181,84 +233,182 @@ export default function DoctorDashboardPage() {
         return row;
       });
     if (rendered.length === 0) {
-      setError("Add at least one service line for this visit (adjust or add rows below).");
+      toast.error("Add at least one service line for this visit (adjust or add rows below).");
       return;
     }
+    const apptId = activeAppt.id;
     setIsCompleting(true);
     setError("");
-    try {
-      const result = await apiPost<{
-        invoice_id: number;
-        invoice_number: string;
-        total_amount: string;
-        payment: CompleteVisitPayment;
-      }>(`/doctor/${activeAppt.id}/complete_visit/`, {
-        doctor_notes: doctorNotes,
-        diagnosis,
-        rendered_services: rendered,
-        charge_saved_card_if_present: chargeSavedCard,
-      });
-      const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?invoice_id=${result.invoice_id}`);
-      openPatientBillPrint(bill);
-      setPaymentFollowUp({
-        invoice_id: result.invoice_id,
-        invoice_number: result.invoice_number,
-        total_amount: result.total_amount,
-        payment: result.payment,
-      });
-      setTerminalClientSecret(null);
-      setActiveAppt(null);
-      setDoctorNotes("");
-      setDiagnosis("");
-      setBillLines([]);
-      await load();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to complete.");
-    } finally {
-      setIsCompleting(false);
-    }
+    await runWithFeedback(
+      async () => {
+        const result = await apiPost<{
+          invoice_id: number;
+          invoice_number: string;
+          total_amount: string;
+          payment: CompleteVisitPayment;
+        }>(`/doctor/${apptId}/complete_visit/`, {
+          doctor_notes: doctorNotes,
+          diagnosis,
+          rendered_services: rendered,
+          charge_saved_card_if_present: chargeSavedCard,
+        });
+        // Patient bill prints only after the invoice is paid (saved-card success marks paid immediately).
+        if (result.payment.charged) {
+          await tryOpenPatientBill(result.invoice_id, { maxAttempts: 3 });
+        }
+        setPaymentFollowUp({
+          invoice_id: result.invoice_id,
+          invoice_number: result.invoice_number,
+          total_amount: result.total_amount,
+          payment: result.payment,
+        });
+        setSquareCheckoutId(null);
+        setActiveAppt(null);
+        setDoctorNotes("");
+        setDiagnosis("");
+        setBillLines([]);
+        await load();
+        return result;
+      },
+      {
+        loadingMessage: "Completing visit and creating invoice…",
+        successMessage: (r) =>
+          r?.payment?.charged
+            ? "Visit completed — payment received; patient bill opened for printing."
+            : "Visit completed — collect payment, then tap Print patient bill.",
+        errorFallback: "Could not complete this visit.",
+      },
+    );
+    setIsCompleting(false);
   };
 
   const prepareTerminalPayment = async () => {
     if (!paymentFollowUp) return;
     setTerminalBusy(true);
     setError("");
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ checkout_id: string; status: string }>("/doctor/terminal_checkout/", {
+          invoice_id: paymentFollowUp.invoice_id,
+        });
+        setSquareCheckoutId(out.checkout_id);
+      },
+      {
+        loadingMessage: "Preparing card reader…",
+        successMessage: "Reader ready — follow the prompts on the terminal.",
+        errorFallback: "Could not start terminal payment.",
+      },
+    );
+    setTerminalBusy(false);
+  };
+
+  const sortedBillServices = useMemo(() => {
+    return [...services].sort((a, b) => {
+      const ca = (a.billing_code || "").toLowerCase();
+      const cb = (b.billing_code || "").toLowerCase();
+      if (ca !== cb) return ca.localeCompare(cb);
+      return a.name.localeCompare(b.name);
+    });
+  }, [services]);
+
+  /** Estimated total for checked bill lines (same math as complete visit uses on the server). */
+  const consultationEstimatedTotal = useMemo(() => {
+    let total = 0;
+    let hasLine = false;
+    for (const line of billLines) {
+      const svc = services.find((s) => s.id === line.service_id);
+      if (!svc) continue;
+      hasLine = true;
+      const q = Math.max(1, parseInt(line.quantity, 10) || 1);
+      const raw = line.unit_price.trim();
+      const unit = raw ? parseFloat(raw) : parseFloat(svc.price);
+      if (Number.isNaN(unit)) continue;
+      total += unit * q;
+    }
+    if (!hasLine) return null;
+    return total;
+  }, [billLines, services]);
+
+  const [printingBill, setPrintingBill] = useState(false);
+
+  /** Fetches print-ready bill only when the invoice is PAID (server enforces this). */
+  const tryOpenPatientBill = async (invoiceId: number, opts?: { maxAttempts?: number; quiet?: boolean }) => {
+    const max = opts?.maxAttempts ?? 1;
+    setPrintingBill(true);
     try {
-      const out = await apiPost<{ client_secret: string; payment_intent_id: string }>(
-        "/doctor/terminal_payment_intent/",
-        { invoice_id: paymentFollowUp.invoice_id }
+      for (let i = 0; i < max; i++) {
+        try {
+          const st = await apiGetAuth<{ paid: boolean }>(`/doctor/invoice_payment_status/?invoice_id=${invoiceId}`);
+          if (st.paid) {
+            const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?invoice_id=${invoiceId}`);
+            openPatientBillPrint(bill);
+            if (!opts?.quiet) toast.success("Patient bill opened for printing.");
+            return true;
+          }
+        } catch {
+          /* retry — webhook may still be marking paid */
+        }
+        if (i < max - 1) await new Promise((r) => setTimeout(r, 900));
+      }
+      toast.error(
+        "Patient bill is only available after payment is complete. If you just charged a card, wait a few seconds and tap Print patient bill again.",
       );
-      setTerminalClientSecret(out.client_secret);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not create terminal payment.");
+      return false;
     } finally {
-      setTerminalBusy(false);
+      setPrintingBill(false);
     }
   };
 
-  const onTerminalSdkPaid = () => {
-    setPaymentFollowUp((prev) =>
-      prev
-        ? {
-            ...prev,
-            payment: {
-              ...prev.payment,
-              charged: true,
-              status: "charged_saved_card",
-              checkout_url: null,
-              charge_error: null,
-            },
-          }
-        : null
+  /** Bring back payment links / terminal after you dismissed the banner or left the page. */
+  const resumePaymentForAppointment = async (appt: Appointment, opts?: { trySavedCard?: boolean }) => {
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{
+          invoice_id: number;
+          invoice_number: string;
+          total_amount: string;
+          already_paid?: boolean;
+          payment: CompleteVisitPayment;
+        }>("/doctor/prepare_invoice_payment/", {
+          appointment_id: appt.id,
+          try_saved_card: opts?.trySavedCard ?? false,
+        });
+        if (out.already_paid && out.payment.charged) {
+          await tryOpenPatientBill(out.invoice_id, { maxAttempts: 4, quiet: true });
+          await load();
+          return out;
+        }
+        setPaymentFollowUp({
+          invoice_id: out.invoice_id,
+          invoice_number: out.invoice_number,
+          total_amount: out.total_amount,
+          payment: out.payment,
+        });
+        setSquareCheckoutId(null);
+        return out;
+      },
+      {
+        loadingMessage: "Loading payment options…",
+        successMessage: (o) =>
+          o?.already_paid
+            ? "Already paid — refreshed schedule and opened patient bill if ready."
+            : "Payment banner is open above — desk checkout, reader, or retry saved card.",
+        errorFallback: "Could not load payment options.",
+      },
     );
-    setTerminalClientSecret(null);
   };
 
-  const addBillLine = () => {
-    const first = services[0]?.id;
-    if (!first) return;
-    setBillLines((rows) => [...rows, { service_id: first, quantity: "1", unit_price: "" }]);
+  const toggleBillService = (serviceId: number) => {
+    setBillLines((rows) => {
+      const has = rows.some((r) => r.service_id === serviceId);
+      if (has) return rows.filter((r) => r.service_id !== serviceId);
+      return [...rows, { service_id: serviceId, quantity: "1", unit_price: "" }];
+    });
   };
+
+  const isBillServiceChecked = (serviceId: number) => billLines.some((r) => r.service_id === serviceId);
+
+  const billLineFor = (serviceId: number) => billLines.find((r) => r.service_id === serviceId);
 
   const statusDisplay = (s: string) => {
     const map: Record<string, string> = {
@@ -268,8 +418,17 @@ export default function DoctorDashboardPage() {
       in_consultation: "in_consultation",
       awaiting_payment: "awaiting_payment",
       completed: "completed",
+      no_show: "no_show",
+      cancelled: "cancelled",
     };
-    return (map[s] || s) as "scheduled" | "checked_in" | "in_consultation" | "completed" | "awaiting_payment";
+    return (map[s] || s) as
+      | "scheduled"
+      | "checked_in"
+      | "in_consultation"
+      | "completed"
+      | "awaiting_payment"
+      | "no_show"
+      | "cancelled";
   };
 
   const badgeLabel = (s: string) => {
@@ -281,8 +440,38 @@ export default function DoctorDashboardPage() {
       in_consultation: "IN CONSULTATION",
       completed: "COMPLETED",
       awaiting_payment: "AWAITING PAYMENT",
+      no_show: "NO-SHOW",
+      cancelled: "CANCELLED",
     };
     return map[s] ?? s.toUpperCase().replaceAll("_", " ");
+  };
+
+  /** Before the visit starts, doctors can mark no-show/cancel or reschedule (front desk rules apply for trickier cases). */
+  const canDoctorPreVisitDesk = (s: string) =>
+    s === "booked" || s === "confirmed" || s === "checked_in";
+
+  const submitReschedule = async () => {
+    if (!rescheduleAppt) return;
+    setSavingDesk(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch(`/appointments/${rescheduleAppt.id}/`, {
+            appointment_date: resDate,
+            start_time: resTime.length === 5 ? `${resTime}:00` : resTime,
+          });
+          setRescheduleAppt(null);
+          await load();
+        },
+        {
+          loadingMessage: "Rescheduling…",
+          successMessage: "Appointment moved to the new time.",
+          errorFallback: "Could not reschedule (slot may be taken).",
+        },
+      );
+    } finally {
+      setSavingDesk(false);
+    }
   };
 
   return (
@@ -290,11 +479,14 @@ export default function DoctorDashboardPage() {
       <DoctorPageIntro
         eyebrow="Clinical workspace"
         title={`${doctorGreeting()}, ${firstName}`}
-        description="See who you're treating today, start visits when patients check in, and wrap up with billing. After you complete a visit, you'll get payment options so nothing is missed at the desk."
+        description="While you add services for an active visit, you will see an estimated total. The printable patient bill opens only after payment is complete."
         pageHelp={
           <>
             This page is your <strong>daily command center</strong>: pick a date, work down the list, and use the right column when
-            someone is in consultation. Completing a visit creates the bill and then shows ways to collect payment before they leave.
+            someone is in consultation. Checked procedures show a running <strong>estimated total</strong>. When you complete the visit,
+            collect payment first; the <strong>patient bill</strong> prints only after the invoice is marked paid (saved card, reader, or
+            desk checkout). If someone does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
+            <strong>Reschedule</strong> to move a visit.
           </>
         }
       >
@@ -327,7 +519,7 @@ export default function DoctorDashboardPage() {
               </p>
               {paymentFollowUp.payment.charged && (
                 <p className="mt-2 font-semibold text-[#166534]">
-                  Paid — their saved card was charged. They are clear to go.
+                  Paid — you can print the patient bill for their records.
                 </p>
               )}
               {!paymentFollowUp.payment.charged && (
@@ -385,10 +577,10 @@ export default function DoctorDashboardPage() {
               )}
               {!paymentFollowUp.payment.charged &&
                 paymentFollowUp.payment.status !== "checkout_link" &&
-                paymentFollowUp.payment.status === "stripe_not_configured" && (
+                paymentFollowUp.payment.status === "square_not_configured" && (
                   <p className="mt-2 text-sm text-slate-600">
-                    Stripe is not set up on the server — take payment at the desk (cash, external terminal, etc.) and
-                    record it in your usual workflow.
+                    Square is not configured on the server — take payment at the desk (cash, Square Terminal outside this
+                    app, etc.) and record it in your usual workflow.
                   </p>
                 )}
               {!paymentFollowUp.payment.charged && paymentFollowUp.payment.status === "awaiting_manual" && (
@@ -400,56 +592,70 @@ export default function DoctorDashboardPage() {
                 <p className="mt-2 text-sm text-slate-600">No card on file — use reader or desk pay screen.</p>
               )}
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col items-end gap-2">
+              <button
+                type="button"
+                disabled={printingBill}
+                onClick={() => void tryOpenPatientBill(paymentFollowUp.invoice_id, { maxAttempts: 3 })}
+                className="rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {printingBill ? "Checking…" : "Print patient bill"}
+              </button>
+              <HelpTip label="Print patient bill" tone="emerald">
+                Opens the official patient bill only after the invoice is paid. If the patient just finished checkout or the reader, wait
+                a moment and tap again if the first try is early.
+              </HelpTip>
               <button
                 type="button"
                 onClick={() => setPaymentFollowUp(null)}
                 className="text-sm font-medium text-slate-500 hover:text-slate-800"
               >
-                Dismiss (after paid)
+                Dismiss banner
               </button>
             </div>
           </div>
-          {terminalClientSecret && (
+          {squareCheckoutId && (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
-              <p className="font-semibold text-amber-950">Card reader — next step</p>
+              <p className="font-semibold text-amber-950">Square Terminal</p>
               <p className="mt-1 text-amber-900">
-                Prefer this browser flow if you use a Stripe-supported reader. Otherwise use desk checkout — it works
-                without Terminal.
+                Complete the payment on the paired Square Terminal at the desk. This page updates when the device
+                finishes.
               </p>
-              <StripeTerminalCollect
-                clientSecret={terminalClientSecret}
-                locationId={terminalLocationId}
-                onSuccess={onTerminalSdkPaid}
+              <SquareTerminalCheckoutPoller
+                checkoutId={squareCheckoutId}
+                onComplete={() => {
+                  const invId = paymentFollowUp?.invoice_id;
+                  toast.success("Payment completed on the Square Terminal.");
+                  setPaymentFollowUp((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          payment: {
+                            ...prev.payment,
+                            charged: true,
+                            status: "charged_saved_card",
+                            checkout_url: null,
+                            charge_error: null,
+                          },
+                        }
+                      : null,
+                  );
+                  setSquareCheckoutId(null);
+                  if (invId) void tryOpenPatientBill(invId, { maxAttempts: 12 });
+                  void load();
+                }}
+                onTerminalError={(msg) => {
+                  toast.error(msg);
+                  setSquareCheckoutId(null);
+                }}
               />
-              <details className="mt-3 rounded border border-amber-200/80 bg-white/60 p-2">
-                <summary className="cursor-pointer text-xs font-semibold text-amber-950">
-                  Manual client secret (other POS / integration)
-                </summary>
-                <p className="mt-2 text-xs text-amber-900">
-                  Paste into software that already integrates with Stripe Terminal. Not needed for desk checkout.
-                </p>
-                <textarea
-                  readOnly
-                  className="mt-2 w-full rounded border border-amber-200 bg-white p-2 font-mono text-xs"
-                  rows={3}
-                  value={terminalClientSecret}
-                />
-                <button
-                  type="button"
-                  className="mt-2 text-xs font-semibold text-amber-900 underline"
-                  onClick={() => void navigator.clipboard.writeText(terminalClientSecret)}
-                >
-                  Copy secret
-                </button>
-              </details>
             </div>
           )}
         </section>
       )}
       <section className="doctor-panel">
         <DoctorSectionLabel
-          help="Only visits where you are the provider. Click a patient name to open their chart. Checked-in patients show a Start visit button."
+          help="Only visits where you are the provider. Click a row to open their chart. Awaiting payment means the visit is done but money is still due — use Collect payment on that row to reopen checkout or the card reader. Before the visit starts you can mark no-show, cancel, or reschedule."
         >
           {selectedDate === todayStr ? "Today's schedule" : "Appointments for this day"}
         </DoctorSectionLabel>
@@ -491,56 +697,152 @@ export default function DoctorDashboardPage() {
             {appointments.map((appt) => (
               <div
                 key={appt.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => setPatientDetailId(appt.patient_id)}
-                onKeyDown={(e) => e.key === "Enter" && setPatientDetailId(appt.patient_id)}
-                className={`flex cursor-pointer items-center justify-between rounded-xl border px-4 py-3.5 transition hover:shadow-sm ${
+                className={`overflow-hidden rounded-xl border transition hover:shadow-sm ${
                   activeAppt?.id === appt.id
                     ? "border-[#16a349]/45 bg-gradient-to-r from-[#16a349]/12 to-emerald-50/50 shadow-sm"
                     : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80"
                 }`}
               >
-                <div className="flex items-center gap-4">
-                  <span className="w-12 shrink-0 text-sm font-medium text-slate-600">{appt.start_time}</span>
-                  <div>
-                    <p className="font-semibold text-slate-900">{appt.patient}</p>
-                    <p className="text-sm text-slate-500">{appt.service || "Follow-up"}</p>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setPatientDetailId(appt.patient_id)}
+                  onKeyDown={(e) => e.key === "Enter" && setPatientDetailId(appt.patient_id)}
+                  className="flex cursor-pointer items-center justify-between px-4 py-3.5"
+                >
+                  <div className="flex items-center gap-4">
+                    <span className="w-12 shrink-0 text-sm font-medium text-slate-600">{appt.start_time}</span>
+                    <div>
+                      <p className="font-semibold text-slate-900">{appt.patient}</p>
+                      <p className="text-sm text-slate-500">{appt.service || "Follow-up"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                        appt.status === "completed"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : appt.status === "in_consultation"
+                            ? "bg-cyan-100 text-cyan-700"
+                            : appt.status === "awaiting_payment"
+                              ? "bg-orange-100 text-orange-800"
+                              : appt.status === "checked_in"
+                                ? "bg-amber-100 text-amber-700"
+                                : appt.status === "no_show" || appt.status === "cancelled"
+                                  ? "bg-slate-200 text-slate-600"
+                                  : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {badgeLabel(statusDisplay(appt.status))}
+                    </span>
+                    {appt.status === "checked_in" && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startVisit(appt);
+                          }}
+                          disabled={isStarting}
+                          className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50"
+                        >
+                          Start visit
+                        </button>
+                        <HelpTip label="Start visit" align="center" tone="emerald">
+                          Opens this patient in the Active visit panel so you can document, set services, and complete the visit.
+                        </HelpTip>
+                      </div>
+                    )}
+                    {appt.status === "awaiting_payment" && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void resumePaymentForAppointment(appt);
+                          }}
+                          className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d]"
+                        >
+                          Collect payment
+                        </button>
+                        <HelpTip label="Collect payment" align="center" tone="emerald">
+                          Reopens the green payment banner (desk pay link, card reader). Use if you closed it earlier or need another
+                          attempt. Patient bill still prints only after payment succeeds.
+                        </HelpTip>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void resumePaymentForAppointment(appt, { trySavedCard: true });
+                          }}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#16a349]/35 hover:bg-emerald-50/80 hover:text-[#0d5c2e]"
+                        >
+                          Retry saved card
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                      appt.status === "completed"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : appt.status === "in_consultation"
-                          ? "bg-cyan-100 text-cyan-700"
-                          : appt.status === "checked_in"
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {badgeLabel(statusDisplay(appt.status))}
-                  </span>
-                  {appt.status === "checked_in" && (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startVisit(appt);
-                        }}
-                        disabled={isStarting}
-                        className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50"
-                      >
-                        Start visit
-                      </button>
-                      <HelpTip label="Start visit" align="center" tone="emerald">
-                        Opens this patient in the Active visit panel so you can document, set services, and complete the visit.
-                      </HelpTip>
-                    </div>
-                  )}
-                </div>
+                {appt.status === "awaiting_payment" && appt.invoice_total != null && (
+                  <p className="border-t border-emerald-100/80 bg-[#f0fdf4]/90 px-4 py-1.5 text-center text-xs font-medium text-[#0d5c2e]">
+                    Amount due (invoice): ${appt.invoice_total}
+                    {appt.invoice_number ? ` · ${appt.invoice_number}` : ""}
+                  </p>
+                )}
+                {canDoctorPreVisitDesk(appt.status) && (
+                  <div className="flex flex-wrap gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-2.5">
+                    <button
+                      type="button"
+                      disabled={savingDesk}
+                      onClick={() => {
+                        if (!confirm("Mark as no-show? This visit will no longer count as an active booking.")) return;
+                        void runWithFeedback(
+                          async () => {
+                            await apiPatch(`/appointments/${appt.id}/`, { status: "no_show" });
+                            await load();
+                          },
+                          {
+                            loadingMessage: "Updating…",
+                            successMessage: "Marked as no-show.",
+                            errorFallback: "Could not update this visit.",
+                          },
+                        );
+                      }}
+                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      No-show
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingDesk}
+                      onClick={() => {
+                        if (!confirm("Cancel this appointment? The time slot will be freed.")) return;
+                        void runWithFeedback(
+                          async () => {
+                            await apiPatch(`/appointments/${appt.id}/`, { status: "cancelled" });
+                            await load();
+                          },
+                          {
+                            loadingMessage: "Updating…",
+                            successMessage: "Appointment cancelled.",
+                            errorFallback: "Could not cancel.",
+                          },
+                        );
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingDesk}
+                      onClick={() => setRescheduleAppt(appt)}
+                      className="rounded-lg border border-[#16a349]/30 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+                    >
+                      Reschedule
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -565,6 +867,29 @@ export default function DoctorDashboardPage() {
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for visit</p>
               <p className="text-sm text-slate-700">{activeAppt.reason_for_visit || "No reason noted."}</p>
             </div>
+            <div className="rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
+              <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Chart note for the team</p>
+                <HelpTip label="Handoff note" tone="emerald">
+                  Stays on this appointment in the patient chart. Use it for follow-up reminders, preferences, or anything the next
+                  doctor should know—even if they see the patient on a different day.
+                </HelpTip>
+              </div>
+              <textarea
+                className="mb-2 h-20 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"
+                placeholder="e.g. Plan: recheck ROM next visit; prefers afternoons…"
+                value={handoffNotes}
+                onChange={(e) => setHandoffNotes(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={savingHandoff}
+                onClick={() => void saveHandoffNote()}
+                className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 shadow-sm hover:bg-sky-100 disabled:opacity-50"
+              >
+                {savingHandoff ? "Saving…" : "Save chart note"}
+              </button>
+            </div>
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Diagnosis (for bill)</p>
               <textarea
@@ -576,80 +901,100 @@ export default function DoctorDashboardPage() {
             </div>
             <div>
               <div className="mb-2 flex items-center gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Services performed (CPT / fees)</p>
-                <HelpTip label="Service lines" tone="emerald">
-                  Each line is one billable service. Quantity multiplies the fee. Leave fee override blank to use the clinic default
-                  price for that service.
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Billable procedures (tap to add)</p>
+                <HelpTip label="Patient bill lines" tone="emerald">
+                  This list is the clinic&apos;s full catalog of active billable procedures (from admin Services & codes). Check each line
+                  that applies—like a paper patient bill. Add-ons and extra CPTs go here; it is not limited by which visit types a doctor is
+                  listed under on the public booking site. Units multiply the clinic price; leave fee override blank unless you need a custom
+                  amount.
                 </HelpTip>
               </div>
               <p className="mb-2 text-xs text-slate-500">
-                Add or change lines to match what was done today. Default price comes from the service; override fee if
-                needed.
+                The booked visit type is checked for you. Tap any other procedures the patient received this visit; you can uncheck or
+                change units before completing. This uses the whole clinic list, not only &quot;types this doctor offers&quot; online.
               </p>
-              <div className="space-y-2">
-                {billLines.map((line, idx) => (
-                  <div key={idx} className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-2">
-                    <label className="min-w-[140px] flex-1 text-xs">
-                      <span className="text-slate-500">Service</span>
-                      <select
-                        className="mt-0.5 w-full rounded border border-slate-200 bg-white p-1.5 text-sm"
-                        value={line.service_id}
-                        onChange={(e) => {
-                          const id = Number(e.target.value);
-                          setBillLines((rows) => rows.map((r, i) => (i === idx ? { ...r, service_id: id } : r)));
-                        }}
-                      >
-                        {services.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} (${s.price})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="w-16 text-xs">
-                      <span className="text-slate-500">Units</span>
-                      <input
-                        type="number"
-                        min={1}
-                        className="mt-0.5 w-full rounded border border-slate-200 bg-white p-1.5 text-sm"
-                        value={line.quantity}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setBillLines((rows) => rows.map((r, i) => (i === idx ? { ...r, quantity: v } : r)));
-                        }}
-                      />
-                    </label>
-                    <label className="w-24 text-xs">
-                      <span className="text-slate-500">Fee override</span>
-                      <input
-                        className="mt-0.5 w-full rounded border border-slate-200 bg-white p-1.5 text-sm"
-                        placeholder="Auto"
-                        value={line.unit_price}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setBillLines((rows) => rows.map((r, i) => (i === idx ? { ...r, unit_price: v } : r)));
-                        }}
-                      />
-                    </label>
-                    {billLines.length > 1 && (
-                      <button
-                        type="button"
-                        className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50"
-                        onClick={() => setBillLines((rows) => rows.filter((_, i) => i !== idx))}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
+              <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2">
+                {sortedBillServices.map((s) => {
+                  const on = isBillServiceChecked(s.id);
+                  const line = billLineFor(s.id);
+                  return (
+                    <div
+                      key={s.id}
+                      className={cn(
+                        "rounded-lg border px-2 py-2 transition-colors",
+                        on ? "border-[#16a349]/40 bg-white shadow-sm" : "border-transparent hover:bg-white/60",
+                      )}
+                    >
+                      <label className="flex cursor-pointer items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => toggleBillService(s.id)}
+                          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]/40"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                            <span className="font-mono text-[11px] font-semibold text-slate-500">
+                              {s.billing_code?.trim() || "—"}
+                            </span>
+                            <span className="text-sm font-medium text-slate-900">{s.name}</span>
+                            <span className="text-xs tabular-nums text-slate-500">${s.price}</span>
+                          </div>
+                        </div>
+                      </label>
+                      {on && line ? (
+                        <div className="mt-2 flex flex-wrap items-end gap-3 pl-7">
+                          <label className="text-xs text-slate-600">
+                            <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Units</span>
+                            <input
+                              type="number"
+                              min={1}
+                              className="w-16 rounded border border-slate-200 bg-white p-1.5 text-sm"
+                              value={line.quantity}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setBillLines((rows) =>
+                                  rows.map((r) => (r.service_id === s.id ? { ...r, quantity: v } : r)),
+                                );
+                              }}
+                            />
+                          </label>
+                          <label className="min-w-[6rem] flex-1 text-xs text-slate-600">
+                            <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                              Fee override
+                            </span>
+                            <input
+                              className="w-full rounded border border-slate-200 bg-white p-1.5 text-sm"
+                              placeholder="Auto"
+                              value={line.unit_price}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setBillLines((rows) =>
+                                  rows.map((r) => (r.service_id === s.id ? { ...r, unit_price: v } : r)),
+                                );
+                              }}
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
-              <button
-                type="button"
-                onClick={addBillLine}
-                className="mt-2 text-sm font-medium text-[#16a349] hover:underline"
-              >
-                + Add service line
-              </button>
+              {consultationEstimatedTotal != null && (
+                <div className="mt-3 flex items-center justify-between rounded-xl border border-[#16a349]/30 bg-[#f0fdf4] px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-[#0d5c2e]">Estimated total (this visit)</span>
+                    <HelpTip label="Estimated total" tone="emerald">
+                      Based on checked procedures, units, and fee overrides. Tax may be added on the final invoice after you complete the
+                      visit. Use this as a quick check before you send them to pay.
+                    </HelpTip>
+                  </div>
+                  <span className="text-lg font-bold tabular-nums text-slate-900">
+                    {consultationEstimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                  </span>
+                </div>
+              )}
             </div>
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Visit notes</p>
@@ -688,16 +1033,16 @@ export default function DoctorDashboardPage() {
                 disabled={isCompleting}
                 className="min-w-0 flex-1 rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
               >
-                {isCompleting ? "Completing…" : "Complete visit & print patient bill"}
+                {isCompleting ? "Completing…" : "Complete visit & create invoice"}
               </button>
               <HelpTip label="Complete visit" align="center" tone="emerald">
-                Finalizes clinical documentation for this visit, builds the invoice from your service lines, opens a printable bill for
-                the patient, and shows the payment banner if money is still due.
+                Builds the invoice from your checked services. If their saved card pays successfully, the patient bill opens right away.
+                Otherwise use the green banner to collect payment — the printable bill unlocks only after payment is complete.
               </HelpTip>
             </div>
             <p className="text-xs text-slate-500">
-              Creates the bill and opens print view. Plan for payment at the desk before they leave — the green banner
-              after this step walks through reader, saved card, or tablet checkout.
+              The patient bill is not printed until the invoice is paid (card on file, reader, or desk checkout). Use{" "}
+              <strong>Print patient bill</strong> on the banner after payment.
             </p>
           </>
         ) : (
@@ -711,6 +1056,61 @@ export default function DoctorDashboardPage() {
           </DoctorEmptyWell>
         )}
       </aside>
+      {rescheduleAppt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reschedule-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h2 id="reschedule-title" className="text-lg font-bold text-slate-900">
+              Reschedule visit
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {rescheduleAppt.patient} — new date and start time. Length stays the same as the booked service.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs font-semibold text-slate-600">
+                Date
+                <input
+                  type="date"
+                  value={resDate}
+                  onChange={(e) => setResDate(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block text-xs font-semibold text-slate-600">
+                Start time
+                <input
+                  type="time"
+                  value={resTime}
+                  onChange={(e) => setResTime(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRescheduleAppt(null)}
+                disabled={savingDesk}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={savingDesk || !resDate}
+                onClick={() => void submitReschedule()}
+                className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {savingDesk ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {patientDetailId && (
         <PatientDetailModal patientId={patientDetailId} onClose={() => setPatientDetailId(null)} />
       )}

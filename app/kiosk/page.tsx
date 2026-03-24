@@ -1,8 +1,10 @@
 "use client";
 
+import { useAppFeedback } from "@/components/app-feedback";
 import { IconArrowRight } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { apiPost } from "@/lib/api";
+import Link from "next/link";
 import { isValidPhoneNumber } from "react-phone-number-input";
 import { useState } from "react";
 
@@ -28,6 +30,7 @@ function toE164(phone: string): string {
 }
 
 export default function KioskPage() {
+  const { runWithFeedback } = useAppFeedback();
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState("");
   const [checkingIn, setCheckingIn] = useState(false);
@@ -58,21 +61,26 @@ export default function KioskPage() {
     if (!canCheckIn) return;
     setCheckingIn(true);
     setStatus("");
-    try {
-      const lookup = await apiPost<{ appointment_id: number }>("/kiosk/lookup/", { phone: e164 });
-      await apiPost("/kiosk/checkin/", { appointment_id: lookup.appointment_id });
-      setStatus("Check-in successful.");
-    } catch {
-      setStatus("Could not find today’s appointment.");
-    } finally {
-      setCheckingIn(false);
-    }
+    const ok = await runWithFeedback(
+      async () => {
+        const lookup = await apiPost<{ appointment_id: number }>("/kiosk/lookup/", { phone: e164 });
+        await apiPost("/kiosk/checkin/", { appointment_id: lookup.appointment_id });
+      },
+      {
+        loadingMessage: "Looking up your appointment…",
+        successMessage: "You’re checked in. Please have a seat — we’ll call you shortly.",
+        errorFallback: "We couldn’t find a visit for this phone today. Please see the front desk.",
+      },
+    );
+    if (ok) setStatus("Check-in successful.");
+    else setStatus("");
+    setCheckingIn(false);
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-      <div className="card content-fade-in w-full max-w-md space-y-4 text-center">
-        <h1 className="text-5xl font-extrabold text-[#e9982f]">Relief Chiropractic</h1>
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-background via-[#ecfdf5]/30 to-muted/40 p-6">
+      <div className="content-fade-in w-full max-w-md space-y-4 rounded-2xl border border-border/90 bg-card p-6 text-center shadow-lg shadow-slate-200/50 ring-1 ring-primary/10 md:p-8">
+        <h1 className="text-4xl font-extrabold tracking-tight text-[#e9982f] sm:text-5xl">Relief Chiropractic</h1>
         <p className="text-2xl font-semibold">Welcome</p>
         <p className="text-sm text-slate-500">Enter your phone number to check in.</p>
         <div className="rounded-lg border border-slate-200 p-4 text-2xl tracking-widest font-mono text-slate-800">{formatPhoneDisplay(phone)}</div>
@@ -102,12 +110,12 @@ export default function KioskPage() {
           <p className="text-sm font-medium text-red-600">Please enter a valid phone number.</p>
         )}
         {status && <p className="animate-fade-in text-sm font-medium text-slate-700">{status}</p>}
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-muted-foreground">
           Haven&apos;t booked yet?{" "}
-          <a href="/" className="font-medium text-[#16a349] hover:underline">
+          <Link href="/" className="font-medium text-primary hover:underline">
             Book your appointment online
-          </a>
-          {" "}and get confirmation before checking in.
+          </Link>{" "}
+          and get confirmation before checking in.
         </p>
       </div>
     </main>

@@ -16,38 +16,43 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Page shell */
+  --background: oklch(0.985 0.002 145);
+  --foreground: oklch(0.2 0.02 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.2 0.02 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.2 0.02 250);
+  /* Relief brand green (#16a349 family) — drives Button default, focus rings, sidebar */
+  --primary: oklch(0.52 0.14 150);
+  --primary-foreground: oklch(0.99 0.01 150);
+  --secondary: oklch(0.96 0.01 145);
+  --secondary-foreground: oklch(0.25 0.03 250);
+  --muted: oklch(0.96 0.008 145);
+  --muted-foreground: oklch(0.48 0.02 250);
+  --accent: oklch(0.94 0.03 150);
+  --accent-foreground: oklch(0.22 0.04 150);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.91 0.01 250);
+  --input: oklch(0.91 0.01 250);
+  --ring: oklch(0.52 0.12 150);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.995 0.005 145);
+  --sidebar-foreground: oklch(0.2 0.02 250);
+  --sidebar-primary: oklch(0.52 0.14 150);
+  --sidebar-primary-foreground: oklch(0.99 0.01 150);
+  --sidebar-accent: oklch(0.95 0.02 150);
+  --sidebar-accent-foreground: oklch(0.22 0.04 150);
+  --sidebar-border: oklch(0.91 0.02 145);
+  --sidebar-ring: oklch(0.52 0.12 150);
+  /* Staff sign-in CTA (gold) — use with Button className override */
+  --staff-cta: oklch(0.72 0.14 75);
+  --staff-cta-hover: oklch(0.64 0.14 75);
 }
 
 body {
@@ -55,7 +60,7 @@ body {
 }
 
 .card {
-  @apply rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md;
+  @apply rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm transition-shadow duration-200 hover:shadow-md;
 }
 
 .phone-field .PhoneInputCountry {
@@ -228,25 +233,25 @@ body {
 
 /* Doctor portal: soft background behind main content */
 .doctor-zone {
-  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-slate-50 via-white to-emerald-50/25;
+  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-background via-background to-primary/[0.07];
 }
 
 /* Slightly richer card for doctor primary panels */
 .doctor-panel {
-  @apply rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm shadow-slate-200/50 transition-shadow duration-200 hover:shadow-md;
+  @apply rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
 }
 
 /* Admin portal */
 .admin-zone {
-  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-slate-50 via-white to-emerald-50/25;
+  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-background via-background to-primary/[0.07];
 }
 
 .admin-panel {
-  @apply rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm shadow-slate-200/40 transition-shadow duration-200 hover:shadow-md;
+  @apply rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
 }
 
 .admin-input {
-  @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20;
+  @apply flex min-h-9 w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 @theme inline {

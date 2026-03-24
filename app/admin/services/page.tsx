@@ -1,6 +1,7 @@
 "use client";
 
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
@@ -17,6 +18,8 @@ type Service = {
   price: string;
   billing_code: string;
   is_active: boolean;
+  /** If false: doctor can still bill it; patients never see it on the booking site. */
+  show_in_public_booking?: boolean;
   service_type?: ServiceType;
 };
 
@@ -33,6 +36,7 @@ const emptyForm = {
   price: "0",
   description: "",
   is_active: true,
+  show_in_public_booking: true,
   service_type: "chiropractic" as ServiceType,
 };
 
@@ -41,6 +45,7 @@ const fieldLabel =
 const inputWrap = "rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80 transition focus-within:border-[#16a349]/35 focus-within:ring-2 focus-within:ring-[#16a349]/12";
 
 export default function AdminServicesPage() {
+  const { runWithFeedback } = useAppFeedback();
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -54,7 +59,12 @@ export default function AdminServicesPage() {
     setError("");
     try {
       const data = (await apiGetAuth<Service[]>("/services/")) as Service[];
-      setServices(data);
+      setServices(
+        data.map((s) => ({
+          ...s,
+          show_in_public_booking: s.show_in_public_booking !== false,
+        })),
+      );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load services.");
       setServices([]);
@@ -96,6 +106,7 @@ export default function AdminServicesPage() {
       price: String(s.price),
       description: s.description || "",
       is_active: s.is_active !== false,
+      show_in_public_booking: s.show_in_public_booking !== false,
       service_type: s.service_type === "massage" ? "massage" : "chiropractic",
     });
     setError("");
@@ -108,39 +119,50 @@ export default function AdminServicesPage() {
     }
     setIsSaving(true);
     setError("");
-    try {
-      const payload = {
-        name: form.name.trim(),
-        billing_code: form.billing_code.trim(),
-        duration_minutes: Number(form.duration_minutes) || 30,
-        price: form.price,
-        description: form.description.trim(),
-        is_active: form.is_active,
-        service_type: form.service_type,
-      };
-      if (editing) {
-        await apiPatch(`/services/${editing.id}/`, payload);
-      } else {
-        await apiPost("/services/", payload);
-      }
-      await load();
-      startNew();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to save.");
-    } finally {
-      setIsSaving(false);
-    }
+    const isEdit = Boolean(editing);
+    await runWithFeedback(
+      async () => {
+        const payload = {
+          name: form.name.trim(),
+          billing_code: form.billing_code.trim(),
+          duration_minutes: Number(form.duration_minutes) || 30,
+          price: form.price,
+          description: form.description.trim(),
+          is_active: form.is_active,
+          show_in_public_booking: form.show_in_public_booking,
+          service_type: form.service_type,
+        };
+        if (editing) {
+          await apiPatch(`/services/${editing.id}/`, payload);
+        } else {
+          await apiPost("/services/", payload);
+        }
+        await load();
+        startNew();
+      },
+      {
+        loadingMessage: isEdit ? "Updating visit type…" : "Adding visit type…",
+        successMessage: isEdit ? "Visit type updated." : "New visit type added.",
+        errorFallback: "Could not save this service.",
+      },
+    );
+    setIsSaving(false);
   };
 
   const remove = async (id: number) => {
     if (!confirm("Remove this service? It will no longer appear in booking options.")) return;
-    try {
-      await apiDelete(`/services/${id}/`);
-      await load();
-      if (editing?.id === id) startNew();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to delete.");
-    }
+    await runWithFeedback(
+      async () => {
+        await apiDelete(`/services/${id}/`);
+        await load();
+        if (editing?.id === id) startNew();
+      },
+      {
+        loadingMessage: "Removing visit type…",
+        successMessage: "Visit type removed.",
+        errorFallback: "Could not delete this service.",
+      },
+    );
   };
 
   const formDirty =
@@ -151,6 +173,7 @@ export default function AdminServicesPage() {
       form.price !== String(editing.price) ||
       (form.description || "") !== (editing.description || "") ||
       form.is_active !== (editing.is_active !== false) ||
+      form.show_in_public_booking !== (editing.show_in_public_booking !== false) ||
       form.service_type !== (editing.service_type === "massage" ? "massage" : "chiropractic"));
 
   const isNew = editing === null;
@@ -276,6 +299,11 @@ export default function AdminServicesPage() {
                             {!s.is_active && (
                               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
                                 Inactive
+                              </span>
+                            )}
+                            {s.is_active && s.show_in_public_booking === false && (
+                              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900">
+                                Bill-only
                               </span>
                             )}
                           </div>
@@ -447,6 +475,21 @@ export default function AdminServicesPage() {
                       </select>
                     </div>
                   </div>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200/80 bg-white/80 p-3">
+                    <input
+                      type="checkbox"
+                      checked={form.show_in_public_booking}
+                      onChange={(e) => setForm((f) => ({ ...f, show_in_public_booking: e.target.checked }))}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-800">Show on public booking website</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-slate-600">
+                        Uncheck for CPT / fee rows that only appear on the doctor&apos;s visit bill (like modalities and no-show fees).
+                        Those stay available in the doctor dashboard for clicking onto the bill.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
 
@@ -459,10 +502,9 @@ export default function AdminServicesPage() {
                     className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
                   />
                   <span>
-                    <span className="block text-sm font-semibold text-[#0d5c2e]">Active on booking & provider grid</span>
+                    <span className="block text-sm font-semibold text-[#0d5c2e]">Active (usable in the system)</span>
                     <span className="mt-1 block text-xs leading-relaxed text-slate-600">
-                      Uncheck to retire this visit type without deleting history. Inactive services stay in the database but are hidden
-                      from patients and from assignment columns until you turn them back on.
+                      Inactive rows are hidden everywhere—including the doctor bill picker—until you turn them back on.
                     </span>
                   </span>
                 </label>

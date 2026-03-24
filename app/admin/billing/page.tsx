@@ -1,6 +1,7 @@
 "use client";
 
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { StatusChipView } from "@/components/status-chip";
@@ -43,6 +44,7 @@ function formatWhen(iso: string | null): string {
 }
 
 export default function AdminBillingPage() {
+  const { runWithFeedback, toast } = useAppFeedback();
   const [invoices, setInvoices] = useState<BillingInvoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -51,7 +53,6 @@ export default function AdminBillingPage() {
   const [payMethod, setPayMethod] = useState<"cash" | "card" | "online" | "manual">("cash");
   const [payRef, setPayRef] = useState("");
   const [payBusy, setPayBusy] = useState(false);
-  const [payMsg, setPayMsg] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,7 +78,6 @@ export default function AdminBillingPage() {
     if (selected) {
       setPayAmount(selected.total_amount);
       setPayRef("");
-      setPayMsg("");
     }
   }, [selected?.id, selected?.total_amount]);
 
@@ -89,25 +89,28 @@ export default function AdminBillingPage() {
     if (!selected || !canRecordPayment) return;
     const amt = parseFloat(payAmount);
     if (Number.isNaN(amt) || amt <= 0) {
-      setPayMsg("Enter a valid payment amount.");
+      toast.error("Enter a valid payment amount.");
       return;
     }
+    const invoiceId = selected.id;
     setPayBusy(true);
-    setPayMsg("");
-    try {
-      await apiPost(`/invoices/${selected.id}/pay/`, {
-        amount: payAmount,
-        payment_method: payMethod,
-        payment_reference: payRef.trim(),
-      });
-      setPayMsg("Payment recorded. Invoice marked paid.");
-      await load();
-      setSelectedId(selected.id);
-    } catch (e) {
-      setPayMsg(e instanceof ApiError ? e.message : "Payment failed.");
-    } finally {
-      setPayBusy(false);
-    }
+    await runWithFeedback(
+      async () => {
+        await apiPost(`/invoices/${invoiceId}/pay/`, {
+          amount: payAmount,
+          payment_method: payMethod,
+          payment_reference: payRef.trim(),
+        });
+        await load();
+        setSelectedId(invoiceId);
+      },
+      {
+        loadingMessage: "Recording payment…",
+        successMessage: "Payment recorded. Invoice updated.",
+        errorFallback: "Payment could not be recorded.",
+      },
+    );
+    setPayBusy(false);
   };
 
   return (
@@ -256,13 +259,6 @@ export default function AdminBillingPage() {
                       Marks the invoice paid, logs a payment row, and sets the linked appointment to completed if needed.
                     </HelpTip>
                   </div>
-                  {payMsg && (
-                    <p
-                      className={`text-sm ${payMsg.includes("failed") || payMsg.includes("valid") ? "text-rose-700" : "text-[#0d5c2e]"}`}
-                    >
-                      {payMsg}
-                    </p>
-                  )}
                 </div>
               ) : (
                 <p className="text-sm text-slate-600">

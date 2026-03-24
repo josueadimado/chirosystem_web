@@ -1,0 +1,26 @@
+# Next.js frontend (dev) — run API separately first (apps/api), then:
+#   cd apps/web && docker compose up --build
+# Browser calls API at NEXT_PUBLIC_API_BASE_URL (default matches api compose host port 8001).
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sh -c "npm install && npx next dev --webpack --hostname 0.0.0.0"
+    # Default host 3001 avoids clash with another Next dev / app on 3000. Container still uses port 3000.
+    ports:
+      - "${WEB_HOST_PORT:-3001}:3000"
+    environment:
+      # Next.js proxies browser requests from /api/v1 → this URL. Default reaches the API via the host-mapped
+      # port (8001 in apps/api compose). Same stack from repo root: use default. Custom API port: set this.
+      - API_PROXY_TARGET=${API_PROXY_TARGET:-http://host.docker.internal:8001}
+      # Optional: force direct browser→Django URLs instead of the /api/v1 proxy (not recommended for local dev).
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - next_build:/app/.next
+
+volumes:
+  next_build:

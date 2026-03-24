@@ -3,10 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useAppFeedback } from "@/components/app-feedback";
 import { IconCheck } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { BookingCardSetup } from "@/components/booking-card-setup";
+import { Button } from "@/components/ui/button";
 import { ApiError, apiGet, apiPostPublic } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { withMinimumDelay } from "@/lib/with-minimum-delay";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
@@ -42,6 +45,7 @@ type BookingOptions = { services: ServiceOption[]; providers_by_service: Record<
 const ALL_TIME_SLOTS = ["9:00 AM", "10:15 AM", "2:30 PM", "3:45 PM", "5:15 PM"];
 
 export default function BookingPage() {
+  const { toast } = useAppFeedback();
   const today = new Date().toISOString().slice(0, 10);
   const [options, setOptions] = useState<BookingOptions | null>(null);
   const [optionsError, setOptionsError] = useState("");
@@ -206,14 +210,19 @@ export default function BookingPage() {
       setBookingResult(result);
       setBookingMessageKind("success");
       setBookingMessage(`Appointment booked successfully. Booking ID: ${result.appointment_id}`);
+      toast.success("Appointment confirmed! Your confirmation is on screen.");
     } catch (error) {
       setBookingMessageKind("error");
       if (error instanceof ApiError && error.status === 409) {
         setStep(3);
         setSlotWarning(error.message);
         setBookingMessage("Please select another available time slot.");
+        toast.info("That time is no longer available — please choose another slot.");
       } else {
         setBookingMessage("Could not complete booking yet. Please check API/server setup and try again.");
+        toast.error(
+          error instanceof ApiError ? error.message : "Could not complete booking. Please try again.",
+        );
       }
     } finally {
       setIsSubmitting(false);
@@ -227,6 +236,7 @@ export default function BookingPage() {
     if (!printWindow) {
       setBookingMessageKind("error");
       setBookingMessage("Could not open print window. Please allow pop-ups and try again.");
+      toast.error("Allow pop-ups for this site to print your confirmation.");
       return;
     }
 
@@ -523,42 +533,52 @@ export default function BookingPage() {
   };
 
   return (
-    <main className="content-fade-in mx-auto max-w-7xl p-4 md:p-8">
-      <section className="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="p-6 md:p-8">
-            <p className="mb-3 inline-flex rounded-full border border-[#16a349]/30 bg-[#16a349]/8 px-3 py-1 text-xs font-semibold text-slate-900">
-              Relief Chiropractic Booking
+    <main className="content-fade-in min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
+      <div className="mx-auto max-w-7xl p-4 md:p-8">
+      <section className="mb-8 overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-white to-primary/[0.06] shadow-sm shadow-slate-200/40 ring-1 ring-primary/10">
+        <div className="grid gap-0 md:grid-cols-2">
+          <div className="p-6 md:p-10">
+            <p className="mb-3 inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold tracking-wide text-slate-800">
+              Relief Chiropractic · Online booking
             </p>
             <h1 className="leading-tight">
-              <span className="block text-4xl font-extrabold text-[#e9982f] md:text-5xl">Relief Chiropractic</span>
-              <span className="mt-2 block text-2xl font-bold text-slate-900 md:text-3xl">
+              <span className="block text-4xl font-extrabold tracking-tight text-[#e9982f] md:text-5xl">Relief Chiropractic</span>
+              <span className="mt-2 block text-2xl font-bold text-foreground md:text-3xl">
                 Book your appointment with confidence
               </span>
             </h1>
-            <p className="mt-3 text-slate-600">
-              Choose your service, pick your doctor, select your time, and confirm your visit in a simple guided flow.
+            <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
+              Choose your visit type, your doctor when needed, then your time. We&apos;ll confirm everything before you submit.
             </p>
           </div>
-          <div className="relative h-64 md:h-full">
+          <div className="relative min-h-[14rem] md:min-h-full">
             <Image
               src="/images/clinic-reception.png"
               alt="Clinic reception"
               fill
               className="object-cover"
+              sizes="(max-width: 768px) 100vw, 50vw"
+              priority
             />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-900/20 to-transparent md:bg-gradient-to-l" aria-hidden />
           </div>
         </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <section className="card space-y-4">
+        <section className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80 md:p-6 space-y-5">
           <div className="grid gap-2 sm:grid-cols-4">
             {([1, 2, 3, 4] as Step[]).map((item) => (
               <button
                 key={item}
+                type="button"
                 onClick={() => setStep(item)}
-                className={`rounded-lg px-3 py-2 text-sm ${step === item ? "bg-[#e9982f] text-white" : "bg-slate-100"}`}
+                className={cn(
+                  "rounded-xl px-3 py-2.5 text-sm font-semibold transition-all",
+                  step === item
+                    ? "bg-[#e9982f] text-white shadow-md shadow-[#e9982f]/25 ring-2 ring-[#e9982f]/40"
+                    : "border border-border/80 bg-muted/50 text-muted-foreground hover:border-primary/20 hover:bg-primary/[0.06] hover:text-foreground",
+                )}
               >
                 Step {item}
               </button>
@@ -571,14 +591,15 @@ export default function BookingPage() {
               {optionsError && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-rose-700">{optionsError}</p>
-                  <button
+                  <Button
                     type="button"
                     onClick={fetchOptions}
                     disabled={optionsLoading}
-                    className="rounded-lg bg-[#16a349] px-4 py-2 text-sm font-medium text-white hover:bg-[#13823d] disabled:opacity-50"
+                    size="sm"
+                    className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm"
                   >
                     {optionsLoading ? "Retrying…" : "Retry"}
-                  </button>
+                  </Button>
                 </div>
               )}
               {!options && !optionsError && (
@@ -587,6 +608,7 @@ export default function BookingPage() {
               {(options?.services ?? []).map((service) => (
                 <button
                   key={service.id}
+                  type="button"
                   onClick={() => {
                     setSelectedService(service);
                     const providers = options?.providers_by_service?.[service.id] ?? [];
@@ -601,16 +623,24 @@ export default function BookingPage() {
                       setStep(2);
                     }
                   }}
-                  className={`w-full rounded-lg border p-3 text-left transition ${
+                  className={cn(
+                    "w-full rounded-xl border p-4 text-left transition-all",
                     selectedService?.id === service.id
-                      ? "border-2 border-[#16a349] bg-[#16a349]/10 shadow-sm"
-                      : "border-slate-200 hover:border-slate-300"
-                  }`}
+                      ? "border-2 border-primary bg-primary/8 shadow-md shadow-primary/10 ring-2 ring-primary/15"
+                      : "border-border/90 bg-card hover:border-primary/25 hover:shadow-sm",
+                  )}
                 >
-                  <p className={`font-medium ${selectedService?.id === service.id ? "text-[#166534]" : ""}`}>
+                  <p
+                    className={cn(
+                      "font-semibold",
+                      selectedService?.id === service.id ? "text-[#0d5c2e]" : "text-foreground",
+                    )}
+                  >
                     {service.name}
                   </p>
-                  <p className="text-sm text-slate-600">{service.duration_minutes} min · ${service.price}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {service.duration_minutes} min · ${service.price}
+                  </p>
                 </button>
               ))}
             </div>
@@ -626,11 +656,17 @@ export default function BookingPage() {
                   {providersForService.map((provider) => (
                     <button
                       key={provider.id}
+                      type="button"
                       onClick={() => {
                         setSelectedProvider(provider);
                         setStep(3);
                       }}
-                      className={`rounded-lg border p-3 text-sm ${selectedProvider?.id === provider.id ? "border-[#16a349]/40 bg-[#16a349]/6" : "border-slate-200"}`}
+                      className={cn(
+                        "rounded-xl border p-3 text-sm font-medium transition-all",
+                        selectedProvider?.id === provider.id
+                          ? "border-primary/40 bg-primary/8 shadow-sm ring-1 ring-primary/15"
+                          : "border-border/90 hover:border-primary/20 hover:bg-muted/50",
+                      )}
                     >
                       {provider.provider_name}
                     </button>
@@ -643,14 +679,14 @@ export default function BookingPage() {
           {step === 3 && (
             <div className="animate-fade-in-up space-y-4">
               <h2 className="text-lg font-semibold">Select date & time</h2>
-              <div className="rounded-xl border-2 border-[#16a349]/40 bg-[#16a349]/5 p-4">
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Appointment date</label>
+              <div className="rounded-xl border-2 border-primary/25 bg-primary/[0.06] p-4 ring-1 ring-primary/10">
+                <label className="mb-2 block text-sm font-semibold text-foreground">Appointment date</label>
                 <input
                   type="date"
                   min={today}
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full max-w-xs rounded-lg border-2 border-slate-200 bg-white p-3 text-base font-medium text-slate-900 focus:border-[#16a349] focus:outline-none"
+                  className="w-full max-w-xs rounded-xl border-2 border-border bg-background p-3 text-base font-medium text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
                 <p className="mt-2 text-sm text-slate-600">
                   Your appointment is on{" "}
@@ -667,21 +703,40 @@ export default function BookingPage() {
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {(availableSlots ?? ALL_TIME_SLOTS).map((slot) => (
-                    <button
-                      key={slot}
-                      onClick={() => {
-                        setSelectedTime(slot);
-                        setSlotWarning("");
-                        setStep(4);
-                      }}
-                      className={`rounded-lg border px-4 py-3 text-sm ${selectedTime === slot ? "border-[#16a349] bg-[#16a349]/10 font-semibold text-[#166534]" : "border-slate-200 hover:border-slate-300"}`}
-                    >
-                      {slot}
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  const slotsToShow = availableSlots === null ? ALL_TIME_SLOTS : availableSlots;
+                  if (slotsToShow.length === 0) {
+                    return (
+                      <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                        No open times on this day for this provider—try another date, another doctor, or call the clinic. (The desk may
+                        have blocked online booking for part of the day.)
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {slotsToShow.map((slot) => (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTime(slot);
+                            setSlotWarning("");
+                            setStep(4);
+                          }}
+                          className={cn(
+                            "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                            selectedTime === slot
+                              ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
+                              : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
+                          )}
+                        >
+                          {slot}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
               {slotWarning && <p className="text-sm font-medium text-rose-700">{slotWarning}</p>}
             </div>
@@ -756,17 +811,21 @@ export default function BookingPage() {
                 {formErrors.email && <p className="-mt-2 text-xs text-rose-700">{formErrors.email}</p>}
               </div>
               <BookingCardSetup firstName={firstName} lastName={lastName} email={email} phone={phone} />
-              <button
-                onClick={submitBooking}
+              <Button
+                type="button"
+                onClick={() => void submitBooking()}
                 disabled={isSubmitting}
-                className="flex items-center justify-center gap-2 rounded-lg bg-[#e9982f] px-4 py-2 text-white hover:bg-[#cf8727] disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-auto w-full max-w-xs rounded-xl bg-[#e9982f] px-6 py-3 text-base font-semibold text-white shadow-md shadow-[#e9982f]/25 hover:bg-[#cf8727] sm:w-auto"
               >
                 {isSubmitting ? (
-                  <Loader variant="spinner" label="Saving…" />
+                  <span className="inline-flex items-center gap-2">
+                    <Loader variant="spinner" />
+                    Confirming…
+                  </span>
                 ) : (
                   "Confirm appointment"
                 )}
-              </button>
+              </Button>
               {bookingMessage && (
                 <p className={`text-sm font-medium ${bookingMessageKind === "success" ? "text-[#166534]" : "text-rose-700"}`}>
                   {bookingMessage}
@@ -836,20 +895,21 @@ export default function BookingPage() {
               </p>
 
               <div className="mx-auto mt-6 flex max-w-md flex-col gap-3 sm:flex-row-reverse sm:justify-center">
-                <button
+                <Button
                   type="button"
                   onClick={resetBookingFlow}
-                  className="rounded-lg bg-[#16a349] px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#13823d]"
+                  className="h-auto rounded-xl px-6 py-3 text-sm font-semibold shadow-sm"
                 >
                   Done
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={printBookingConfirmation}
-                  className="rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50"
+                  className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold"
                 >
                   Print confirmation
-                </button>
+                </Button>
               </div>
               <p className="mx-auto mt-4 max-w-md text-center text-xs text-slate-500">
                 After you tap <span className="font-medium text-slate-600">Done</span>, you can book another visit from Step 1.
@@ -857,31 +917,34 @@ export default function BookingPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-            <button
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/80 pt-4">
+            <Button
+              type="button"
+              variant="outline"
               onClick={goToPreviousStep}
               disabled={step === 1 || (step === 4 && bookingResult !== null)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
             >
               Back
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
               onClick={goToNextStep}
               disabled={step === 4 || bookingResult !== null}
-              className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-auto rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90"
             >
               Next
-            </button>
+            </Button>
           </div>
         </section>
 
-        <aside className="space-y-4">
-          <div className="card">
-            <h3 className="text-xl font-bold text-slate-900">Booking Summary</h3>
+        <aside className="space-y-4 lg:pt-1">
+          <div className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80">
+            <h3 className="text-lg font-bold tracking-tight text-foreground">Booking summary</h3>
 
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Appointment date & time</p>
-              <p className="font-semibold text-slate-900">
+            <div className="mt-4 rounded-xl border border-border/80 bg-muted/40 p-3">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Appointment date & time</p>
+              <p className="font-semibold text-foreground">
                 {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
                   weekday: "long",
                   month: "long",
@@ -890,13 +953,13 @@ export default function BookingPage() {
                 })}{" "}
                 at {selectedTime}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Chosen in Step 3 — change date in the main flow above
               </p>
             </div>
 
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected Visit</p>
+            <div className="mt-4 rounded-xl border border-border/80 bg-background p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected visit</p>
               <div className="mt-3 space-y-2 text-sm">
                 <div className="flex items-start justify-between gap-3">
                   <span className="text-slate-500">Service</span>
@@ -936,6 +999,7 @@ export default function BookingPage() {
             </div>
           </div>
         </aside>
+      </div>
       </div>
     </main>
   );

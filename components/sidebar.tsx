@@ -20,16 +20,16 @@ type SidebarProps = {
 };
 
 function navActiveClasses(accent: "default" | "doctor" | "admin", active: boolean): string {
-  if (!active) return "text-slate-700 hover:bg-slate-100/90";
+  if (!active) return "text-muted-foreground hover:bg-muted/80";
   if (accent === "admin" || accent === "doctor")
-    return "bg-[#16a349]/12 text-[#0d5c2e] shadow-sm shadow-emerald-900/5";
-  return "bg-slate-100 text-slate-900";
+    return "bg-primary/12 text-teal-800 shadow-sm shadow-primary/10";
+  return "bg-muted text-foreground";
 }
 
 function navIconClass(accent: "default" | "doctor" | "admin", active: boolean): string {
-  if (!active) return "text-slate-500";
-  if (accent === "admin" || accent === "doctor") return "text-[#16a349]";
-  return "text-slate-700";
+  if (!active) return "text-muted-foreground";
+  if (accent === "admin" || accent === "doctor") return "text-primary";
+  return "text-foreground";
 }
 
 function NavLink({
@@ -79,14 +79,14 @@ export function Sidebar({
     <aside
       className={`flex flex-col border-r transition-[width] duration-200 ${
         accent === "doctor" || accent === "admin"
-          ? "border-emerald-100/90 bg-gradient-to-b from-white via-white to-emerald-50/35"
-          : "border-slate-200 bg-white"
+          ? "border-primary/10 bg-gradient-to-b from-sidebar via-sidebar to-primary/[0.06]"
+          : "border-border bg-sidebar"
       } ${open ? "w-72" : "w-20"}`}
     >
       <div
         className={`flex items-center gap-2 p-4 ${open ? "" : "justify-center px-0"}`}
       >
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#16a349] text-white">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <IconLogo className="h-6 w-6" />
         </div>
         {open && (
@@ -100,7 +100,7 @@ export function Sidebar({
           groups.map((group) => (
             <div key={group.label || "main"} className="space-y-1">
               {open && group.label ? (
-                <p className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400 first:mt-0">
+                <p className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground first:mt-0">
                   {group.label}
                 </p>
               ) : null}

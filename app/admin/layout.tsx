@@ -9,6 +9,7 @@ import {
   IconCalendar,
   IconFileDollar,
   IconFileText,
+  IconFilter,
   IconLayoutGrid,
   IconMenu,
   IconSettings,
@@ -26,6 +27,7 @@ const operationsItems = [
   { label: "Invoices & Billing", href: "/admin/billing", icon: <IconFileDollar className="w-5 h-5" /> },
   { label: "Services & Codes", href: "/admin/services", icon: <IconFileText className="w-5 h-5" /> },
   { label: "Providers (Doctors)", href: "/admin/providers", icon: <IconStethoscope className="w-5 h-5" /> },
+  { label: "Booking blocks", href: "/admin/booking-blocks", icon: <IconFilter className="w-5 h-5" /> },
 ];
 
 const toolsItems = [
@@ -45,6 +47,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/billing": "Invoices & Billing",
   "/admin/services": "Services & Codes",
   "/admin/providers": "Providers",
+  "/admin/booking-blocks": "Booking blocks",
   "/admin/ai": "AI Assistant",
   "/admin/settings": "Settings",
 };
@@ -126,12 +129,12 @@ function AdminHeader({
   });
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm shadow-slate-200/40 backdrop-blur-md sm:px-6 sm:py-3.5">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/90 px-4 py-3 shadow-sm shadow-black/[0.04] backdrop-blur-md sm:px-6 sm:py-3.5">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           onClick={onSidebarToggle}
-          className="shrink-0 rounded-xl p-2 text-slate-600 transition-colors hover:bg-emerald-50 hover:text-[#0d5c2e]"
+          className="shrink-0 rounded-xl p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
           title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
@@ -147,7 +150,7 @@ function AdminHeader({
         <button
           type="button"
           onClick={onLogout}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 sm:px-4"
+          className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/60 sm:px-4"
         >
           Log out
         </button>

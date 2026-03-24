@@ -1,7 +1,5 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
-import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { ApiError, apiGetAuth } from "@/lib/api";
@@ -33,6 +31,32 @@ function formatBalance(balanceStr: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
 }
 
+/** US-style display for list rows; returns null if nothing useful to show */
+function formatPhoneCompact(raw: string): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return null;
+  const d = trimmed.replace(/\D/g, "");
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 11 && d.startsWith("1")) return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+  return trimmed;
+}
+
+/** Two letters for avatar — common in healthcare and office directories */
+function patientInitials(p: Patient): string {
+  const f = p.first_name.trim();
+  const l = p.last_name.trim();
+  if (f && l) return `${f[0]}${l[0]}`.toUpperCase();
+  const one = f || l;
+  if (one.length >= 2) return one.slice(0, 2).toUpperCase();
+  if (one.length === 1) return `${one[0]}${one[0]}`.toUpperCase();
+  return "?";
+}
+
+/** "Last, First" — easy to scan and matches many practice-management rosters */
+function patientDirectoryName(p: Patient): { last: string; first: string } {
+  return { last: p.last_name.trim() || "—", first: p.first_name.trim() || "—" };
+}
+
 export default function AdminPatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,9 +65,11 @@ export default function AdminPatientsPage() {
   const [search, setSearch] = useState("");
 
   const loadPatients = useCallback(() => {
-    setError("");
     return apiGetAuth<Patient[]>("/admin/patients/")
-      .then(setPatients)
+      .then((data) => {
+        setPatients(data);
+        setError("");
+      })
       .catch((e) => {
         setError(e instanceof ApiError ? e.message : "Failed to load patients.");
         setPatients([]);
@@ -51,8 +77,13 @@ export default function AdminPatientsPage() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    void loadPatients().finally(() => setLoading(false));
+    let cancelled = false;
+    void loadPatients().finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadPatients]);
 
   const filtered = patients.filter(
@@ -89,29 +120,48 @@ export default function AdminPatientsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-slate-500">
-                  <th className="pb-3 font-semibold">Patient</th>
+                  <th className="pb-3 font-semibold">Patient name</th>
                   <th className="pb-3 font-semibold">Status</th>
                   <th className="pb-3 font-semibold">Last Visit</th>
                   <th className="pb-3 font-semibold">Balance</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => (
+                {filtered.map((p) => {
+                  const { last, first } = patientDirectoryName(p);
+                  const phoneLine = formatPhoneCompact(p.phone);
+                  return (
                   <tr
                     key={p.id}
                     className="cursor-pointer border-t border-slate-200 transition hover:bg-slate-50"
                     onClick={() => setDetailPatientId(p.id)}
+                    aria-label={`Open chart for ${last}, ${first}`}
                   >
-                    <td className="py-3">
+                    <td className="py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#16a349]/20 text-sm font-semibold text-[#0d5c2e]">
-                          {p.first_name.charAt(0)}
+                        <div
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] text-[11px] font-bold uppercase tracking-[0.08em] text-[#065f46] shadow-inner ring-1 ring-[#16a349]/15"
+                          aria-hidden
+                        >
+                          {patientInitials(p)}
                         </div>
-                        <div>
-                          <p className="font-medium text-slate-900">
-                            {p.first_name} {p.last_name}
+                        <div className="min-w-0">
+                          <p className="text-[15px] leading-snug text-slate-900">
+                            <span className="font-semibold tracking-tight">{last}</span>
+                            <span className="font-normal text-slate-400">, </span>
+                            <span className="font-medium text-slate-700">{first}</span>
                           </p>
-                          <p className="text-xs text-slate-500">#PT-{String(p.id).padStart(4, "0")}</p>
+                          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+                            <span className="font-mono tabular-nums text-slate-400">PT-{String(p.id).padStart(4, "0")}</span>
+                            {phoneLine ? (
+                              <>
+                                <span className="text-slate-300" aria-hidden>
+                                  ·
+                                </span>
+                                <span className="tabular-nums text-slate-500">{phoneLine}</span>
+                              </>
+                            ) : null}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -123,7 +173,8 @@ export default function AdminPatientsPage() {
                     <td className="py-3">{formatDate(p.last_visit)}</td>
                     <td className="py-3 font-medium">{formatBalance(p.balance)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

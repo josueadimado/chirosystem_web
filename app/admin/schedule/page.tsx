@@ -1,18 +1,22 @@
 "use client";
 
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { IconCalendar } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { StatusChipView } from "@/components/status-chip";
-import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type Appointment = {
   id: number;
+  patient: number;
   patient_name: string;
+  provider: number;
   provider_name: string;
+  booked_service: number | null;
   service_name: string;
   appointment_date: string;
   start_time: string;
@@ -35,6 +39,8 @@ const STATUS_OPTIONS = [
   { value: "in_consultation", label: "In consultation" },
   { value: "awaiting_payment", label: "Awaiting payment" },
   { value: "completed", label: "Completed" },
+  { value: "no_show", label: "No-show" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 function formatTime(t: string): string {
@@ -72,6 +78,7 @@ function getWeekDates(weekStart: Date): Date[] {
 }
 
 function AdminSchedulePageContent() {
+  const { runWithFeedback } = useAppFeedback();
   const searchParams = useSearchParams();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -88,6 +95,11 @@ function AdminSchedulePageContent() {
   });
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [checkingIn, setCheckingIn] = useState(false);
+  const [savingDesk, setSavingDesk] = useState(false);
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [resDate, setResDate] = useState("");
+  const [resTime, setResTime] = useState("09:00");
+  const [resProviderId, setResProviderId] = useState("");
 
   const loadProviders = async () => {
     try {
@@ -124,9 +136,11 @@ function AdminSchedulePageContent() {
 
       const list = await apiGetAuth<Appointment[]>(`/appointments/?${params}`);
       setAppointments(list);
-      if (selected && !list.find((a) => a.id === selected.id)) {
-        setSelected(null);
-      }
+      setSelected((prev) => {
+        if (!prev) return null;
+        const fresh = list.find((a) => a.id === prev.id);
+        return fresh ?? null;
+      });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load schedule.");
       setAppointments([]);
@@ -152,21 +166,84 @@ function AdminSchedulePageContent() {
     if (ap) setSelected(ap);
   }, [searchParams, appointments]);
 
+  useEffect(() => {
+    setShowReschedule(false);
+    if (selected) {
+      setResDate(selected.appointment_date);
+      const raw = selected.start_time;
+      setResTime(raw.length >= 5 ? raw.slice(0, 5) : "09:00");
+      setResProviderId(String(selected.provider));
+    }
+  }, [selected?.id]);
+
   const handleCheckIn = async () => {
     if (!selected) return;
     setCheckingIn(true);
     setError("");
+    await runWithFeedback(
+      async () => {
+        await apiPost("/kiosk/checkin/", { appointment_id: selected.id });
+        await loadAppointments();
+        setSelected((prev) => (prev ? { ...prev, status: "checked_in" } : null));
+      },
+      {
+        loadingMessage: "Checking in patient…",
+        successMessage: "Patient checked in.",
+        errorFallback: "Could not check in this appointment.",
+      },
+    );
+    setCheckingIn(false);
+  };
+
+  /** Update one visit (status, time, or provider). Reloads the calendar and keeps the side panel in sync. */
+  const patchAppointment = async (id: number, body: Record<string, unknown>) => {
+    setSavingDesk(true);
+    setError("");
     try {
-      await apiPost("/kiosk/checkin/", { appointment_id: selected.id });
+      await apiPatch(`/appointments/${id}/`, body);
       await loadAppointments();
-      setSelected((prev) =>
-        prev ? { ...prev, status: "checked_in" } : null
-      );
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to check in.");
+      const msg = e instanceof ApiError ? e.message : "Could not update appointment.";
+      setError(msg);
+      throw e;
     } finally {
-      setCheckingIn(false);
+      setSavingDesk(false);
     }
+  };
+
+  const canMarkNoShowOrCancel = (s: string) =>
+    s === "booked" || s === "confirmed" || s === "checked_in";
+
+  const canMarkCompletedStaff = (s: string) =>
+    s === "in_consultation" || s === "awaiting_payment" || s === "checked_in";
+
+  /** Front desk may move visits that are not finished or already cleared. */
+  const canRescheduleStaff = (s: string) =>
+    s !== "completed" && s !== "no_show" && s !== "cancelled";
+
+  const submitReschedule = async () => {
+    if (!selected) return;
+    const pid = Number.parseInt(resProviderId, 10);
+    const body: Record<string, unknown> = {
+      appointment_date: resDate,
+      start_time: resTime.length === 5 ? `${resTime}:00` : resTime,
+    };
+    if (!Number.isNaN(pid) && pid !== selected.provider) {
+      body.provider = pid;
+    }
+    let saved = false;
+    await runWithFeedback(
+      async () => {
+        await patchAppointment(selected.id, body);
+        saved = true;
+      },
+      {
+        loadingMessage: "Rescheduling…",
+        successMessage: "Appointment updated.",
+        errorFallback: "Could not reschedule.",
+      }
+    );
+    if (saved) setShowReschedule(false);
   };
 
   const dates = view === "week" ? getWeekDates(weekStart) : [selectedDate];
@@ -257,7 +334,8 @@ function AdminSchedulePageContent() {
           <span className="text-sm text-slate-500">Filters</span>
           <HelpTip label="Filters">
             Provider limits the list to one doctor. Status matches the visit workflow (booked, checked in, completed, etc.). Both send
-            new requests to the server.
+            new requests to the server. Use the side panel to mark <strong>no-show</strong>, <strong>cancel</strong>, or{' '}
+            <strong>completed</strong>, or to <strong>reschedule</strong>—missed visits stop blocking the slot once marked.
           </HelpTip>
           <select
             value={providerFilter}
@@ -413,15 +491,140 @@ function AdminSchedulePageContent() {
             </dl>
 
             <div className="mt-auto flex flex-col gap-2.5 border-t border-slate-200/90 pt-4">
-              <button
-                type="button"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                Reschedule
-              </button>
+              {canRescheduleStaff(selected.status) && (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowReschedule((v) => !v)}
+                    disabled={savingDesk}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {showReschedule ? "Hide reschedule" : "Reschedule"}
+                  </button>
+                  {showReschedule && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Date
+                        <input
+                          type="date"
+                          value={resDate}
+                          onChange={(e) => setResDate(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Start time
+                        <input
+                          type="time"
+                          value={resTime}
+                          onChange={(e) => setResTime(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Provider
+                        <select
+                          value={resProviderId}
+                          onChange={(e) => setResProviderId(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+                        >
+                          {providers.map((p) => (
+                            <option key={p.id} value={String(p.id)}>
+                              {p.provider_name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={savingDesk || !resDate}
+                        onClick={() => void submitReschedule()}
+                        className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                      >
+                        {savingDesk ? "Saving…" : "Save new time"}
+                      </button>
+                      <p className="text-[11px] text-slate-500">
+                        End time is recalculated from the booked service length. The server blocks double-booking for that doctor.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canMarkNoShowOrCancel(selected.status) && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={savingDesk}
+                    onClick={() => {
+                      if (!confirm("Mark this visit as no-show? It will no longer count as an active booking.")) return;
+                      void runWithFeedback(
+                        async () => {
+                          await patchAppointment(selected.id, { status: "no_show" });
+                        },
+                        {
+                          loadingMessage: "Updating…",
+                          successMessage: "Marked as no-show.",
+                          errorFallback: "Could not update status.",
+                        }
+                      );
+                    }}
+                    className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    No-show
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingDesk}
+                    onClick={() => {
+                      if (!confirm("Cancel this appointment? It will free the slot.")) return;
+                      void runWithFeedback(
+                        async () => {
+                          await patchAppointment(selected.id, { status: "cancelled" });
+                        },
+                        {
+                          loadingMessage: "Updating…",
+                          successMessage: "Appointment cancelled.",
+                          errorFallback: "Could not cancel.",
+                        }
+                      );
+                    }}
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel visit
+                  </button>
+                </div>
+              )}
+
+              {canMarkCompletedStaff(selected.status) && (
+                <button
+                  type="button"
+                  disabled={savingDesk}
+                  onClick={() => {
+                    if (!confirm("Mark this visit completed without going through checkout here? Use when payment was handled elsewhere."))
+                      return;
+                    void runWithFeedback(
+                      async () => {
+                        await patchAppointment(selected.id, { status: "completed" });
+                      },
+                      {
+                        loadingMessage: "Updating…",
+                        successMessage: "Marked completed.",
+                        errorFallback: "Could not complete.",
+                      }
+                    );
+                  }}
+                  className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  Mark completed
+                </button>
+              )}
+
               {selected.status !== "checked_in" &&
                 selected.status !== "in_consultation" &&
-                selected.status !== "completed" && (
+                selected.status !== "completed" &&
+                selected.status !== "no_show" &&
+                selected.status !== "cancelled" && (
                   <div className="flex w-full items-center gap-2">
                     <button
                       type="button"

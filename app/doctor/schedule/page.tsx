@@ -1,5 +1,6 @@
 "use client";
 
+import { useAppFeedback } from "@/components/app-feedback";
 import { DoctorPageIntro, DoctorSectionLabel } from "@/components/doctor-shell";
 import { HelpTip } from "@/components/help-tip";
 import { IconChevronLeft, IconChevronRight } from "@/components/icons";
@@ -25,6 +26,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 type CalendarStatus = { oauth_configured: boolean; connected: boolean };
 
 function DoctorSchedulePageInner() {
+  const { runWithFeedback } = useAppFeedback();
   const searchParams = useSearchParams();
   const [appointmentsByDate, setAppointmentsByDate] = useState<Record<string, Appointment[]>>({});
   const [loading, setLoading] = useState(true);
@@ -212,15 +214,18 @@ function DoctorSchedulePageInner() {
               onClick={async () => {
                 setCalendarBusy(true);
                 setCalendarNote("");
-                try {
-                  await apiPost("/doctor/google_calendar/disconnect/", {});
-                  setCalendarStatus({ oauth_configured: true, connected: false });
-                  setCalendarNote("Disconnected. New events will not sync until you connect again.");
-                } catch (e) {
-                  setCalendarNote(e instanceof ApiError ? e.message : "Disconnect failed.");
-                } finally {
-                  setCalendarBusy(false);
-                }
+                await runWithFeedback(
+                  async () => {
+                    await apiPost("/doctor/google_calendar/disconnect/", {});
+                    setCalendarStatus({ oauth_configured: true, connected: false });
+                  },
+                  {
+                    loadingMessage: "Disconnecting Google Calendar…",
+                    successMessage: "Disconnected. New events will not sync until you connect again.",
+                    errorFallback: "Could not disconnect Google Calendar.",
+                  },
+                );
+                setCalendarBusy(false);
               }}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >

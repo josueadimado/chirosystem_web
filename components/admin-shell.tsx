@@ -14,9 +14,9 @@ export function AdminPageIntro({
 }) {
   return (
     <header className="mb-6 sm:mb-8">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#13823d]">Administration</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">Administration</p>
       <div className="mt-1 flex flex-wrap items-center gap-2">
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{title}</h2>
+        <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{title}</h2>
         {pageHelp ? (
           <HelpTip label={`What is ${title}?`} align="center">
             {pageHelp}
@@ -37,7 +37,7 @@ export function AdminSectionLabel({
 }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <h3 className="text-base font-semibold text-slate-800">{children}</h3>
+      <h3 className="text-base font-semibold text-foreground">{children}</h3>
       {help ? <HelpTip label="About this section">{help}</HelpTip> : null}
     </div>
   );
