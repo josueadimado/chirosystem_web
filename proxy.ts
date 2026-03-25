@@ -8,8 +8,21 @@ function startsWith(paths: string[], pathname: string) {
 }
 
 export function proxy(request: NextRequest) {
-  const role = request.cookies.get("chiroflow_role")?.value;
   const pathname = request.nextUrl.pathname;
+
+  // Django + DRF expect trailing slashes on router URLs. If the request has no
+  // final `/`, Django returns 301; POST+JSON can break on redirect ("Failed to fetch").
+  if (
+    pathname.startsWith("/api/v1") &&
+    !pathname.endsWith("/") &&
+    !pathname.slice("/api/v1".length).includes(".")
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = `${pathname}/`;
+    return NextResponse.rewrite(url);
+  }
+
+  const role = request.cookies.get("chiroflow_role")?.value;
 
   if (
     startsWith(adminPaths, pathname) &&
@@ -27,5 +40,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/doctor/:path*"],
+  matcher: ["/admin/:path*", "/doctor/:path*", "/api/v1/:path*"],
 };
