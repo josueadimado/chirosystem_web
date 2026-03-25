@@ -296,7 +296,7 @@ export default function AdminProvidersPage() {
     <div className="space-y-6">
       <AdminPageIntro
         title="Providers & services"
-        description="Manage doctor accounts and who shows on the public booking website. The clinic’s billable procedures live under Services & codes; during a visit, doctors build the printable patient bill from that full list on their dashboard—not from these checkboxes."
+        description="Create doctor logins (username + password) with Add doctor, then assign which online visit types each doctor appears under. To add or change visit names and prices on the public booking site, use Services & codes. In-room billing uses the full procedure list on the doctor dashboard—not these checkboxes."
         pageHelp={
           <>
             <strong>Add doctor</strong> creates a new login (username + password). Use <strong>Edit provider</strong> for display name, SMS,
@@ -675,7 +675,8 @@ export default function AdminProvidersPage() {
           <DialogHeader>
             <DialogTitle id="add-doctor-title">Add doctor</DialogTitle>
             <DialogDescription>
-              Creates a new staff login. They sign in with the username and password you set here.
+              Owner or staff can use this to create a <strong>doctor</strong> account. They sign in at the same site with the username and
+              password you enter below, then tick which online visit types list them for patients.
             </DialogDescription>
           </DialogHeader>
 

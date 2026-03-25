@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppFeedback } from "@/components/app-feedback";
 import { IconCheck } from "@/components/icons";
 import { Loader } from "@/components/loader";
@@ -43,6 +43,12 @@ type ProviderOption = { id: number; provider_name: string };
 type BookingOptions = { services: ServiceOption[]; providers_by_service: Record<number, ProviderOption[]> };
 
 const ALL_TIME_SLOTS = ["9:00 AM", "10:15 AM", "2:30 PM", "3:45 PM", "5:15 PM"];
+
+function formatBookingPrice(p: string): string {
+  const n = parseFloat(p);
+  if (Number.isNaN(n)) return `$${p}`;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+}
 
 export default function BookingPage() {
   const { toast } = useAppFeedback();
@@ -139,6 +145,67 @@ export default function BookingPage() {
     ? (options.providers_by_service?.[selectedService.id] ?? [])
     : [];
   const canSubmit = selectedService && selectedProvider;
+
+  const chiroServices = useMemo(
+    () => (options?.services ?? []).filter((s) => s.service_type === "chiropractic"),
+    [options?.services],
+  );
+  const massageServices = useMemo(
+    () => (options?.services ?? []).filter((s) => s.service_type === "massage"),
+    [options?.services],
+  );
+
+  /** Primary name shown for each section (from the first service’s assigned provider). */
+  const chiroLeadName = useMemo(() => {
+    const first = chiroServices[0];
+    const lead = first && options?.providers_by_service?.[first.id]?.[0]?.provider_name;
+    return lead || "Chiropractor";
+  }, [chiroServices, options?.providers_by_service]);
+
+  const massageLeadName = useMemo(() => {
+    const first = massageServices[0];
+    const lead = first && options?.providers_by_service?.[first.id]?.[0]?.provider_name;
+    return lead || "Massage therapist";
+  }, [massageServices, options?.providers_by_service]);
+
+  const renderServiceButton = (service: ServiceOption) => (
+    <button
+      key={service.id}
+      type="button"
+      onClick={() => {
+        setSelectedService(service);
+        const providers = options?.providers_by_service?.[service.id] ?? [];
+        if (service.allow_provider_choice && providers.length > 0) {
+          setSelectedProvider(null);
+          setStep(2);
+        } else if (providers.length > 0) {
+          setSelectedProvider(providers[0]);
+          setStep(3);
+        } else {
+          setSelectedProvider(null);
+          setStep(2);
+        }
+      }}
+      className={cn(
+        "w-full rounded-xl border p-4 text-left transition-all",
+        selectedService?.id === service.id
+          ? "border-2 border-primary bg-primary/8 shadow-md shadow-primary/10 ring-2 ring-primary/15"
+          : "border-border/90 bg-card hover:border-primary/25 hover:shadow-sm",
+      )}
+    >
+      <p
+        className={cn(
+          "font-semibold",
+          selectedService?.id === service.id ? "text-[#0d5c2e]" : "text-foreground",
+        )}
+      >
+        {service.name}
+      </p>
+      <p className="mt-0.5 text-sm text-muted-foreground">
+        {service.duration_minutes} min · {formatBookingPrice(service.price)}
+      </p>
+    </button>
+  );
 
   const goToNextStep = () => {
     if (step < 4) {
@@ -605,44 +672,32 @@ export default function BookingPage() {
               {!options && !optionsError && (
                 <Loader variant="page" label="Loading services" sublabel="Fetching available visits and times…" />
               )}
-              {(options?.services ?? []).map((service) => (
-                <button
-                  key={service.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedService(service);
-                    const providers = options?.providers_by_service?.[service.id] ?? [];
-                    if (service.allow_provider_choice && providers.length > 0) {
-                      setSelectedProvider(null);
-                      setStep(2);
-                    } else if (providers.length > 0) {
-                      setSelectedProvider(providers[0]);
-                      setStep(3);
-                    } else {
-                      setSelectedProvider(null);
-                      setStep(2);
-                    }
-                  }}
-                  className={cn(
-                    "w-full rounded-xl border p-4 text-left transition-all",
-                    selectedService?.id === service.id
-                      ? "border-2 border-primary bg-primary/8 shadow-md shadow-primary/10 ring-2 ring-primary/15"
-                      : "border-border/90 bg-card hover:border-primary/25 hover:shadow-sm",
-                  )}
-                >
-                  <p
-                    className={cn(
-                      "font-semibold",
-                      selectedService?.id === service.id ? "text-[#0d5c2e]" : "text-foreground",
-                    )}
-                  >
-                    {service.name}
-                  </p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    {service.duration_minutes} min · ${service.price}
-                  </p>
-                </button>
-              ))}
+              {chiroServices.length > 0 && (
+                <div className="space-y-2">
+                  <div className="rounded-xl border border-primary/20 bg-primary/[0.07] px-4 py-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-[#166534]">Chiropractic</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{chiroLeadName}</p>
+                    <p className="mt-1 text-xs text-slate-600">Visit types and fees are listed below.</p>
+                  </div>
+                  <div className="space-y-2">{chiroServices.map(renderServiceButton)}</div>
+                </div>
+              )}
+              {massageServices.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <div className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-amber-900/90">Massage</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{massageLeadName}</p>
+                    <p className="mt-1 text-xs text-slate-600">Choose your therapist on the next step when you pick a massage length.</p>
+                  </div>
+                  <div className="space-y-2">{massageServices.map(renderServiceButton)}</div>
+                </div>
+              )}
+              {options &&
+                options.services.length > 0 &&
+                chiroServices.length === 0 &&
+                massageServices.length === 0 && (
+                  <div className="space-y-2">{(options.services ?? []).map(renderServiceButton)}</div>
+                )}
             </div>
           )}
 

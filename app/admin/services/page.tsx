@@ -182,7 +182,7 @@ export default function AdminServicesPage() {
     <div className="space-y-6">
       <AdminPageIntro
         title="Services & codes"
-        description="Define visit types, prices, and procedure codes. Turn a visit type off with Active (unchecked) to hide it from booking and from the provider grid — or delete it when you are sure nothing should reference it anymore."
+        description="Add or edit visit types, prices, and billing codes shown on the public booking site. Use Add visit type for new rows. Turn Active off to hide a visit from online booking and from the provider grid — or delete when nothing should reference it anymore."
         pageHelp={
           <>
             These records power the public booking flow and invoices. <strong>Billing code</strong> is the identifier your clinic uses
