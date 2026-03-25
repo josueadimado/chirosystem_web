@@ -37,11 +37,6 @@ const toolsItems = [
   { label: "Settings", href: "/admin/settings", icon: <IconSettings className="w-5 h-5" /> },
 ];
 
-const groups = [
-  { label: "OPERATIONS", items: operationsItems },
-  { label: "TOOLS", items: toolsItems },
-];
-
 const PAGE_TITLES: Record<string, string> = {
   "/admin/dashboard": "Admin Dashboard",
   "/admin/schedule": "Schedule",
@@ -76,6 +71,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     ...operationsItemsBase.slice(3),
   ];
 
+  const sidebarGroups = [
+    { label: "", items: mainItems },
+    { label: "OPERATIONS", items: operationsItems },
+    { label: "TOOLS", items: toolsItems },
+  ];
+
   const title =
     pathname === "/admin/dashboard"
       ? userName
@@ -96,10 +97,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex min-h-screen">
       <Sidebar
         title="Relief Chiropractic"
-        groups={[
-          { label: "", items: mainItems },
-          ...groups,
-        ]}
+        groups={sidebarGroups}
         open={sidebarOpen}
         onOpenChange={setSidebarOpen}
         accent="admin"
