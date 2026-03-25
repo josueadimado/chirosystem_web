@@ -5,6 +5,8 @@ import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { StatusChipView } from "@/components/status-chip";
 import { apiGetAuth } from "@/lib/api";
+import { getRoleCookie } from "@/lib/auth";
+import { IconStethoscope, IconUserPlus } from "@/components/icons";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -29,6 +31,11 @@ export default function AdminDashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOwnerAdmin, setIsOwnerAdmin] = useState(false);
+
+  useEffect(() => {
+    setIsOwnerAdmin(getRoleCookie() === "owner_admin");
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -122,6 +129,59 @@ export default function AdminDashboardPage() {
           <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{data.unpaid_invoices}</p>
         </div>
       </div>
+
+      <section className="space-y-3">
+        <AdminSectionLabel help="Shortcuts to add people who work at the clinic — doctors, desk staff, and (for owners) administrator accounts.">
+          People & logins
+        </AdminSectionLabel>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Link
+            href="/admin/providers"
+            className="admin-panel group flex gap-4 transition hover:border-[#16a349]/40 hover:bg-[#16a349]/5"
+          >
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#16a349]/12 text-[#0d5c2e] ring-1 ring-[#16a349]/20">
+              <IconStethoscope className="h-6 w-6" />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-semibold text-slate-900 group-hover:text-[#0d5c2e]">Doctors & providers</span>
+              <span className="mt-1 block text-sm text-slate-600">
+                Add a doctor login, set their name for the schedule, and choose which online visit types they offer.
+              </span>
+              <span className="mt-2 inline-block text-sm font-medium text-[#16a349] group-hover:underline">Open →</span>
+            </span>
+          </Link>
+          {isOwnerAdmin ? (
+            <Link
+              href="/admin/team"
+              className="admin-panel group flex gap-4 transition hover:border-violet-300 hover:bg-violet-50/60"
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-800 ring-1 ring-violet-200">
+                <IconUserPlus className="h-6 w-6" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900 group-hover:text-violet-900">Team & administrators</span>
+                <span className="mt-1 block text-sm text-slate-600">
+                  Create desk staff and extra owner accounts, or manage roles — uses the same logins as the API “team” list.
+                </span>
+                <span className="mt-2 inline-block text-sm font-medium text-violet-800 group-hover:underline">Open →</span>
+              </span>
+            </Link>
+          ) : (
+            <div className="admin-panel flex gap-4 border-dashed border-slate-200 bg-slate-50/50">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-200/80 text-slate-500">
+                <IconUserPlus className="h-6 w-6" />
+              </span>
+              <span className="min-w-0 text-sm text-slate-600">
+                <span className="font-semibold text-slate-800">Team & administrators</span>
+                <span className="mt-1 block">
+                  Only the clinic <strong>owner</strong> can add staff or administrator accounts. Ask them to sign in and use Team & logins in the sidebar.
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+      </section>
+
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <section className="admin-panel">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

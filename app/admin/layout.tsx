@@ -14,8 +14,10 @@ import {
   IconMenu,
   IconSettings,
   IconStethoscope,
+  IconUserPlus,
   IconUsers,
 } from "@/components/icons";
+import { getRoleCookie } from "@/lib/auth";
 
 const mainItems = [
   { label: "Dashboard", href: "/admin/dashboard", icon: <IconLayoutGrid className="w-5 h-5" /> },
@@ -23,10 +25,10 @@ const mainItems = [
   { label: "Patients", href: "/admin/patients", icon: <IconUsers className="w-5 h-5" /> },
 ];
 
-const operationsItems = [
+const operationsItemsBase = [
   { label: "Invoices & Billing", href: "/admin/billing", icon: <IconFileDollar className="w-5 h-5" /> },
   { label: "Services & Codes", href: "/admin/services", icon: <IconFileText className="w-5 h-5" /> },
-  { label: "Providers (Doctors)", href: "/admin/providers", icon: <IconStethoscope className="w-5 h-5" /> },
+  { label: "Doctors & providers", href: "/admin/providers", icon: <IconStethoscope className="w-5 h-5" /> },
   { label: "Booking blocks", href: "/admin/booking-blocks", icon: <IconFilter className="w-5 h-5" /> },
 ];
 
@@ -46,7 +48,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/patients": "Patients",
   "/admin/billing": "Invoices & Billing",
   "/admin/services": "Services & Codes",
-  "/admin/providers": "Providers",
+  "/admin/providers": "Doctors & providers",
+  "/admin/team": "Team & logins",
   "/admin/booking-blocks": "Booking blocks",
   "/admin/ai": "AI Assistant",
   "/admin/settings": "Settings",
@@ -55,13 +58,23 @@ const PAGE_TITLES: Record<string, string> = {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [userName, setUserName] = useState<string | null>(null);
+  const [isOwnerAdmin, setIsOwnerAdmin] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
   // Read userName after mount to avoid hydration mismatch (localStorage not available on server)
   useEffect(() => {
     setUserName(localStorage.getItem("chiroflow_user_name"));
+    setIsOwnerAdmin(getRoleCookie() === "owner_admin");
   }, []);
+
+  const operationsItems = [
+    ...operationsItemsBase.slice(0, 3),
+    ...(isOwnerAdmin
+      ? [{ label: "Team & logins", href: "/admin/team", icon: <IconUserPlus className="w-5 h-5" /> }]
+      : []),
+    ...operationsItemsBase.slice(3),
+  ];
 
   const title =
     pathname === "/admin/dashboard"
