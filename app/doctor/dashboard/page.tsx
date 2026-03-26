@@ -13,6 +13,12 @@ import { openPatientBillPrint } from "@/lib/patient-bill-print";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 
+type SquarePosConfig = {
+  pos_callback_configured: boolean;
+  has_location: boolean;
+  has_application_id: boolean;
+};
+
 type Appointment = {
   id: number;
   patient: string;
@@ -81,6 +87,9 @@ export default function DoctorDashboardPage() {
   const [terminalBusy, setTerminalBusy] = useState(false);
   /** Square Terminal API checkout id — we poll until the physical device completes payment. */
   const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
+  /** Square Point of Sale app (Stand + reader) — separate from Square Terminal API. */
+  const [squarePosConfig, setSquarePosConfig] = useState<SquarePosConfig | null>(null);
+  const [posLaunchBusy, setPosLaunchBusy] = useState(false);
   const [displayName, setDisplayName] = useState("");
   /** Saved on the appointment row for handoff / next doctor (separate from visit-only notes). */
   const [handoffNotes, setHandoffNotes] = useState("");
@@ -94,6 +103,24 @@ export default function DoctorDashboardPage() {
   useEffect(() => {
     setDisplayName(localStorage.getItem("chiroflow_user_name") || "");
   }, []);
+
+  useEffect(() => {
+    if (!paymentFollowUp?.invoice_id) {
+      setSquarePosConfig(null);
+      return;
+    }
+    let cancelled = false;
+    void apiGetAuth<SquarePosConfig>("/doctor/square_pos_config/")
+      .then((c) => {
+        if (!cancelled) setSquarePosConfig(c);
+      })
+      .catch(() => {
+        if (!cancelled) setSquarePosConfig({ pos_callback_configured: false, has_location: false, has_application_id: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentFollowUp?.invoice_id]);
 
   const firstName = displayName.trim().split(/\s+/)[0] || "there";
 
@@ -140,6 +167,29 @@ export default function DoctorDashboardPage() {
       setLoading(false);
     }
   };
+
+  /** Return from Square POS app after tap-to-pay on reader (query square_pos=…). */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sp = params.get("square_pos");
+    if (!sp) return;
+    if (sp === "ok") {
+      toast.success("Payment completed in Square POS.");
+      window.history.replaceState({}, "", "/doctor/dashboard");
+      window.location.reload();
+      return;
+    } else if (sp === "err") {
+      const reason = params.get("reason") || "unknown";
+      toast.error(
+        reason === "payment_canceled" || reason === "TRANSACTION_CANCELED"
+          ? "Payment was canceled in Square POS."
+          : "Square POS payment did not finish. Try again or use another payment option.",
+      );
+    }
+    window.history.replaceState({}, "", "/doctor/dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount for URL cleanup; success path reloads
+  }, []);
 
   useEffect(() => {
     load();
@@ -300,6 +350,28 @@ export default function DoctorDashboardPage() {
       },
     );
     setTerminalBusy(false);
+  };
+
+  /** Opens Square Point of Sale on iPad/Android — patient taps card on Stand + reader. */
+  const prepareSquarePosPayment = async () => {
+    if (!paymentFollowUp) return;
+    setPosLaunchBusy(true);
+    setError("");
+    await runWithFeedback(
+      async () => {
+        const out = await apiGetAuth<{ ios_url: string; android_intent_url: string }>(
+          `/doctor/square_pos_launch/?invoice_id=${paymentFollowUp.invoice_id}`,
+        );
+        const isAndroid = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+        window.location.href = isAndroid ? out.android_intent_url : out.ios_url;
+      },
+      {
+        loadingMessage: "Opening Square POS…",
+        successMessage: "Complete payment on the reader, then return here.",
+        errorFallback: "Could not start Square POS checkout. Check SQUARE_POS_CALLBACK_URL on the server.",
+      },
+    );
+    setPosLaunchBusy(false);
   };
 
   const sortedBillServices = useMemo(() => {
@@ -530,14 +602,24 @@ export default function DoctorDashboardPage() {
                 </p>
               )}
               {!paymentFollowUp.payment.charged && (
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {squarePosConfig?.pos_callback_configured && (
+                    <button
+                      type="button"
+                      onClick={() => void prepareSquarePosPayment()}
+                      disabled={posLaunchBusy}
+                      className="rounded-lg border border-[#16a349] bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+                    >
+                      {posLaunchBusy ? "Opening…" : "Tap card on Square reader (iPad / POS)"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={prepareTerminalPayment}
                     disabled={terminalBusy}
                     className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                   >
-                    {terminalBusy ? "Creating…" : "Use card reader (terminal) at the desk"}
+                    {terminalBusy ? "Creating…" : "Square Terminal device (if you have one)"}
                   </button>
                 </div>
               )}

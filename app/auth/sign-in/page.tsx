@@ -9,13 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiPost } from "@/lib/api";
+import { apiPostPublic } from "@/lib/api";
 import { setRoleCookie } from "@/lib/auth";
 import { UserRole } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type LoginResponse = {
+type LoginTokensResponse = {
   access: string;
   refresh: string;
   user: {
@@ -24,6 +24,21 @@ type LoginResponse = {
   };
 };
 
+type LoginVerificationRequired = {
+  verification_required: true;
+  email_masked: string;
+  verification_token: string;
+};
+
+function isVerificationRequired(x: unknown): x is LoginVerificationRequired {
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    "verification_required" in x &&
+    (x as LoginVerificationRequired).verification_required === true
+  );
+}
+
 export default function SignInPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -31,11 +46,25 @@ export default function SignInPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  /** After password OK, email may require a 6-digit code. */
+  const [step, setStep] = useState<"password" | "code">("password");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [emailMasked, setEmailMasked] = useState("");
+  const [code, setCode] = useState("");
 
   const routeForRole = (role: UserRole) => {
     if (role === "owner_admin" || role === "staff") return "/admin/dashboard";
     if (role === "doctor") return "/doctor/dashboard";
     return "/";
+  };
+
+  const finishSignIn = (result: LoginTokensResponse) => {
+    const role = result.user.role;
+    localStorage.setItem("chiroflow_access_token", result.access);
+    localStorage.setItem("chiroflow_refresh_token", result.refresh);
+    localStorage.setItem("chiroflow_user_name", result.user.full_name || username);
+    setRoleCookie(role);
+    router.push(routeForRole(role));
   };
 
   const handleLogin = async () => {
@@ -46,19 +75,54 @@ export default function SignInPage() {
     }
     setIsSubmitting(true);
     try {
-      const result = await apiPost<LoginResponse>("/auth/login/", { username, password });
-      const role = result.user.role;
-      localStorage.setItem("chiroflow_access_token", result.access);
-      localStorage.setItem("chiroflow_refresh_token", result.refresh);
-      localStorage.setItem("chiroflow_user_name", result.user.full_name || username);
-      setRoleCookie(role);
-      router.push(routeForRole(role));
+      const result = await apiPostPublic<LoginTokensResponse | LoginVerificationRequired>("/auth/login/", {
+        username,
+        password,
+      });
+      if (isVerificationRequired(result)) {
+        setVerificationToken(result.verification_token);
+        setEmailMasked(result.email_masked);
+        setStep("code");
+        setCode("");
+        return;
+      }
+      finishSignIn(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Invalid login. Please check your username and password.";
       setErrorMessage(msg);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleVerifyCode = async () => {
+    setErrorMessage("");
+    const trimmed = code.replace(/\D/g, "");
+    if (trimmed.length < 6) {
+      setErrorMessage("Enter the 6-digit code from your email.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const result = await apiPostPublic<LoginTokensResponse>("/auth/login/verify/", {
+        verification_token: verificationToken,
+        code: trimmed,
+      });
+      finishSignIn(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "That code did not work. Try again or sign in from the start.";
+      setErrorMessage(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const backToPassword = () => {
+    setStep("password");
+    setVerificationToken("");
+    setEmailMasked("");
+    setCode("");
+    setErrorMessage("");
   };
 
   return (
@@ -101,65 +165,113 @@ export default function SignInPage() {
               <CardDescription>Sign in to your staff account</CardDescription>
             </CardHeader>
             <CardContent>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void handleLogin();
-                }}
-                className="space-y-5"
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
-                  <Input
-                    id="username"
-                    type="text"
-                    autoComplete="username"
-                    className="h-11 px-4"
-                    placeholder="Enter your username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
-                      className="h-11 pr-12 pl-4"
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute top-1/2 right-3 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      title={showPassword ? "Hide password" : "Show password"}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? <IconEyeOff className="h-5 w-5" /> : <IconEye className="h-5 w-5" />}
-                    </button>
-                  </div>
-                </div>
-
-                {errorMessage ? (
-                  <Alert variant="destructive" className="border-destructive/30 bg-destructive/5 py-3">
-                    <AlertTitle className="text-sm">Sign-in failed</AlertTitle>
-                    <AlertDescription>{errorMessage}</AlertDescription>
-                  </Alert>
-                ) : null}
-
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="h-11 w-full rounded-lg bg-[#e9982f] text-base font-semibold text-white shadow-sm hover:bg-[#cf8727] disabled:opacity-50"
+              {step === "code" ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleVerifyCode();
+                  }}
+                  className="space-y-5"
                 >
-                  {isSubmitting ? <Loader variant="spinner" label="Signing in…" /> : "Sign in"}
-                </Button>
-              </form>
+                  <p className="text-sm text-muted-foreground">
+                    We sent a 6-digit code to <span className="font-medium text-foreground">{emailMasked}</span>. Enter it
+                    below to finish signing in.
+                  </p>
+                  <div className="space-y-2">
+                    <Label htmlFor="code">Verification code</Label>
+                    <Input
+                      id="code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className="h-11 px-4 tracking-widest"
+                      placeholder="000000"
+                      maxLength={8}
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                    />
+                  </div>
+                  {errorMessage ? (
+                    <Alert variant="destructive" className="border-destructive/30 bg-destructive/5 py-3">
+                      <AlertTitle className="text-sm">Verification failed</AlertTitle>
+                      <AlertDescription>{errorMessage}</AlertDescription>
+                    </Alert>
+                  ) : null}
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="h-11 w-full rounded-lg bg-[#e9982f] text-base font-semibold text-white shadow-sm hover:bg-[#cf8727] disabled:opacity-50"
+                  >
+                    {isSubmitting ? <Loader variant="spinner" label="Verifying…" /> : "Verify and sign in"}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={backToPassword}
+                    className="w-full text-center text-sm text-muted-foreground underline-offset-2 hover:underline"
+                  >
+                    Back to username and password
+                  </button>
+                </form>
+              ) : (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleLogin();
+                  }}
+                  className="space-y-5"
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="username">Username</Label>
+                    <Input
+                      id="username"
+                      type="text"
+                      autoComplete="username"
+                      className="h-11 px-4"
+                      placeholder="Enter your username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        className="h-11 pr-12 pl-4"
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute top-1/2 right-3 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        title={showPassword ? "Hide password" : "Show password"}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? <IconEyeOff className="h-5 w-5" /> : <IconEye className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {errorMessage ? (
+                    <Alert variant="destructive" className="border-destructive/30 bg-destructive/5 py-3">
+                      <AlertTitle className="text-sm">Sign-in failed</AlertTitle>
+                      <AlertDescription>{errorMessage}</AlertDescription>
+                    </Alert>
+                  ) : null}
+
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="h-11 w-full rounded-lg bg-[#e9982f] text-base font-semibold text-white shadow-sm hover:bg-[#cf8727] disabled:opacity-50"
+                  >
+                    {isSubmitting ? <Loader variant="spinner" label="Signing in…" /> : "Sign in"}
+                  </Button>
+                </form>
+              )}
 
               <p className="mt-6 text-center text-sm text-muted-foreground">
                 Staff access only. Patients should{" "}

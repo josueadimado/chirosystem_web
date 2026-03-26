@@ -27,6 +27,9 @@ type TeamMember = {
   username: string;
   email: string;
   full_name: string;
+  phone?: string;
+  /** chiropractic | massage for doctors; null/undefined for other roles */
+  doctor_booking_category?: string | null;
   role: TeamRole;
   is_active: boolean;
   date_joined: string;
@@ -66,6 +69,8 @@ export default function AdminTeamPage() {
     password: "",
     email: "",
     full_name: "",
+    phone: "",
+    doctor_booking_category: "chiropractic" as "chiropractic" | "massage",
     role: "doctor" as TeamRole,
   });
 
@@ -75,6 +80,8 @@ export default function AdminTeamPage() {
   const [editForm, setEditForm] = useState({
     email: "",
     full_name: "",
+    phone: "",
+    doctor_booking_category: "chiropractic" as "chiropractic" | "massage",
     password: "",
     role: "doctor" as TeamRole,
     is_active: true,
@@ -109,6 +116,9 @@ export default function AdminTeamPage() {
     setEditForm({
       email: m.email ?? "",
       full_name: m.full_name ?? "",
+      phone: m.phone ?? "",
+      doctor_booking_category:
+        m.doctor_booking_category === "massage" ? "massage" : "chiropractic",
       password: "",
       role: m.role,
       is_active: m.is_active,
@@ -127,15 +137,28 @@ export default function AdminTeamPage() {
     setError("");
     await runWithFeedback(
       async () => {
-        await apiPost("/team/", {
+        const body: Record<string, unknown> = {
           username: u,
           password: pw,
           email: form.email.trim() || "",
           full_name: form.full_name.trim() || "",
+          phone: form.phone.trim() || "",
           role: form.role,
-        });
+        };
+        if (form.role === "doctor") {
+          body.doctor_booking_category = form.doctor_booking_category;
+        }
+        await apiPost("/team/", body);
         setAddOpen(false);
-        setForm({ username: "", password: "", email: "", full_name: "", role: "doctor" });
+        setForm({
+          username: "",
+          password: "",
+          email: "",
+          full_name: "",
+          phone: "",
+          doctor_booking_category: "chiropractic",
+          role: "doctor",
+        });
         await load();
       },
       {
@@ -154,9 +177,13 @@ export default function AdminTeamPage() {
     const payload: Record<string, unknown> = {
       email: editForm.email.trim(),
       full_name: editForm.full_name.trim(),
+      phone: editForm.phone.trim(),
       role: editForm.role,
       is_active: editForm.is_active,
     };
+    if (editForm.role === "doctor") {
+      payload.doctor_booking_category = editForm.doctor_booking_category;
+    }
     if (editForm.password.trim().length >= 8) {
       payload.password = editForm.password;
     }
@@ -287,7 +314,15 @@ export default function AdminTeamPage() {
                   <tr key={m.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-900">{m.full_name || "—"}</div>
-                      <div className="text-xs text-slate-500">{m.email || "No email"}</div>
+                      <div className="text-xs text-slate-500">
+                        {m.email || "No email"}
+                        {m.phone ? ` · ${m.phone}` : ""}
+                        {m.role === "doctor" && m.doctor_booking_category ? (
+                          <span className="ml-1 text-slate-400">
+                            · {m.doctor_booking_category === "massage" ? "Massage" : "Chiropractic"}
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-slate-700">{m.username}</td>
                     <td className="px-4 py-3">
@@ -331,7 +366,8 @@ export default function AdminTeamPage() {
           <DialogHeader>
             <DialogTitle>Add team member</DialogTitle>
             <DialogDescription>
-              Choose a role and login. Password must be at least 8 characters.
+              Choose a role and login. Password must be at least 8 characters. Add a real email for staff and doctors — a
+              sign-in code is sent there after the password step.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 pt-2">
@@ -355,6 +391,28 @@ export default function AdminTeamPage() {
                 to assign visit types.
               </p>
             </div>
+            {form.role === "doctor" && (
+              <div>
+                <Label htmlFor="doc_cat">Doctor type (online booking)</Label>
+                <select
+                  id="doc_cat"
+                  className="admin-input mt-1 w-full py-2"
+                  value={form.doctor_booking_category}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      doctor_booking_category: e.target.value as "chiropractic" | "massage",
+                    }))
+                  }
+                >
+                  <option value="chiropractic">Chiropractic doctor</option>
+                  <option value="massage">Massage therapist</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Controls which public visit types they are listed under (chiropractic vs massage).
+                </p>
+              </div>
+            )}
             <div>
               <Label htmlFor="username">Username</Label>
               <Input
@@ -395,6 +453,18 @@ export default function AdminTeamPage() {
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               />
             </div>
+            <div>
+              <Label htmlFor="phone">Phone (optional)</Label>
+              <Input
+                id="phone"
+                type="tel"
+                className="mt-1"
+                placeholder="e.g. +15551234567"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              />
+              <p className="mt-1 text-xs text-slate-500">For doctors, we also use this for SMS alerts if configured.</p>
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)} disabled={addSubmitting}>
                 Cancel
@@ -428,6 +498,25 @@ export default function AdminTeamPage() {
                   <option value="owner_admin">Owner / administrator</option>
                 </select>
               </div>
+              {editForm.role === "doctor" && (
+                <div>
+                  <Label htmlFor="edoc_cat">Doctor type (online booking)</Label>
+                  <select
+                    id="edoc_cat"
+                    className="admin-input mt-1 w-full py-2"
+                    value={editForm.doctor_booking_category}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        doctor_booking_category: e.target.value as "chiropractic" | "massage",
+                      }))
+                    }
+                  >
+                    <option value="chiropractic">Chiropractic doctor</option>
+                    <option value="massage">Massage therapist</option>
+                  </select>
+                </div>
+              )}
               <div>
                 <Label htmlFor="efull">Full name</Label>
                 <Input
@@ -443,6 +532,15 @@ export default function AdminTeamPage() {
                   type="email"
                   value={editForm.email}
                   onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="ephone">Phone</Label>
+                <Input
+                  id="ephone"
+                  type="tel"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
                 />
               </div>
               <div>
