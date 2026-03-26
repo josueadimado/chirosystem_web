@@ -20,6 +20,10 @@ type Service = {
   is_active: boolean;
   /** If false: doctor can still bill it; patients never see it on the booking site. */
   show_in_public_booking?: boolean;
+  /** In-room bill: chiropractic doctors see this line when true. */
+  visible_to_chiropractic_staff?: boolean;
+  /** In-room bill: massage therapists see this line when true. */
+  visible_to_massage_staff?: boolean;
   service_type?: ServiceType;
 };
 
@@ -37,6 +41,8 @@ const emptyForm = {
   description: "",
   is_active: true,
   show_in_public_booking: true,
+  visible_to_chiropractic_staff: true,
+  visible_to_massage_staff: true,
   service_type: "chiropractic" as ServiceType,
 };
 
@@ -63,6 +69,8 @@ export default function AdminServicesPage() {
         data.map((s) => ({
           ...s,
           show_in_public_booking: s.show_in_public_booking !== false,
+          visible_to_chiropractic_staff: s.visible_to_chiropractic_staff !== false,
+          visible_to_massage_staff: s.visible_to_massage_staff !== false,
         })),
       );
     } catch (e) {
@@ -107,6 +115,8 @@ export default function AdminServicesPage() {
       description: s.description || "",
       is_active: s.is_active !== false,
       show_in_public_booking: s.show_in_public_booking !== false,
+      visible_to_chiropractic_staff: s.visible_to_chiropractic_staff !== false,
+      visible_to_massage_staff: s.visible_to_massage_staff !== false,
       service_type: s.service_type === "massage" ? "massage" : "chiropractic",
     });
     setError("");
@@ -130,6 +140,8 @@ export default function AdminServicesPage() {
           description: form.description.trim(),
           is_active: form.is_active,
           show_in_public_booking: form.show_in_public_booking,
+          visible_to_chiropractic_staff: form.visible_to_chiropractic_staff,
+          visible_to_massage_staff: form.visible_to_massage_staff,
           service_type: form.service_type,
         };
         if (editing) {
@@ -174,6 +186,8 @@ export default function AdminServicesPage() {
       (form.description || "") !== (editing.description || "") ||
       form.is_active !== (editing.is_active !== false) ||
       form.show_in_public_booking !== (editing.show_in_public_booking !== false) ||
+      form.visible_to_chiropractic_staff !== (editing.visible_to_chiropractic_staff !== false) ||
+      form.visible_to_massage_staff !== (editing.visible_to_massage_staff !== false) ||
       form.service_type !== (editing.service_type === "massage" ? "massage" : "chiropractic"));
 
   const isNew = editing === null;
@@ -281,6 +295,10 @@ export default function AdminServicesPage() {
                 {filtered.map((s) => {
                   const selected = editing?.id === s.id;
                   const st = s.service_type === "massage" ? "Massage" : "Chiropractic";
+                  const visChiro = s.visible_to_chiropractic_staff !== false;
+                  const visMassage = s.visible_to_massage_staff !== false;
+                  const staffScope =
+                    visChiro && visMassage ? null : visChiro ? "chiro" : visMassage ? "massage" : "none";
                   return (
                     <li key={s.id}>
                       <div
@@ -304,6 +322,21 @@ export default function AdminServicesPage() {
                             {s.is_active && s.show_in_public_booking === false && (
                               <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900">
                                 Bill-only
+                              </span>
+                            )}
+                            {s.is_active && staffScope === "chiro" && (
+                              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900">
+                                Chiro doctors
+                              </span>
+                            )}
+                            {s.is_active && staffScope === "massage" && (
+                              <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-900">
+                                Massage doctors
+                              </span>
+                            )}
+                            {s.is_active && staffScope === "none" && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                No doctor picker
                               </span>
                             )}
                           </div>
@@ -490,6 +523,42 @@ export default function AdminServicesPage() {
                       </span>
                     </span>
                   </label>
+                  <div className="rounded-lg border border-slate-200/80 bg-white/80 p-3">
+                    <p className="text-sm font-semibold text-slate-800">Who sees this on the in-room bill?</p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                      Clinic admins always see every service here in Admin. These checkboxes control the list each doctor gets when they
+                      finish a visit. Use them so chiropractic-only codes don&apos;t clutter massage therapists&apos; screens, and vice versa.
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={form.visible_to_chiropractic_staff}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, visible_to_chiropractic_staff: e.target.checked }))
+                          }
+                          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
+                        />
+                        <span className="text-sm text-slate-700">Chiropractic doctors</span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={form.visible_to_massage_staff}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, visible_to_massage_staff: e.target.checked }))
+                          }
+                          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
+                        />
+                        <span className="text-sm text-slate-700">Massage doctors / therapists</span>
+                      </label>
+                    </div>
+                    {!form.visible_to_chiropractic_staff && !form.visible_to_massage_staff && (
+                      <p className="mt-2 text-xs font-medium text-amber-800">
+                        Warning: no doctor role will see this line—only admins can use it until you check at least one box above.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
 
