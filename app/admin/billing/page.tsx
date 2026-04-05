@@ -6,6 +6,8 @@ import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import { openPatientBillPrint } from "@/lib/patient-bill-print";
 import { useCallback, useEffect, useState } from "react";
 
 type BillingInvoiceRow = {
@@ -53,6 +55,24 @@ export default function AdminBillingPage() {
   const [payMethod, setPayMethod] = useState<"cash" | "card" | "online" | "manual">("cash");
   const [payRef, setPayRef] = useState("");
   const [payBusy, setPayBusy] = useState(false);
+  const [printBusy, setPrintBusy] = useState(false);
+
+  const printBill = async (invoiceId: number) => {
+    setPrintBusy(true);
+    try {
+      const bill = await apiGetAuth<PatientBillPayload>(`/admin/invoice_bill/?invoice_id=${invoiceId}`);
+      openPatientBillPrint(bill);
+      toast.success("Patient bill opened for printing.");
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError
+          ? e.message
+          : "Could not print bill — make sure the invoice is paid first.",
+      );
+    } finally {
+      setPrintBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -210,6 +230,17 @@ export default function AdminBillingPage() {
                   </div>
                 </dl>
               </div>
+
+              {selected.status === "paid" && (
+                <button
+                  type="button"
+                  disabled={printBusy}
+                  onClick={() => void printBill(selected.id)}
+                  className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                >
+                  {printBusy ? "Loading…" : "Print patient bill"}
+                </button>
+              )}
 
               {canRecordPayment ? (
                 <div className="space-y-3 rounded-xl border border-slate-200/90 p-4">

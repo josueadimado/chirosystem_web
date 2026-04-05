@@ -40,6 +40,8 @@ type Appointment = {
   invoice_id?: number;
   invoice_number?: string;
   invoice_total?: string;
+  card_last4?: string;
+  card_brand?: string;
 };
 
 type ServiceOpt = {
@@ -99,6 +101,18 @@ export default function DoctorDashboardPage() {
   const [resDate, setResDate] = useState("");
   const [resTime, setResTime] = useState("09:00");
   const [savingDesk, setSavingDesk] = useState(false);
+  const [chargeConfirmAppt, setChargeConfirmAppt] = useState<Appointment | null>(null);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [billSearchQuery, setBillSearchQuery] = useState("");
+  const [billSearchResults, setBillSearchResults] = useState<Array<{
+    invoice_id: number;
+    invoice_number: string;
+    patient_name: string;
+    date_of_service: string;
+    total_amount: string;
+    status: string;
+  }> | null>(null);
+  const [billSearchLoading, setBillSearchLoading] = useState(false);
 
   useEffect(() => {
     setDisplayName(localStorage.getItem("chiroflow_user_name") || "");
@@ -136,7 +150,7 @@ export default function DoctorDashboardPage() {
         label: "Checked in",
         value: list.filter((a) => a.status === "checked_in").length,
         tone: "amber" as const,
-        help: "Front desk (or kiosk) marked them arrived. Tap Start visit on their row when you are ready to see them.",
+        help: "Checked in at the kiosk, front desk, or by you. Tap Start visit on their row when you are ready to see them.",
       },
       {
         label: "In consultation",
@@ -269,7 +283,7 @@ export default function DoctorDashboardPage() {
     setIsStarting(false);
   };
 
-  const completeVisit = async () => {
+  const doCompleteVisit = async (shouldChargeCard: boolean) => {
     if (!activeAppt) return;
     const rendered = billLines
       .filter((l) => l.service_id)
@@ -300,9 +314,8 @@ export default function DoctorDashboardPage() {
           doctor_notes: doctorNotes,
           diagnosis,
           rendered_services: rendered,
-          charge_saved_card_if_present: chargeSavedCard,
+          charge_saved_card_if_present: shouldChargeCard,
         });
-        // Patient bill prints only after the invoice is paid (saved-card success marks paid immediately).
         if (result.payment.charged) {
           await tryOpenPatientBill(result.invoice_id, { maxAttempts: 3 });
         }
@@ -330,6 +343,56 @@ export default function DoctorDashboardPage() {
       },
     );
     setIsCompleting(false);
+  };
+
+  const completeVisit = async () => {
+    if (!activeAppt) return;
+    if (billLines.filter((l) => l.service_id).length === 0) {
+      toast.error("Add at least one service line for this visit (adjust or add rows below).");
+      return;
+    }
+    if (chargeSavedCard && activeAppt.card_last4) {
+      setChargeConfirmAppt(activeAppt);
+      return;
+    }
+    await doCompleteVisit(false);
+  };
+
+  const checkInPatient = async (appt: Appointment) => {
+    setIsCheckingIn(true);
+    await runWithFeedback(
+      async () => {
+        await apiPost("/kiosk/checkin/", { appointment_id: appt.id });
+        await load();
+      },
+      {
+        loadingMessage: "Checking in…",
+        successMessage: `${appt.patient} is checked in — you can start the visit now.`,
+        errorFallback: "Could not check in this patient.",
+      },
+    );
+    setIsCheckingIn(false);
+  };
+
+  const searchBills = async () => {
+    if (!billSearchQuery.trim()) return;
+    setBillSearchLoading(true);
+    try {
+      const results = await apiGetAuth<Array<{
+        invoice_id: number;
+        invoice_number: string;
+        patient_name: string;
+        date_of_service: string;
+        total_amount: string;
+        status: string;
+      }>>(`/doctor/invoice_search/?q=${encodeURIComponent(billSearchQuery.trim())}`);
+      setBillSearchResults(results);
+    } catch {
+      toast.error("Could not search invoices.");
+      setBillSearchResults([]);
+    } finally {
+      setBillSearchLoading(false);
+    }
   };
 
   const prepareTerminalPayment = async () => {
@@ -735,6 +798,70 @@ export default function DoctorDashboardPage() {
           )}
         </section>
       )}
+      <section className="doctor-panel lg:col-span-2">
+        <DoctorSectionLabel help="Search for any past invoice by patient name, invoice number, or date and reprint the bill.">
+          Search & reprint bills
+        </DoctorSectionLabel>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <label className="mb-1 block text-xs font-semibold text-slate-500">Patient name, invoice #, or date</label>
+            <input
+              type="text"
+              value={billSearchQuery}
+              onChange={(e) => setBillSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void searchBills()}
+              placeholder="e.g. John Smith, INV-0042, or 2026-04-05"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void searchBills()}
+            disabled={billSearchLoading || !billSearchQuery.trim()}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+          >
+            {billSearchLoading ? "Searching…" : "Search"}
+          </button>
+        </div>
+        {billSearchResults !== null && (
+          <div className="mt-3">
+            {billSearchResults.length === 0 ? (
+              <p className="text-sm text-slate-500">No invoices found. Try a different search.</p>
+            ) : (
+              <div className="space-y-2">
+                {billSearchResults.map((inv) => (
+                  <div
+                    key={inv.invoice_id}
+                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{inv.patient_name}</p>
+                      <p className="text-xs text-slate-500">
+                        {inv.invoice_number} · {inv.date_of_service} · ${inv.total_amount}
+                        <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          inv.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                        }`}>
+                          {inv.status.toUpperCase()}
+                        </span>
+                      </p>
+                    </div>
+                    {inv.status === "paid" && (
+                      <button
+                        type="button"
+                        disabled={printingBill}
+                        onClick={() => void tryOpenPatientBill(inv.invoice_id, { maxAttempts: 2 })}
+                        className="rounded-lg bg-[#16a349] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+                      >
+                        {printingBill ? "Loading…" : "Print bill"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
       <section className="doctor-panel">
         <DoctorSectionLabel
           help="Only visits where you are the provider. Click a row to open their chart. Awaiting payment means the visit is done but money is still due — use Collect payment on that row to reopen checkout or the card reader. Before the visit starts you can mark no-show, cancel, or reschedule."
@@ -817,6 +944,19 @@ export default function DoctorDashboardPage() {
                     >
                       {badgeLabel(statusDisplay(appt.status))}
                     </span>
+                    {(appt.status === "booked" || appt.status === "confirmed") && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void checkInPatient(appt);
+                        }}
+                        disabled={isCheckingIn}
+                        className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {isCheckingIn ? "Checking in…" : "Check in"}
+                      </button>
+                    )}
                     {appt.status === "checked_in" && (
                       <div className="flex items-center gap-1.5">
                         <button
@@ -1130,7 +1270,7 @@ export default function DoctorDashboardPage() {
         ) : (
           <DoctorEmptyWell
             title="No active visit"
-            description="When a patient is checked in, tap Start visit on their row. Their chart, services, and notes will open here."
+            description="Check in a patient from their row (or they can check in at the kiosk), then tap Start visit. Their chart, services, and notes will open here."
           >
             <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
               <IconStethoscope className="h-6 w-6" />
@@ -1138,6 +1278,75 @@ export default function DoctorDashboardPage() {
           </DoctorEmptyWell>
         )}
       </aside>
+      {chargeConfirmAppt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="charge-confirm-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h2 id="charge-confirm-title" className="text-lg font-bold text-slate-900">
+              Confirm charge
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Please confirm with <span className="font-semibold text-slate-900">{chargeConfirmAppt.patient}</span> before proceeding.
+            </p>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Card on file</span>
+                <span className="font-semibold text-slate-900">
+                  {chargeConfirmAppt.card_brand || "Card"} ending in {chargeConfirmAppt.card_last4}
+                </span>
+              </div>
+              {consultationEstimatedTotal != null && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Estimated charge</span>
+                  <span className="text-lg font-bold text-slate-900">
+                    {consultationEstimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                  </span>
+                </div>
+              )}
+            </div>
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
+              We will charge this card now. Please let the patient know before confirming. The exact amount
+              will be based on the final invoice.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setChargeConfirmAppt(null)}
+                disabled={isCompleting}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setChargeConfirmAppt(null);
+                  void doCompleteVisit(false);
+                }}
+                disabled={isCompleting}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Skip card — collect later
+              </button>
+              <button
+                type="button"
+                disabled={isCompleting}
+                onClick={() => {
+                  setChargeConfirmAppt(null);
+                  void doCompleteVisit(true);
+                }}
+                className="rounded-xl bg-[#16a349] px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {isCompleting ? "Charging…" : "Confirm & charge"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {rescheduleAppt && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
