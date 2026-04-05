@@ -57,8 +57,10 @@ export default function BookingPage() {
   const [optionsError, setOptionsError] = useState("");
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [step, setStep] = useState<Step>(1);
+  const [selectedCategory, setSelectedCategory] = useState<"chiropractic" | "massage" | null>(null);
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<ProviderOption | null>(null);
+  const [skippedProviderStep, setSkippedProviderStep] = useState(false);
   const [selectedTime, setSelectedTime] = useState(ALL_TIME_SLOTS[2]);
   const [selectedDate, setSelectedDate] = useState(today);
   const [firstName, setFirstName] = useState("");
@@ -81,7 +83,6 @@ export default function BookingPage() {
     withMinimumDelay(apiGet<BookingOptions>("/booking-options/"), 520)
       .then((data) => {
         setOptions(data);
-        if (data.services.length > 0) setSelectedService(data.services[0]);
       })
       .catch(() => setOptionsError("Could not load booking options. Make sure the API is running, then try again."))
       .finally(() => setOptionsLoading(false));
@@ -156,17 +157,11 @@ export default function BookingPage() {
   );
 
   /** Primary name shown for each section (from the first service’s assigned provider). */
-  const chiroLeadName = useMemo(() => {
-    const first = chiroServices[0];
-    const lead = first && options?.providers_by_service?.[first.id]?.[0]?.provider_name;
-    return lead || "Chiropractor";
-  }, [chiroServices, options?.providers_by_service]);
-
-  const massageLeadName = useMemo(() => {
-    const first = massageServices[0];
-    const lead = first && options?.providers_by_service?.[first.id]?.[0]?.provider_name;
-    return lead || "Massage therapist";
-  }, [massageServices, options?.providers_by_service]);
+  const servicesForCategory = selectedCategory === "chiropractic"
+    ? chiroServices
+    : selectedCategory === "massage"
+      ? massageServices
+      : [];
 
   const renderServiceButton = (service: ServiceOption) => (
     <button
@@ -175,14 +170,17 @@ export default function BookingPage() {
       onClick={() => {
         setSelectedService(service);
         const providers = options?.providers_by_service?.[service.id] ?? [];
-        if (service.allow_provider_choice && providers.length > 0) {
+        if (providers.length > 1) {
           setSelectedProvider(null);
+          setSkippedProviderStep(false);
           setStep(2);
-        } else if (providers.length > 0) {
+        } else if (providers.length === 1) {
           setSelectedProvider(providers[0]);
+          setSkippedProviderStep(true);
           setStep(3);
         } else {
           setSelectedProvider(null);
+          setSkippedProviderStep(false);
           setStep(2);
         }
       }}
@@ -214,13 +212,15 @@ export default function BookingPage() {
   };
 
   const goToPreviousStep = () => {
-    if (step > 1) {
-      // Chiropractic skips provider step: Back from step 3 goes to step 1
-      if (step === 3 && selectedService && !selectedService.allow_provider_choice) {
-        setStep(1);
-      } else {
-        setStep((step - 1) as Step);
-      }
+    if (step === 1 && selectedCategory) {
+      setSelectedCategory(null);
+      setSelectedService(null);
+    } else if (step === 2) {
+      setStep(1);
+    } else if (step === 3 && skippedProviderStep) {
+      setStep(1);
+    } else if (step > 1) {
+      setStep((step - 1) as Step);
     }
   };
 
@@ -228,6 +228,10 @@ export default function BookingPage() {
   const resetBookingFlow = () => {
     setBookingResult(null);
     setBookingMessage("");
+    setSelectedCategory(null);
+    setSelectedService(null);
+    setSelectedProvider(null);
+    setSkippedProviderStep(false);
     setStep(1);
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -323,7 +327,7 @@ export default function BookingPage() {
     const startTime = esc(bookingResult.start_time);
     const total = esc(bookingResult.total_amount);
     const generated = esc(new Date().toLocaleString());
-    const showProvider = bookingResult.service_type !== "chiropractic";
+    const showProvider = !skippedProviderStep;
 
     const html = `<!doctype html>
 <html lang="en">
@@ -615,7 +619,7 @@ export default function BookingPage() {
               </span>
             </h1>
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
-              Choose your visit type, your doctor when needed, then your time. We&apos;ll confirm everything before you submit.
+              Pick a service category, choose your visit, then select your time. We&apos;ll confirm everything before you submit.
             </p>
           </div>
           <div className="relative min-h-[14rem] md:min-h-full">
@@ -654,7 +658,6 @@ export default function BookingPage() {
 
           {step === 1 && (
             <div className="animate-fade-in-up space-y-3">
-              <h2 className="text-lg font-semibold">Choose service</h2>
               {optionsError && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-rose-700">{optionsError}</p>
@@ -672,38 +675,74 @@ export default function BookingPage() {
               {!options && !optionsError && (
                 <Loader variant="page" label="Loading services" sublabel="Fetching available visits and times…" />
               )}
-              {chiroServices.length > 0 && (
-                <div className="space-y-2">
-                  <div className="rounded-xl border border-primary/20 bg-primary/[0.07] px-4 py-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-[#166534]">Chiropractic</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{chiroLeadName}</p>
-                    <p className="mt-1 text-xs text-slate-600">Visit types and fees are listed below.</p>
+
+              {options && !selectedCategory && (
+                <>
+                  <h2 className="text-lg font-semibold">Choose a category</h2>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {chiroServices.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategory("chiropractic")}
+                        className="group rounded-xl border-2 border-primary/20 bg-primary/[0.07] p-5 text-left transition-all hover:border-primary/40 hover:shadow-md"
+                      >
+                        <p className="text-xs font-bold uppercase tracking-wide text-[#166534]">Chiropractic</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {chiroServices.length} service{chiroServices.length !== 1 ? "s" : ""} available
+                        </p>
+                        <p className="mt-3 text-xs font-medium text-primary group-hover:underline">View services →</p>
+                      </button>
+                    )}
+                    {massageServices.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategory("massage")}
+                        className="group rounded-xl border-2 border-amber-200/80 bg-amber-50/90 p-5 text-left transition-all hover:border-amber-400/60 hover:shadow-md"
+                      >
+                        <p className="text-xs font-bold uppercase tracking-wide text-amber-900/90">Massage</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {massageServices.length} service{massageServices.length !== 1 ? "s" : ""} available
+                        </p>
+                        <p className="mt-3 text-xs font-medium text-amber-700 group-hover:underline">View services →</p>
+                      </button>
+                    )}
                   </div>
-                  <div className="space-y-2">{chiroServices.map(renderServiceButton)}</div>
-                </div>
+                  {chiroServices.length === 0 && massageServices.length === 0 && options.services.length > 0 && (
+                    <div className="space-y-2">{options.services.map(renderServiceButton)}</div>
+                  )}
+                </>
               )}
-              {massageServices.length > 0 && (
-                <div className="space-y-2 pt-2">
-                  <div className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-amber-900/90">Massage</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{massageLeadName}</p>
-                    <p className="mt-1 text-xs text-slate-600">Choose your therapist on the next step when you pick a massage length.</p>
+
+              {options && selectedCategory && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedCategory(null); setSelectedService(null); }}
+                      className="rounded-lg border border-border/80 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-muted/60"
+                    >
+                      ← Back
+                    </button>
+                    <h2 className="text-lg font-semibold">
+                      {selectedCategory === "chiropractic" ? "Chiropractic" : "Massage"} services
+                    </h2>
                   </div>
-                  <div className="space-y-2">{massageServices.map(renderServiceButton)}</div>
-                </div>
+                  <div className="space-y-2">
+                    {servicesForCategory.map(renderServiceButton)}
+                  </div>
+                </>
               )}
-              {options &&
-                options.services.length > 0 &&
-                chiroServices.length === 0 &&
-                massageServices.length === 0 && (
-                  <div className="space-y-2">{(options.services ?? []).map(renderServiceButton)}</div>
-                )}
             </div>
           )}
 
           {step === 2 && (
             <div className="animate-fade-in-up space-y-3">
-              <h2 className="text-lg font-semibold">Pick doctor</h2>
+              <h2 className="text-lg font-semibold">Choose your doctor</h2>
+              {selectedService && (
+                <p className="text-sm text-slate-600">
+                  Multiple providers are available for <span className="font-medium text-slate-900">{selectedService.name}</span>. Pick your preferred one.
+                </p>
+              )}
               {providersForService.length === 0 ? (
                 <p className="text-slate-500">No doctors available for this service. Please choose another service.</p>
               ) : (
@@ -916,7 +955,7 @@ export default function BookingPage() {
                     <span className="text-slate-500">Service: </span>
                     <span className="font-medium text-slate-900">{bookingResult.service}</span>
                   </li>
-                  {bookingResult.service_type !== "chiropractic" && (
+                  {!skippedProviderStep && (
                     <li>
                     <span className="text-slate-500">Doctor: </span>
                     <span className="font-medium text-slate-900">{bookingResult.provider}</span>
@@ -977,7 +1016,7 @@ export default function BookingPage() {
               type="button"
               variant="outline"
               onClick={goToPreviousStep}
-              disabled={step === 1 || (step === 4 && bookingResult !== null)}
+              disabled={(step === 1 && !selectedCategory) || (step === 4 && bookingResult !== null)}
               className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
             >
               Back
@@ -1024,10 +1063,10 @@ export default function BookingPage() {
                   <span className="text-slate-500">Duration</span>
                   <span className="font-medium text-slate-900">{selectedService?.duration_minutes ?? 0} min</span>
                 </div>
-                {selectedService?.allow_provider_choice && (
+                {!skippedProviderStep && selectedProvider && (
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-slate-500">Doctor</span>
-                    <span className="text-right font-medium text-slate-900">{selectedProvider?.provider_name ?? "—"}</span>
+                    <span className="text-right font-medium text-slate-900">{selectedProvider.provider_name}</span>
                   </div>
                 )}
                 <div className="flex items-start justify-between gap-3">
