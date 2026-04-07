@@ -42,12 +42,34 @@ type ServiceOption = {
 type ProviderOption = { id: number; provider_name: string };
 type BookingOptions = { services: ServiceOption[]; providers_by_service: Record<number, ProviderOption[]> };
 
+type CartItem = {
+  service: ServiceOption;
+  provider: ProviderOption | null;
+  providerSkipped: boolean;
+};
+
 const ALL_TIME_SLOTS = ["9:00 AM", "10:15 AM", "2:30 PM", "3:45 PM", "5:15 PM"];
 
 function formatBookingPrice(p: string): string {
   const n = parseFloat(p);
   if (Number.isNaN(n)) return `$${p}`;
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+}
+
+function addMinutesToTimeSlot(slot: string, minutes: number): string {
+  const match = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return slot;
+  let h = parseInt(match[1], 10);
+  let m = parseInt(match[2], 10);
+  const ampm = match[3].toUpperCase();
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+  const totalMin = h * 60 + m + minutes;
+  const newH = Math.floor(totalMin / 60) % 24;
+  const newM = totalMin % 60;
+  const newAmpm = newH >= 12 ? "PM" : "AM";
+  const displayH = newH === 0 ? 12 : newH > 12 ? newH - 12 : newH;
+  return `${displayH}:${String(newM).padStart(2, "0")} ${newAmpm}`;
 }
 
 export default function BookingPage() {
@@ -58,9 +80,11 @@ export default function BookingPage() {
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [step, setStep] = useState<Step>(1);
   const [selectedCategory, setSelectedCategory] = useState<"chiropractic" | "massage" | null>(null);
-  const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderOption | null>(null);
-  const [skippedProviderStep, setSkippedProviderStep] = useState(false);
+
+  // Multi-service cart
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [addingAnother, setAddingAnother] = useState(false);
+
   const [selectedTime, setSelectedTime] = useState(ALL_TIME_SLOTS[2]);
   const [selectedDate, setSelectedDate] = useState(today);
   const [firstName, setFirstName] = useState("");
@@ -72,7 +96,7 @@ export default function BookingPage() {
   const [bookingMessage, setBookingMessage] = useState("");
   const [bookingMessageKind, setBookingMessageKind] = useState<"success" | "error">("success");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [bookingResult, setBookingResult] = useState<BookingResult | null>(null);
+  const [bookingResults, setBookingResults] = useState<BookingResult[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [patientLookup, setPatientLookup] = useState<"idle" | "loading" | "returning" | "new">("idle");
@@ -81,42 +105,37 @@ export default function BookingPage() {
     setOptionsError("");
     setOptionsLoading(true);
     withMinimumDelay(apiGet<BookingOptions>("/booking-options/"), 520)
-      .then((data) => {
-        setOptions(data);
-      })
+      .then((data) => setOptions(data))
       .catch(() => setOptionsError("Could not load booking options. Make sure the API is running, then try again."))
       .finally(() => setOptionsLoading(false));
   };
 
-  useEffect(() => {
-    fetchOptions();
-  }, []);
+  useEffect(() => { fetchOptions(); }, []);
+
+  const firstCartItem = cart[0] ?? null;
+  const firstProvider = firstCartItem?.provider ?? null;
+  const firstService = firstCartItem?.service ?? null;
 
   useEffect(() => {
-    if (!selectedService || !selectedProvider || !selectedDate) {
+    if (!firstService || !firstProvider || !selectedDate) {
       setAvailableSlots(null);
       return;
     }
     setSlotsLoading(true);
     apiGet<{ available_slots: string[] }>(
-      `/booking-options/availability/?date=${selectedDate}&provider_id=${selectedProvider.id}&service_id=${selectedService.id}`
+      `/booking-options/availability/?date=${selectedDate}&provider_id=${firstProvider.id}&service_id=${firstService.id}`
     )
-      .then((res) => {
-        setAvailableSlots(res.available_slots);
-        setSlotWarning("");
-      })
+      .then((res) => { setAvailableSlots(res.available_slots); setSlotWarning(""); })
       .catch(() => setAvailableSlots(ALL_TIME_SLOTS))
       .finally(() => setSlotsLoading(false));
-  }, [selectedDate, selectedProvider, selectedService]);
+  }, [selectedDate, firstProvider?.id, firstService?.id]);
 
-  // Reset selected time if it's no longer available when date/provider changes
   useEffect(() => {
     if (availableSlots && availableSlots.length > 0 && !availableSlots.includes(selectedTime)) {
       setSelectedTime(availableSlots[0]);
     }
   }, [availableSlots]);
 
-  // Look up returning patient by phone when valid (Step 4)
   useEffect(() => {
     if (step !== 4 || !phone || !isValidPhoneNumber(phone)) {
       if (step !== 4) setPatientLookup("idle");
@@ -142,11 +161,6 @@ export default function BookingPage() {
     return () => clearTimeout(t);
   }, [step, phone]);
 
-  const providersForService = selectedService && options
-    ? (options.providers_by_service?.[selectedService.id] ?? [])
-    : [];
-  const canSubmit = selectedService && selectedProvider;
-
   const chiroServices = useMemo(
     () => (options?.services ?? []).filter((s) => s.service_type === "chiropractic"),
     [options?.services],
@@ -156,90 +170,86 @@ export default function BookingPage() {
     [options?.services],
   );
 
-  /** Primary name shown for each section (from the first service’s assigned provider). */
+  const cartCategoryTypes = useMemo(() => new Set(cart.map((c) => c.service.service_type)), [cart]);
+
+  const otherCategoryAvailable = useMemo(() => {
+    if (cartCategoryTypes.has("chiropractic") && !cartCategoryTypes.has("massage") && massageServices.length > 0)
+      return "massage" as const;
+    if (cartCategoryTypes.has("massage") && !cartCategoryTypes.has("chiropractic") && chiroServices.length > 0)
+      return "chiropractic" as const;
+    return null;
+  }, [cartCategoryTypes, chiroServices.length, massageServices.length]);
+
   const servicesForCategory = selectedCategory === "chiropractic"
     ? chiroServices
     : selectedCategory === "massage"
       ? massageServices
       : [];
 
-  const renderServiceButton = (service: ServiceOption) => (
-    <button
-      key={service.id}
-      type="button"
-      onClick={() => {
-        setSelectedService(service);
-        const providers = options?.providers_by_service?.[service.id] ?? [];
-        if (providers.length > 1) {
-          setSelectedProvider(null);
-          setSkippedProviderStep(false);
-          setStep(2);
-        } else if (providers.length === 1) {
-          setSelectedProvider(providers[0]);
-          setSkippedProviderStep(true);
-          setStep(3);
-        } else {
-          setSelectedProvider(null);
-          setSkippedProviderStep(false);
-          setStep(2);
-        }
-      }}
-      className={cn(
-        "w-full rounded-xl border p-4 text-left transition-all",
-        selectedService?.id === service.id
-          ? "border-2 border-primary bg-primary/8 shadow-md shadow-primary/10 ring-2 ring-primary/15"
-          : "border-border/90 bg-card hover:border-primary/25 hover:shadow-sm",
-      )}
-    >
-      <p
-        className={cn(
-          "font-semibold",
-          selectedService?.id === service.id ? "text-[#0d5c2e]" : "text-foreground",
-        )}
-      >
-        {service.name}
-      </p>
-      <p className="mt-0.5 text-sm text-muted-foreground">
-        {service.duration_minutes} min · {formatBookingPrice(service.price)}
-      </p>
-    </button>
+  const totalPrice = useMemo(
+    () => cart.reduce((sum, item) => sum + parseFloat(item.service.price || "0"), 0),
+    [cart],
   );
 
-  const goToNextStep = () => {
-    if (step < 4) {
-      setStep((step + 1) as Step);
+  const totalDuration = useMemo(
+    () => cart.reduce((sum, item) => sum + item.service.duration_minutes, 0),
+    [cart],
+  );
+
+  const anyProviderSkipped = cart.every((c) => c.providerSkipped);
+
+  const addServiceToCart = (service: ServiceOption) => {
+    const providers = options?.providers_by_service?.[service.id] ?? [];
+    const item: CartItem = {
+      service,
+      provider: providers.length === 1 ? providers[0] : null,
+      providerSkipped: providers.length <= 1,
+    };
+    setCart((prev) => [...prev, item]);
+    setSelectedCategory(null);
+    setAddingAnother(false);
+  };
+
+  const removeFromCart = (serviceId: number) => {
+    setCart((prev) => prev.filter((c) => c.service.id !== serviceId));
+  };
+
+  const needsProviderSelection = cart.some((c) => !c.provider && !c.providerSkipped);
+
+  const proceedFromStep1 = () => {
+    if (needsProviderSelection) {
+      setStep(2);
+    } else {
+      setStep(3);
     }
   };
 
   const goToPreviousStep = () => {
     if (step === 1 && selectedCategory) {
       setSelectedCategory(null);
-      setSelectedService(null);
+    } else if (step === 1 && addingAnother) {
+      setAddingAnother(false);
     } else if (step === 2) {
       setStep(1);
-    } else if (step === 3 && skippedProviderStep) {
+    } else if (step === 3 && !needsProviderSelection) {
       setStep(1);
     } else if (step > 1) {
       setStep((step - 1) as Step);
     }
   };
 
-  /** After a successful booking, return to the start of the flow and scroll up. */
   const resetBookingFlow = () => {
-    setBookingResult(null);
+    setBookingResults([]);
     setBookingMessage("");
     setSelectedCategory(null);
-    setSelectedService(null);
-    setSelectedProvider(null);
-    setSkippedProviderStep(false);
+    setCart([]);
+    setAddingAnother(false);
     setStep(1);
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const submitBooking = async () => {
-    if (!selectedService || !selectedProvider) return;
+    if (cart.length === 0) return;
     setBookingMessage("");
     setSlotWarning("");
     const nextErrors: FormErrors = {};
@@ -260,28 +270,37 @@ export default function BookingPage() {
       return;
     }
     setIsSubmitting(true);
+    const results: BookingResult[] = [];
+    let currentTime = selectedTime;
+
     try {
-      const result = await apiPostPublic<BookingResult>(
-        "/appointments/book/",
-        {
+      for (const item of cart) {
+        const result = await apiPostPublic<BookingResult>("/appointments/book/", {
           first_name: firstName,
           last_name: lastName,
           phone,
           email,
-          service_id: selectedService.id,
-          provider_id: selectedProvider.id,
-          provider_name: selectedProvider.provider_name,
-          service_name: selectedService.name,
-          service_duration_minutes: selectedService.duration_minutes,
-          service_price: selectedService.price,
+          service_id: item.service.id,
+          provider_id: item.provider?.id,
+          provider_name: item.provider?.provider_name ?? "",
+          service_name: item.service.name,
+          service_duration_minutes: item.service.duration_minutes,
+          service_price: item.service.price,
           appointment_date: selectedDate,
-          start_time: selectedTime,
-        }
-      );
-      setBookingResult(result);
+          start_time: currentTime,
+        });
+        results.push(result);
+        currentTime = addMinutesToTimeSlot(currentTime, item.service.duration_minutes);
+      }
+      setBookingResults(results);
       setBookingMessageKind("success");
-      setBookingMessage(`Appointment booked successfully. Booking ID: ${result.appointment_id}`);
-      toast.success("Appointment confirmed! Your confirmation is on screen.");
+      const ids = results.map((r) => `#${r.appointment_id}`).join(", ");
+      setBookingMessage(`Appointments booked successfully. IDs: ${ids}`);
+      toast.success(
+        results.length > 1
+          ? "Both appointments confirmed! Your confirmations are on screen."
+          : "Appointment confirmed! Your confirmation is on screen.",
+      );
     } catch (error) {
       setBookingMessageKind("error");
       if (error instanceof ApiError && error.status === 409) {
@@ -290,10 +309,8 @@ export default function BookingPage() {
         setBookingMessage("Please select another available time slot.");
         toast.info("That time is no longer available — please choose another slot.");
       } else {
-        setBookingMessage("Could not complete booking yet. Please check API/server setup and try again.");
-        toast.error(
-          error instanceof ApiError ? error.message : "Could not complete booking. Please try again.",
-        );
+        setBookingMessage("Could not complete booking. Please check API/server setup and try again.");
+        toast.error(error instanceof ApiError ? error.message : "Could not complete booking. Please try again.");
       }
     } finally {
       setIsSubmitting(false);
@@ -301,307 +318,45 @@ export default function BookingPage() {
   };
 
   const printBookingConfirmation = () => {
-    if (!bookingResult) return;
-
+    if (bookingResults.length === 0) return;
     const printWindow = window.open("", "_blank", "width=900,height=700");
     if (!printWindow) {
-      setBookingMessageKind("error");
-      setBookingMessage("Could not open print window. Please allow pop-ups and try again.");
       toast.error("Allow pop-ups for this site to print your confirmation.");
       return;
     }
-
-    // Safe text for HTML (names/services may contain special characters)
     const esc = (s: string | number) =>
-      String(s)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-
-    const id = esc(bookingResult.appointment_id);
-    const patient = esc(bookingResult.patient);
-    const service = esc(bookingResult.service);
-    const provider = esc(bookingResult.provider);
-    const apptDate = esc(bookingResult.appointment_date);
-    const startTime = esc(bookingResult.start_time);
-    const total = esc(bookingResult.total_amount);
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     const generated = esc(new Date().toLocaleString());
-    const showProvider = !skippedProviderStep;
 
-    const html = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Appointment confirmation — Relief Chiropractic</title>
-    <style>
-      @page {
-        margin: 14mm 16mm;
-        size: letter;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        padding: 20px;
-        font-family: "Georgia", "Times New Roman", serif;
-        color: #1e293b;
-        background: #f1f5f9;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      .screen-note {
-        max-width: 640px;
-        margin: 0 auto 16px;
-        padding: 10px 14px;
-        font-family: system-ui, sans-serif;
-        font-size: 13px;
-        color: #475569;
-        text-align: center;
-        background: #fff;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-      }
-      .form {
-        max-width: 640px;
-        margin: 0 auto;
-        background: #fff;
-        border: 2px solid #0f172a;
-        box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
-      }
-      .form-accent {
-        height: 6px;
-        background: linear-gradient(90deg, #16a349 0%, #16a349 38%, #e9982f 38%, #e9982f 100%);
-      }
-      .form-inner {
-        padding: 28px 32px 32px;
-      }
-      .form-header {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 16px;
-        padding-bottom: 20px;
-        margin-bottom: 20px;
-        border-bottom: 2px solid #0f172a;
-      }
-      .clinic-name {
-        margin: 0;
-        font-family: system-ui, -apple-system, sans-serif;
-        font-size: 26px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        color: #e9982f;
-      }
-      .doc-title {
-        margin: 4px 0 0;
-        font-family: system-ui, sans-serif;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.2em;
-        text-transform: uppercase;
-        color: #64748b;
-      }
-      .badge-wrap { text-align: right; }
-      .badge {
-        display: inline-block;
-        padding: 8px 14px;
-        font-family: system-ui, sans-serif;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: #166534;
-        background: #dcfce7;
-        border: 1px solid #86efac;
-        border-radius: 4px;
-      }
-      .ref-block {
-        margin-bottom: 24px;
-        padding: 16px 18px;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-left: 4px solid #16a349;
-      }
-      .ref-label {
-        margin: 0 0 6px;
-        font-family: system-ui, sans-serif;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: #64748b;
-      }
-      .ref-number {
-        margin: 0;
-        font-family: ui-monospace, "Cascadia Code", monospace;
-        font-size: 28px;
-        font-weight: 700;
-        color: #0f172a;
-        letter-spacing: 0.04em;
-      }
-      .section-title {
-        margin: 0 0 12px;
-        font-family: system-ui, sans-serif;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #334155;
-      }
-      table.details {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: system-ui, sans-serif;
-        font-size: 14px;
-        border: 1px solid #cbd5e1;
-      }
-      table.details tr {
-        border-bottom: 1px solid #e2e8f0;
-      }
-      table.details tr:last-child { border-bottom: none; }
-      table.details th {
-        width: 38%;
-        margin: 0;
-        padding: 12px 14px;
-        text-align: left;
-        font-weight: 600;
-        font-size: 12px;
-        color: #475569;
-        background: #f8fafc;
-        border-right: 1px solid #e2e8f0;
-        vertical-align: top;
-      }
-      table.details td {
-        margin: 0;
-        padding: 12px 14px;
-        font-weight: 600;
-        color: #0f172a;
-        vertical-align: top;
-        line-height: 1.45;
-      }
-      tr.total-row th {
-        background: #fffbeb;
-        color: #92400e;
-        border-right-color: #fde68a;
-      }
-      tr.total-row td {
-        background: #fffbeb;
-        font-size: 18px;
-        font-weight: 800;
-        color: #b45309;
-      }
-      .instructions {
-        margin-top: 22px;
-        padding: 14px 16px;
-        font-family: system-ui, sans-serif;
-        font-size: 12px;
-        line-height: 1.55;
-        color: #475569;
-        background: #f8fafc;
-        border: 1px dashed #94a3b8;
-        border-radius: 6px;
-      }
-      .instructions strong { color: #334155; }
-      .form-footer {
-        margin-top: 24px;
-        padding-top: 16px;
-        border-top: 1px solid #e2e8f0;
-        font-family: system-ui, sans-serif;
-        font-size: 10px;
-        color: #94a3b8;
-        text-align: center;
-        letter-spacing: 0.04em;
-      }
-      @media print {
-        body {
-          padding: 0;
-          background: #fff;
-        }
-        .screen-note { display: none !important; }
-        .form {
-          max-width: none;
-          border: 2px solid #000;
-          box-shadow: none;
-        }
-        .form-inner { padding: 20px 24px 24px; }
-      }
-    </style>
-  </head>
-  <body>
-    <p class="screen-note">A print dialog will open next. Choose your printer or <strong>Save as PDF</strong>. You can close this tab when finished.</p>
-    <article class="form" aria-label="Appointment confirmation">
-      <div class="form-accent" aria-hidden="true"></div>
-      <div class="form-inner">
-        <header class="form-header">
-          <div>
-            <h1 class="clinic-name">Relief Chiropractic</h1>
-            <p class="doc-title">Appointment confirmation</p>
-          </div>
-          <div class="badge-wrap">
-            <span class="badge">Confirmed</span>
-          </div>
-        </header>
+    const rowsHtml = bookingResults
+      .map(
+        (r, i) => `
+        ${bookingResults.length > 1 ? `<tr><td colspan="2" style="padding:10px 14px;font-weight:700;font-size:13px;color:#166534;background:#f0fdf4;border-bottom:1px solid #e2e8f0;">Appointment ${i + 1}</td></tr>` : ""}
+        <tr><th scope="row">Confirmation #</th><td>${esc(r.appointment_id)}</td></tr>
+        <tr><th scope="row">Patient</th><td>${esc(r.patient)}</td></tr>
+        <tr><th scope="row">Service</th><td>${esc(r.service)}</td></tr>
+        ${!anyProviderSkipped ? `<tr><th scope="row">Doctor</th><td>${esc(r.provider)}</td></tr>` : ""}
+        <tr><th scope="row">Date</th><td>${esc(r.appointment_date)}</td></tr>
+        <tr><th scope="row">Time</th><td>${esc(r.start_time)}</td></tr>
+        <tr class="total-row"><th scope="row">Estimated total</th><td>$${esc(r.total_amount)}</td></tr>`,
+      )
+      .join("");
 
-        <div class="ref-block">
-          <p class="ref-label">Confirmation number</p>
-          <p class="ref-number">#${id}</p>
-        </div>
-
-        <h2 class="section-title">Visit details</h2>
-        <table class="details" role="presentation">
-          <tbody>
-            <tr>
-              <th scope="row">Patient name</th>
-              <td>${patient}</td>
-            </tr>
-            <tr>
-              <th scope="row">Service</th>
-              <td>${service}</td>
-            </tr>
-            ${
-              showProvider
-                ? `<tr>
-              <th scope="row">Doctor</th>
-              <td>${provider}</td>
-            </tr>`
-                : ""
-            }
-            <tr>
-              <th scope="row">Date</th>
-              <td>${apptDate}</td>
-            </tr>
-            <tr>
-              <th scope="row">Time</th>
-              <td>${startTime}</td>
-            </tr>
-            <tr class="total-row">
-              <th scope="row">Estimated total</th>
-              <td>$${total}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="instructions">
-          <strong>Before your visit:</strong> Please arrive a few minutes early. Bring this confirmation (printed or on your phone) or check in at the clinic kiosk using the <strong>same phone number</strong> you used to book. Estimated total is based on the service booked; final charges follow your visit and any services rendered.
-        </div>
-
-        <footer class="form-footer">
-          Document generated ${generated} · Relief Chiropractic · Online booking confirmation
-        </footer>
-      </div>
-    </article>
-    <script>
-      window.onload = function () { window.print(); };
-    </script>
-  </body>
-</html>`;
-
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Appointment confirmation — Relief Chiropractic</title><style>@page{margin:14mm 16mm;size:letter}*{box-sizing:border-box}body{margin:0;padding:20px;font-family:"Georgia","Times New Roman",serif;color:#1e293b;background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}.screen-note{max-width:640px;margin:0 auto 16px;padding:10px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#475569;text-align:center;background:#fff;border:1px solid #cbd5e1;border-radius:8px}.form{max-width:640px;margin:0 auto;background:#fff;border:2px solid #0f172a;box-shadow:0 4px 24px rgba(15,23,42,.08)}.form-accent{height:6px;background:linear-gradient(90deg,#16a349 0%,#16a349 38%,#e9982f 38%,#e9982f 100%)}.form-inner{padding:28px 32px 32px}.form-header{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px;margin-bottom:20px;border-bottom:2px solid #0f172a}.clinic-name{margin:0;font-family:system-ui,-apple-system,sans-serif;font-size:26px;font-weight:800;letter-spacing:-.02em;color:#e9982f}.doc-title{margin:4px 0 0;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#64748b}.badge-wrap{text-align:right}.badge{display:inline-block;padding:8px 14px;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:4px}h2.section-title{margin:0 0 12px;font-family:system-ui,sans-serif;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#334155}table.details{width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:14px;border:1px solid #cbd5e1}table.details tr{border-bottom:1px solid #e2e8f0}table.details tr:last-child{border-bottom:none}table.details th{width:38%;padding:12px 14px;text-align:left;font-weight:600;font-size:12px;color:#475569;background:#f8fafc;border-right:1px solid #e2e8f0;vertical-align:top}table.details td{padding:12px 14px;font-weight:600;color:#0f172a;vertical-align:top;line-height:1.45}tr.total-row th{background:#fffbeb;color:#92400e;border-right-color:#fde68a}tr.total-row td{background:#fffbeb;font-size:18px;font-weight:800;color:#b45309}.instructions{margin-top:22px;padding:14px 16px;font-family:system-ui,sans-serif;font-size:12px;line-height:1.55;color:#475569;background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px}.instructions strong{color:#334155}.form-footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:system-ui,sans-serif;font-size:10px;color:#94a3b8;text-align:center;letter-spacing:.04em}@media print{body{padding:0;background:#fff}.screen-note{display:none!important}.form{max-width:none;border:2px solid #000;box-shadow:none}.form-inner{padding:20px 24px 24px}}</style></head><body><p class="screen-note">A print dialog will open next. Choose your printer or <strong>Save as PDF</strong>.</p><article class="form"><div class="form-accent"></div><div class="form-inner"><header class="form-header"><div><h1 class="clinic-name">Relief Chiropractic</h1><p class="doc-title">Appointment confirmation</p></div><div class="badge-wrap"><span class="badge">Confirmed</span></div></header><h2 class="section-title">Visit details</h2><table class="details"><tbody>${rowsHtml}</tbody></table><div class="instructions"><strong>Before your visit:</strong> Please arrive a few minutes early. Bring this confirmation or check in at the clinic kiosk using your phone number.</div><footer class="form-footer">Document generated ${generated} · Relief Chiropractic · Online booking confirmation</footer></div></article><script>window.onload=function(){window.print()};<\/script></body></html>`;
     printWindow.document.open();
     printWindow.document.write(html);
     printWindow.document.close();
   };
+
+  // Schedule preview for cart items
+  const cartSchedule = useMemo(() => {
+    let time = selectedTime;
+    return cart.map((item) => {
+      const startTime = time;
+      time = addMinutesToTimeSlot(time, item.service.duration_minutes);
+      return { ...item, startTime, endTime: time };
+    });
+  }, [cart, selectedTime]);
 
   return (
     <main className="content-fade-in min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
@@ -619,18 +374,11 @@ export default function BookingPage() {
               </span>
             </h1>
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
-              Pick a service category, choose your visit, then select your time. We&apos;ll confirm everything before you submit.
+              Pick a service category, choose your visit, then select your time. You can book multiple services at once.
             </p>
           </div>
           <div className="relative min-h-[14rem] md:min-h-full">
-            <Image
-              src="/images/clinic-reception.png"
-              alt="Clinic reception"
-              fill
-              className="object-cover"
-              sizes="(max-width: 768px) 100vw, 50vw"
-              priority
-            />
+            <Image src="/images/clinic-reception.png" alt="Clinic reception" fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" priority />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-900/20 to-transparent md:bg-gradient-to-l" aria-hidden />
           </div>
         </div>
@@ -656,18 +404,13 @@ export default function BookingPage() {
             ))}
           </div>
 
+          {/* ─── STEP 1: Service selection ─── */}
           {step === 1 && (
             <div className="animate-fade-in-up space-y-3">
               {optionsError && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-rose-700">{optionsError}</p>
-                  <Button
-                    type="button"
-                    onClick={fetchOptions}
-                    disabled={optionsLoading}
-                    size="sm"
-                    className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm"
-                  >
+                  <Button type="button" onClick={fetchOptions} disabled={optionsLoading} size="sm" className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm">
                     {optionsLoading ? "Retrying…" : "Retry"}
                   </Button>
                 </div>
@@ -676,7 +419,58 @@ export default function BookingPage() {
                 <Loader variant="page" label="Loading services" sublabel="Fetching available visits and times…" />
               )}
 
-              {options && !selectedCategory && (
+              {/* Cart items already added */}
+              {options && cart.length > 0 && !addingAnother && !selectedCategory && (
+                <div className="space-y-3">
+                  <h2 className="text-lg font-semibold">Your selected services</h2>
+                  <div className="space-y-2">
+                    {cart.map((item) => (
+                      <div key={item.service.id} className="flex items-center justify-between rounded-xl border-2 border-primary/30 bg-primary/[0.06] p-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
+                              <IconCheck className="h-3 w-3" />
+                            </span>
+                            <p className="font-semibold text-[#0d5c2e]">{item.service.name}</p>
+                          </div>
+                          <p className="ml-7 text-sm text-muted-foreground">
+                            {item.service.duration_minutes} min · {formatBookingPrice(item.service.price)}
+                            {item.provider && !item.providerSkipped ? ` · ${item.provider.provider_name}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeFromCart(item.service.id)}
+                          className="rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {otherCategoryAvailable && (
+                    <button
+                      type="button"
+                      onClick={() => { setAddingAnother(true); setSelectedCategory(otherCategoryAvailable); }}
+                      className="w-full rounded-xl border-2 border-dashed border-primary/30 p-4 text-sm font-semibold text-primary transition-colors hover:border-primary/50 hover:bg-primary/[0.04]"
+                    >
+                      + Add a {otherCategoryAvailable === "chiropractic" ? "chiropractic" : "massage"} service
+                    </button>
+                  )}
+
+                  <Button
+                    type="button"
+                    onClick={proceedFromStep1}
+                    className="h-auto w-full rounded-xl bg-foreground px-6 py-3 text-base font-semibold text-background hover:bg-foreground/90"
+                  >
+                    Continue to scheduling
+                  </Button>
+                </div>
+              )}
+
+              {/* Category selection (empty cart or adding another) */}
+              {options && cart.length === 0 && !selectedCategory && (
                 <>
                   <h2 className="text-lg font-semibold">Choose a category</h2>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -687,9 +481,7 @@ export default function BookingPage() {
                         className="group rounded-xl border-2 border-primary/20 bg-primary/[0.07] p-5 text-left transition-all hover:border-primary/40 hover:shadow-md"
                       >
                         <p className="text-xs font-bold uppercase tracking-wide text-[#166534]">Chiropractic</p>
-                        <p className="mt-2 text-sm text-slate-600">
-                          {chiroServices.length} service{chiroServices.length !== 1 ? "s" : ""} available
-                        </p>
+                        <p className="mt-2 text-sm text-slate-600">{chiroServices.length} service{chiroServices.length !== 1 ? "s" : ""} available</p>
                         <p className="mt-3 text-xs font-medium text-primary group-hover:underline">View services →</p>
                       </button>
                     )}
@@ -700,25 +492,21 @@ export default function BookingPage() {
                         className="group rounded-xl border-2 border-amber-200/80 bg-amber-50/90 p-5 text-left transition-all hover:border-amber-400/60 hover:shadow-md"
                       >
                         <p className="text-xs font-bold uppercase tracking-wide text-amber-900/90">Massage</p>
-                        <p className="mt-2 text-sm text-slate-600">
-                          {massageServices.length} service{massageServices.length !== 1 ? "s" : ""} available
-                        </p>
+                        <p className="mt-2 text-sm text-slate-600">{massageServices.length} service{massageServices.length !== 1 ? "s" : ""} available</p>
                         <p className="mt-3 text-xs font-medium text-amber-700 group-hover:underline">View services →</p>
                       </button>
                     )}
                   </div>
-                  {chiroServices.length === 0 && massageServices.length === 0 && options.services.length > 0 && (
-                    <div className="space-y-2">{options.services.map(renderServiceButton)}</div>
-                  )}
                 </>
               )}
 
+              {/* Service list for selected category */}
               {options && selectedCategory && (
                 <>
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => { setSelectedCategory(null); setSelectedService(null); }}
+                      onClick={() => { setSelectedCategory(null); if (addingAnother && cart.length > 0) setAddingAnother(false); }}
                       className="rounded-lg border border-border/80 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-muted/60"
                     >
                       ← Back
@@ -728,48 +516,81 @@ export default function BookingPage() {
                     </h2>
                   </div>
                   <div className="space-y-2">
-                    {servicesForCategory.map(renderServiceButton)}
+                    {servicesForCategory
+                      .filter((svc) => !cart.some((c) => c.service.id === svc.id))
+                      .map((service) => (
+                        <button
+                          key={service.id}
+                          type="button"
+                          onClick={() => addServiceToCart(service)}
+                          className="w-full rounded-xl border border-border/90 bg-card p-4 text-left transition-all hover:border-primary/25 hover:shadow-sm"
+                        >
+                          <p className="font-semibold text-foreground">{service.name}</p>
+                          <p className="mt-0.5 text-sm text-muted-foreground">
+                            {service.duration_minutes} min · {formatBookingPrice(service.price)}
+                          </p>
+                        </button>
+                      ))}
                   </div>
                 </>
               )}
             </div>
           )}
 
+          {/* ─── STEP 2: Provider selection ─── */}
           {step === 2 && (
-            <div className="animate-fade-in-up space-y-3">
+            <div className="animate-fade-in-up space-y-4">
               <h2 className="text-lg font-semibold">Choose your doctor</h2>
-              {selectedService && (
-                <p className="text-sm text-slate-600">
-                  Multiple providers are available for <span className="font-medium text-slate-900">{selectedService.name}</span>. Pick your preferred one.
-                </p>
-              )}
-              {providersForService.length === 0 ? (
-                <p className="text-slate-500">No doctors available for this service. Please choose another service.</p>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {providersForService.map((provider) => (
-                    <button
-                      key={provider.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedProvider(provider);
-                        setStep(3);
-                      }}
-                      className={cn(
-                        "rounded-xl border p-3 text-sm font-medium transition-all",
-                        selectedProvider?.id === provider.id
-                          ? "border-primary/40 bg-primary/8 shadow-sm ring-1 ring-primary/15"
-                          : "border-border/90 hover:border-primary/20 hover:bg-muted/50",
-                      )}
-                    >
-                      {provider.provider_name}
-                    </button>
-                  ))}
-                </div>
+              {cart.filter((c) => !c.provider && !c.providerSkipped).map((item) => {
+                const providers = options?.providers_by_service?.[item.service.id] ?? [];
+                return (
+                  <div key={item.service.id} className="space-y-2">
+                    <p className="text-sm text-slate-600">
+                      For <span className="font-medium text-slate-900">{item.service.name}</span>:
+                    </p>
+                    {providers.length === 0 ? (
+                      <p className="text-slate-500">No doctors available. Please choose another service.</p>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {providers.map((provider) => (
+                          <button
+                            key={provider.id}
+                            type="button"
+                            onClick={() => {
+                              setCart((prev) =>
+                                prev.map((c) =>
+                                  c.service.id === item.service.id ? { ...c, provider, providerSkipped: false } : c,
+                                ),
+                              );
+                            }}
+                            className={cn(
+                              "rounded-xl border p-3 text-sm font-medium transition-all",
+                              item.provider?.id === provider.id
+                                ? "border-primary/40 bg-primary/8 shadow-sm ring-1 ring-primary/15"
+                                : "border-border/90 hover:border-primary/20 hover:bg-muted/50",
+                            )}
+                          >
+                            {provider.provider_name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {!needsProviderSelection && (
+                <Button
+                  type="button"
+                  onClick={() => setStep(3)}
+                  className="h-auto rounded-xl bg-foreground px-6 py-3 text-sm font-semibold text-background hover:bg-foreground/90"
+                >
+                  Continue
+                </Button>
               )}
             </div>
           )}
 
+          {/* ─── STEP 3: Date & time ─── */}
           {step === 3 && (
             <div className="animate-fade-in-up space-y-4">
               <h2 className="text-lg font-semibold">Select date & time</h2>
@@ -785,25 +606,21 @@ export default function BookingPage() {
                 <p className="mt-2 text-sm text-slate-600">
                   Your appointment is on{" "}
                   <strong className="text-[#166534]">
-                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
+                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                   </strong>
                 </p>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Available time {cart.length > 1 ? "(for your first service)" : ""}
+                </label>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
                   const slotsToShow = availableSlots === null ? ALL_TIME_SLOTS : availableSlots;
                   if (slotsToShow.length === 0) {
                     return (
                       <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                        No open times on this day for this provider—try another date, another doctor, or call the clinic. (The desk may
-                        have blocked online booking for part of the day.)
+                        No open times on this day — try another date or call the clinic.
                       </p>
                     );
                   }
@@ -813,11 +630,7 @@ export default function BookingPage() {
                         <button
                           key={slot}
                           type="button"
-                          onClick={() => {
-                            setSelectedTime(slot);
-                            setSlotWarning("");
-                            setStep(4);
-                          }}
+                          onClick={() => { setSelectedTime(slot); setSlotWarning(""); setStep(4); }}
                           className={cn(
                             "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
                             selectedTime === slot
@@ -832,76 +645,51 @@ export default function BookingPage() {
                   );
                 })()}
               </div>
+              {cart.length > 1 && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-sm text-blue-900">
+                  <p className="font-medium">Back-to-back scheduling</p>
+                  <p className="mt-1 text-blue-700">
+                    Your {cart[0].service.name} starts at the selected time, then {cart[1].service.name} follows
+                    right after ({cart[0].service.duration_minutes} min later). Total duration: {totalDuration} min.
+                  </p>
+                </div>
+              )}
               {slotWarning && <p className="text-sm font-medium text-rose-700">{slotWarning}</p>}
             </div>
           )}
 
-          {step === 4 && !bookingResult && (
+          {/* ─── STEP 4: Details & submit ─── */}
+          {step === 4 && bookingResults.length === 0 && (
             <div className="animate-fade-in-up space-y-3">
               <h2 className="text-lg font-semibold">Your details</h2>
-              <p className="text-sm text-slate-600">
-                Enter your phone first—we&apos;ll look up your info if you&apos;ve visited before.
-              </p>
+              <p className="text-sm text-slate-600">Enter your phone first—we&apos;ll look up your info if you&apos;ve visited before.</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Phone number</label>
                   <div className={`rounded-lg border bg-white p-2 ${formErrors.phone ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}>
                     <PhoneInput
-                      international
-                      defaultCountry="US"
-                      countryCallingCodeEditable={false}
+                      international defaultCountry="US" countryCallingCodeEditable={false}
                       value={phone}
-                      onChange={(value) => {
-                        setPhone(value);
-                        setFormErrors((prev) => ({ ...prev, phone: undefined }));
-                        setPatientLookup("idle");
-                      }}
-                      placeholder="Enter phone number"
-                      className="phone-field text-sm"
+                      onChange={(value) => { setPhone(value); setFormErrors((p) => ({ ...p, phone: undefined })); setPatientLookup("idle"); }}
+                      placeholder="Enter phone number" className="phone-field text-sm"
                     />
                   </div>
                   {formErrors.phone && <p className="mt-1 text-xs text-rose-700">{formErrors.phone}</p>}
                   {patientLookup === "loading" && <p className="mt-1 text-sm text-slate-500">Looking up…</p>}
                   {patientLookup === "returning" && firstName && (
                     <p className="mt-2 rounded-lg bg-[#16a349]/10 px-3 py-2 text-sm font-medium text-[#166534]">
-                      Welcome back, {firstName}! We&apos;ve filled in your details—review and confirm below.
+                      Welcome back, {firstName}! We&apos;ve filled in your details.
                     </p>
                   )}
                   {patientLookup === "new" && (
-                    <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">
-                      First visit? We&apos;re happy to meet you—please fill in your details below.
-                    </p>
+                    <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">First visit? Please fill in your details below.</p>
                   )}
                 </div>
-                <input
-                  className={`rounded-lg border p-2 ${formErrors.firstName ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}
-                  placeholder="First name"
-                  value={firstName}
-                  onChange={(event) => {
-                    setFirstName(event.target.value);
-                    setFormErrors((prev) => ({ ...prev, firstName: undefined }));
-                  }}
-                />
+                <input className={`rounded-lg border p-2 ${formErrors.firstName ? "border-rose-400 bg-rose-50" : "border-slate-200"}`} placeholder="First name" value={firstName} onChange={(e) => { setFirstName(e.target.value); setFormErrors((p) => ({ ...p, firstName: undefined })); }} />
                 {formErrors.firstName && <p className="-mt-2 text-xs text-rose-700">{formErrors.firstName}</p>}
-                <input
-                  className={`rounded-lg border p-2 ${formErrors.lastName ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}
-                  placeholder="Last name"
-                  value={lastName}
-                  onChange={(event) => {
-                    setLastName(event.target.value);
-                    setFormErrors((prev) => ({ ...prev, lastName: undefined }));
-                  }}
-                />
+                <input className={`rounded-lg border p-2 ${formErrors.lastName ? "border-rose-400 bg-rose-50" : "border-slate-200"}`} placeholder="Last name" value={lastName} onChange={(e) => { setLastName(e.target.value); setFormErrors((p) => ({ ...p, lastName: undefined })); }} />
                 {formErrors.lastName && <p className="-mt-2 text-xs text-rose-700">{formErrors.lastName}</p>}
-                <input
-                  className={`rounded-lg border p-2 ${formErrors.email ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}
-                  placeholder="Email"
-                  value={email}
-                  onChange={(event) => {
-                    setEmail(event.target.value);
-                    setFormErrors((prev) => ({ ...prev, email: undefined }));
-                  }}
-                />
+                <input className={`rounded-lg border p-2 ${formErrors.email ? "border-rose-400 bg-rose-50" : "border-slate-200"}`} placeholder="Email" value={email} onChange={(e) => { setEmail(e.target.value); setFormErrors((p) => ({ ...p, email: undefined })); }} />
                 {formErrors.email && <p className="-mt-2 text-xs text-rose-700">{formErrors.email}</p>}
               </div>
               <BookingCardSetup firstName={firstName} lastName={lastName} email={email} phone={phone} />
@@ -912,119 +700,81 @@ export default function BookingPage() {
                 className="h-auto w-full max-w-xs rounded-xl bg-[#e9982f] px-6 py-3 text-base font-semibold text-white shadow-md shadow-[#e9982f]/25 hover:bg-[#cf8727] sm:w-auto"
               >
                 {isSubmitting ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Loader variant="spinner" />
-                    Confirming…
-                  </span>
+                  <span className="inline-flex items-center gap-2"><Loader variant="spinner" />Confirming…</span>
+                ) : cart.length > 1 ? (
+                  `Confirm ${cart.length} appointments`
                 ) : (
                   "Confirm appointment"
                 )}
               </Button>
               {bookingMessage && (
-                <p className={`text-sm font-medium ${bookingMessageKind === "success" ? "text-[#166534]" : "text-rose-700"}`}>
-                  {bookingMessage}
-                </p>
+                <p className={`text-sm font-medium ${bookingMessageKind === "success" ? "text-[#166534]" : "text-rose-700"}`}>{bookingMessage}</p>
               )}
             </div>
           )}
 
-          {step === 4 && bookingResult && (
+          {/* ─── STEP 4: Confirmation ─── */}
+          {step === 4 && bookingResults.length > 0 && (
             <div className="animate-fade-in-up rounded-2xl border border-[#16a349]/25 bg-gradient-to-b from-[#f0fdf4] to-white p-6 sm:p-8">
               <div className="flex flex-col items-center text-center">
-                <div
-                  className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#16a349] text-white shadow-md shadow-[#16a349]/25"
-                  aria-hidden
-                >
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#16a349] text-white shadow-md shadow-[#16a349]/25" aria-hidden>
                   <IconCheck className="h-8 w-8" />
                 </div>
                 <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">Thank you!</h2>
                 <p className="mt-2 max-w-md text-sm text-slate-600 sm:text-base">
-                  Your appointment is confirmed. We look forward to seeing you.
+                  {bookingResults.length > 1
+                    ? "Both appointments are confirmed. We look forward to seeing you."
+                    : "Your appointment is confirmed. We look forward to seeing you."}
                 </p>
               </div>
 
-              <div className="mx-auto mt-6 max-w-md rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Confirmation</p>
-                <p className="mt-1 text-lg font-bold text-slate-900">#{bookingResult.appointment_id}</p>
-                <ul className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-sm text-slate-700">
-                  <li>
-                    <span className="text-slate-500">Patient: </span>
-                    <span className="font-medium text-slate-900">{bookingResult.patient}</span>
-                  </li>
-                  <li>
-                    <span className="text-slate-500">Service: </span>
-                    <span className="font-medium text-slate-900">{bookingResult.service}</span>
-                  </li>
-                  {!skippedProviderStep && (
-                    <li>
-                    <span className="text-slate-500">Doctor: </span>
-                    <span className="font-medium text-slate-900">{bookingResult.provider}</span>
-                    </li>
-                  )}
-                  <li>
-                    <span className="text-slate-500">When: </span>
-                    <span className="font-medium text-slate-900">
-                      {new Date(bookingResult.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
-                        weekday: "long",
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}{" "}
-                      at {bookingResult.start_time}
-                    </span>
-                  </li>
-                  <li>
-                    <span className="text-slate-500">Estimated total: </span>
-                    <span className="font-semibold text-[#b45309]">${bookingResult.total_amount}</span>
-                  </li>
-                </ul>
+              <div className="mx-auto mt-6 max-w-md space-y-4">
+                {bookingResults.map((result, idx) => (
+                  <div key={result.appointment_id} className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm">
+                    {bookingResults.length > 1 && (
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary">Appointment {idx + 1}</p>
+                    )}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Confirmation</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">#{result.appointment_id}</p>
+                    <ul className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-sm text-slate-700">
+                      <li><span className="text-slate-500">Patient: </span><span className="font-medium text-slate-900">{result.patient}</span></li>
+                      <li><span className="text-slate-500">Service: </span><span className="font-medium text-slate-900">{result.service}</span></li>
+                      <li>
+                        <span className="text-slate-500">When: </span>
+                        <span className="font-medium text-slate-900">
+                          {new Date(result.appointment_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })} at {result.start_time}
+                        </span>
+                      </li>
+                      <li><span className="text-slate-500">Estimated total: </span><span className="font-semibold text-[#b45309]">${result.total_amount}</span></li>
+                    </ul>
+                  </div>
+                ))}
               </div>
 
               <p className="mx-auto mt-4 max-w-md text-center text-sm text-slate-600">
                 On arrival,{" "}
-                <Link href="/kiosk" className="font-medium text-[#16a349] hover:underline">
-                  check in at the kiosk
-                </Link>{" "}
+                <Link href="/kiosk" className="font-medium text-[#16a349] hover:underline">check in at the kiosk</Link>{" "}
                 with the same phone number you used to book.
               </p>
 
               <div className="mx-auto mt-6 flex max-w-md flex-col gap-3 sm:flex-row-reverse sm:justify-center">
-                <Button
-                  type="button"
-                  onClick={resetBookingFlow}
-                  className="h-auto rounded-xl px-6 py-3 text-sm font-semibold shadow-sm"
-                >
-                  Done
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={printBookingConfirmation}
-                  className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold"
-                >
-                  Print confirmation
-                </Button>
+                <Button type="button" onClick={resetBookingFlow} className="h-auto rounded-xl px-6 py-3 text-sm font-semibold shadow-sm">Done</Button>
+                <Button type="button" variant="outline" onClick={printBookingConfirmation} className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold">Print confirmation</Button>
               </div>
-              <p className="mx-auto mt-4 max-w-md text-center text-xs text-slate-500">
-                After you tap <span className="font-medium text-slate-600">Done</span>, you can book another visit from Step 1.
-              </p>
             </div>
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/80 pt-4">
             <Button
-              type="button"
-              variant="outline"
-              onClick={goToPreviousStep}
-              disabled={(step === 1 && !selectedCategory) || (step === 4 && bookingResult !== null)}
+              type="button" variant="outline" onClick={goToPreviousStep}
+              disabled={(step === 1 && !selectedCategory && cart.length === 0 && !addingAnother) || (step === 4 && bookingResults.length > 0)}
               className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
             >
               Back
             </Button>
             <Button
-              type="button"
-              onClick={goToNextStep}
-              disabled={step === 4 || bookingResult !== null}
+              type="button" onClick={() => { if (step === 1 && cart.length > 0 && !selectedCategory && !addingAnother) proceedFromStep1(); else if (step < 4) setStep((step + 1) as Step); }}
+              disabled={step === 4 || bookingResults.length > 0 || (step === 1 && cart.length === 0)}
               className="h-auto rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90"
             >
               Next
@@ -1032,6 +782,7 @@ export default function BookingPage() {
           </div>
         </section>
 
+        {/* ─── Sidebar: Booking summary ─── */}
         <aside className="space-y-4 lg:pt-1">
           <div className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80">
             <h3 className="text-lg font-bold tracking-tight text-foreground">Booking summary</h3>
@@ -1039,57 +790,54 @@ export default function BookingPage() {
             <div className="mt-4 rounded-xl border border-border/80 bg-muted/40 p-3">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Appointment date & time</p>
               <p className="font-semibold text-foreground">
-                {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
-                })}{" "}
-                at {selectedTime}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Chosen in Step 3 — change date in the main flow above
+                {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} at {selectedTime}
               </p>
             </div>
 
-            <div className="mt-4 rounded-xl border border-border/80 bg-background p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected visit</p>
-              <div className="mt-3 space-y-2 text-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-slate-500">Service</span>
-                  <span className="text-right font-medium text-slate-900">{selectedService?.name ?? "—"}</span>
-                </div>
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-slate-500">Duration</span>
-                  <span className="font-medium text-slate-900">{selectedService?.duration_minutes ?? 0} min</span>
-                </div>
-                {!skippedProviderStep && selectedProvider && (
+            {cart.length === 0 && (
+              <div className="mt-4 rounded-xl border border-border/80 bg-background p-4">
+                <p className="text-sm text-muted-foreground">No services selected yet. Choose a service in Step 1.</p>
+              </div>
+            )}
+
+            {cartSchedule.map((item, idx) => (
+              <div key={item.service.id} className="mt-4 rounded-xl border border-border/80 bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {cart.length > 1 ? `Service ${idx + 1}` : "Selected visit"}
+                </p>
+                <div className="mt-3 space-y-2 text-sm">
                   <div className="flex items-start justify-between gap-3">
-                    <span className="text-slate-500">Doctor</span>
-                    <span className="text-right font-medium text-slate-900">{selectedProvider.provider_name}</span>
+                    <span className="text-slate-500">Service</span>
+                    <span className="text-right font-medium text-slate-900">{item.service.name}</span>
                   </div>
-                )}
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-slate-500">Date</span>
-                  <span className="text-right font-medium text-slate-900">
-                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </span>
-                </div>
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-slate-500">Time</span>
-                  <span className="font-medium text-slate-900">{selectedTime}</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500">Duration</span>
+                    <span className="font-medium text-slate-900">{item.service.duration_minutes} min</span>
+                  </div>
+                  {item.provider && !item.providerSkipped && (
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-slate-500">Doctor</span>
+                      <span className="text-right font-medium text-slate-900">{item.provider.provider_name}</span>
+                    </div>
+                  )}
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500">Time</span>
+                    <span className="font-medium text-slate-900">{item.startTime}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500">Price</span>
+                    <span className="font-medium text-slate-900">{formatBookingPrice(item.service.price)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ))}
 
             <div className="mt-4 rounded-xl border border-[#e9982f]/30 bg-[#e9982f]/10 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Total</p>
-              <p className="mt-1 text-3xl font-extrabold text-[#9a6700]">${selectedService?.price ?? "0"}</p>
+              <p className="mt-1 text-3xl font-extrabold text-[#9a6700]">{formatBookingPrice(String(totalPrice))}</p>
+              {cart.length > 1 && (
+                <p className="mt-1 text-xs text-[#9a6700]">{cart.length} services · {totalDuration} min total</p>
+              )}
             </div>
           </div>
         </aside>
