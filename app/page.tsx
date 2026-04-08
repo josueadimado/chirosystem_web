@@ -34,6 +34,7 @@ type FormErrors = {
 type ServiceOption = {
   id: number;
   name: string;
+  description?: string;
   duration_minutes: number;
   price: string;
   service_type?: string;
@@ -49,6 +50,7 @@ type CartItem = {
 };
 
 const ALL_TIME_SLOTS = ["9:00 AM", "10:15 AM", "2:30 PM", "3:45 PM", "5:15 PM"];
+const BETWEEN_SERVICE_BUFFER_MINUTES = 15;
 
 function formatBookingPrice(p: string): string {
   const n = parseFloat(p);
@@ -116,6 +118,12 @@ export default function BookingPage() {
   const firstProvider = firstCartItem?.provider ?? null;
   const firstService = firstCartItem?.service ?? null;
 
+  const totalCartMinutes = useMemo(() => {
+    if (cart.length <= 1) return cart[0]?.service.duration_minutes ?? 0;
+    return cart.reduce((sum, item) => sum + item.service.duration_minutes, 0)
+      + BETWEEN_SERVICE_BUFFER_MINUTES * (cart.length - 1);
+  }, [cart]);
+
   useEffect(() => {
     if (!firstService || !firstProvider || !selectedDate) {
       setAvailableSlots(null);
@@ -125,10 +133,27 @@ export default function BookingPage() {
     apiGet<{ available_slots: string[] }>(
       `/booking-options/availability/?date=${selectedDate}&provider_id=${firstProvider.id}&service_id=${firstService.id}`
     )
-      .then((res) => { setAvailableSlots(res.available_slots); setSlotWarning(""); })
+      .then((res) => {
+        let slots = res.available_slots;
+        if (cart.length > 1) {
+          const DAY_END = 18 * 60; // 6:00 PM in minutes
+          slots = slots.filter((slot) => {
+            const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+            if (!m) return true;
+            let h = parseInt(m[1], 10);
+            const min = parseInt(m[2], 10);
+            const ap = m[3].toUpperCase();
+            if (ap === "PM" && h !== 12) h += 12;
+            if (ap === "AM" && h === 12) h = 0;
+            return h * 60 + min + totalCartMinutes <= DAY_END;
+          });
+        }
+        setAvailableSlots(slots);
+        setSlotWarning("");
+      })
       .catch(() => setAvailableSlots(ALL_TIME_SLOTS))
       .finally(() => setSlotsLoading(false));
-  }, [selectedDate, firstProvider?.id, firstService?.id]);
+  }, [selectedDate, firstProvider?.id, firstService?.id, totalCartMinutes]);
 
   useEffect(() => {
     if (availableSlots && availableSlots.length > 0 && !availableSlots.includes(selectedTime)) {
@@ -290,7 +315,10 @@ export default function BookingPage() {
           start_time: currentTime,
         });
         results.push(result);
-        currentTime = addMinutesToTimeSlot(currentTime, item.service.duration_minutes);
+        currentTime = addMinutesToTimeSlot(
+          currentTime,
+          item.service.duration_minutes + BETWEEN_SERVICE_BUFFER_MINUTES,
+        );
       }
       setBookingResults(results);
       setBookingMessageKind("success");
@@ -315,6 +343,35 @@ export default function BookingPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const downloadCalendar = () => {
+    if (bookingResults.length === 0) return;
+    const events = bookingResults.map((r) => {
+      const dateParts = r.appointment_date.split("-");
+      const timeParts = r.start_time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (!dateParts || !timeParts) return "";
+      let h = parseInt(timeParts[1], 10);
+      const m = parseInt(timeParts[2], 10);
+      const ap = timeParts[3].toUpperCase();
+      if (ap === "PM" && h !== 12) h += 12;
+      if (ap === "AM" && h === 12) h = 0;
+      const start = `${dateParts[0]}${dateParts[1]}${dateParts[2]}T${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}00`;
+      const svc = cart.find((c) => c.service.name === r.service);
+      const dur = svc?.service.duration_minutes ?? 30;
+      const endH = h + Math.floor((m + dur) / 60);
+      const endM = (m + dur) % 60;
+      const end = `${dateParts[0]}${dateParts[1]}${dateParts[2]}T${String(endH).padStart(2, "0")}${String(endM).padStart(2, "0")}00`;
+      return `BEGIN:VEVENT\nDTSTART:${start}\nDTEND:${end}\nSUMMARY:${r.service} — Relief Chiropractic\nDESCRIPTION:Confirmation #${r.appointment_id}\\nProvider: ${r.provider}\nLOCATION:Relief Chiropractic\nEND:VEVENT`;
+    }).filter(Boolean);
+    const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Relief Chiropractic//Booking//EN\n${events.join("\n")}\nEND:VCALENDAR`;
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "relief-chiropractic-appointment.ics";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const printBookingConfirmation = () => {
@@ -348,13 +405,16 @@ export default function BookingPage() {
     printWindow.document.close();
   };
 
-  // Schedule preview for cart items
+  // Schedule preview for cart items (includes 15-min break between services)
   const cartSchedule = useMemo(() => {
     let time = selectedTime;
-    return cart.map((item) => {
+    return cart.map((item, idx) => {
       const startTime = time;
-      time = addMinutesToTimeSlot(time, item.service.duration_minutes);
-      return { ...item, startTime, endTime: time };
+      const endTime = addMinutesToTimeSlot(time, item.service.duration_minutes);
+      time = idx < cart.length - 1
+        ? addMinutesToTimeSlot(endTime, BETWEEN_SERVICE_BUFFER_MINUTES)
+        : endTime;
+      return { ...item, startTime, endTime };
     });
   }, [cart, selectedTime]);
 
@@ -525,10 +585,20 @@ export default function BookingPage() {
                           onClick={() => addServiceToCart(service)}
                           className="w-full rounded-xl border border-border/90 bg-card p-4 text-left transition-all hover:border-primary/25 hover:shadow-sm"
                         >
-                          <p className="font-semibold text-foreground">{service.name}</p>
-                          <p className="mt-0.5 text-sm text-muted-foreground">
-                            {service.duration_minutes} min · {formatBookingPrice(service.price)}
-                          </p>
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm">
+                              {service.service_type === "chiropractic" ? "🦴" : "💆"}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-foreground">{service.name}</p>
+                              {service.description && (
+                                <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{service.description}</p>
+                              )}
+                              <p className="mt-1 text-sm font-medium text-muted-foreground">
+                                {service.duration_minutes} min · {formatBookingPrice(service.price)}
+                              </p>
+                            </div>
+                          </div>
                         </button>
                       ))}
                   </div>
@@ -594,22 +664,62 @@ export default function BookingPage() {
           {step === 3 && (
             <div className="animate-fade-in-up space-y-4">
               <h2 className="text-lg font-semibold">Select date & time</h2>
+
+              {/* Visual calendar grid */}
               <div className="rounded-xl border-2 border-primary/25 bg-primary/[0.06] p-4 ring-1 ring-primary/10">
-                <label className="mb-2 block text-sm font-semibold text-foreground">Appointment date</label>
-                <input
-                  type="date"
-                  min={today}
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full max-w-xs rounded-xl border-2 border-border bg-background p-3 text-base font-medium text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-                <p className="mt-2 text-sm text-slate-600">
-                  Your appointment is on{" "}
+                <label className="mb-3 block text-sm font-semibold text-foreground">Pick a date</label>
+                <div className="grid grid-cols-7 gap-1.5 text-center">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                    <div key={d} className="pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">{d}</div>
+                  ))}
+                  {(() => {
+                    const todayObj = new Date(today + "T12:00:00");
+                    const days: React.ReactNode[] = [];
+                    // Start from today's week start (Sunday)
+                    const startOfWeek = new Date(todayObj);
+                    startOfWeek.setDate(todayObj.getDate() - todayObj.getDay());
+                    // Show 14 days from the start of this week
+                    for (let i = 0; i < 14; i++) {
+                      const d = new Date(startOfWeek);
+                      d.setDate(startOfWeek.getDate() + i);
+                      const iso = d.toISOString().slice(0, 10);
+                      const isPast = iso < today;
+                      const isSunday = d.getDay() === 0;
+                      const isSelected = iso === selectedDate;
+                      const isToday = iso === today;
+                      days.push(
+                        <button
+                          key={iso}
+                          type="button"
+                          disabled={isPast || isSunday}
+                          onClick={() => setSelectedDate(iso)}
+                          className={cn(
+                            "relative flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-all",
+                            isPast || isSunday
+                              ? "cursor-not-allowed text-slate-300"
+                              : isSelected
+                                ? "bg-[#16a349] font-bold text-white shadow-md shadow-[#16a349]/25"
+                                : "hover:bg-primary/10 text-slate-700",
+                            isToday && !isSelected && "ring-2 ring-[#16a349]/40",
+                          )}
+                        >
+                          {d.getDate()}
+                          {isToday && <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-[#16a349]" />}
+                        </button>,
+                      );
+                    }
+                    return days;
+                  })()}
+                </div>
+                <p className="mt-3 text-sm text-slate-600">
+                  Selected:{" "}
                   <strong className="text-[#166534]">
                     {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                   </strong>
                 </p>
               </div>
+
+              {/* Time slots grouped by period */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Available time {cart.length > 1 ? "(for your first service)" : ""}
@@ -624,33 +734,59 @@ export default function BookingPage() {
                       </p>
                     );
                   }
+                  const parseHour = (s: string) => {
+                    const m = s.match(/^(\d+):.*\s*(AM|PM)$/i);
+                    if (!m) return 12;
+                    let h = parseInt(m[1], 10);
+                    if (m[2].toUpperCase() === "PM" && h !== 12) h += 12;
+                    if (m[2].toUpperCase() === "AM" && h === 12) h = 0;
+                    return h;
+                  };
+                  const morning = slotsToShow.filter((s) => parseHour(s) < 12);
+                  const afternoon = slotsToShow.filter((s) => { const h = parseHour(s); return h >= 12 && h < 17; });
+                  const evening = slotsToShow.filter((s) => parseHour(s) >= 17);
+                  const groups = [
+                    { label: "Morning", slots: morning, icon: "☀️" },
+                    { label: "Afternoon", slots: afternoon, icon: "🌤" },
+                    { label: "Evening", slots: evening, icon: "🌙" },
+                  ].filter((g) => g.slots.length > 0);
                   return (
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {slotsToShow.map((slot) => (
-                        <button
-                          key={slot}
-                          type="button"
-                          onClick={() => { setSelectedTime(slot); setSlotWarning(""); setStep(4); }}
-                          className={cn(
-                            "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
-                            selectedTime === slot
-                              ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
-                              : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
-                          )}
-                        >
-                          {slot}
-                        </button>
+                    <div className="space-y-3">
+                      {groups.map((group) => (
+                        <div key={group.label}>
+                          <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+                            {group.icon} {group.label} · {group.slots.length} {group.slots.length === 1 ? "slot" : "slots"}
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            {group.slots.map((slot) => (
+                              <button
+                                key={slot}
+                                type="button"
+                                onClick={() => { setSelectedTime(slot); setSlotWarning(""); setStep(4); }}
+                                className={cn(
+                                  "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                                  selectedTime === slot
+                                    ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
+                                    : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
+                                )}
+                              >
+                                {slot}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   );
                 })()}
               </div>
+
+              {/* Multi-service break info */}
               {cart.length > 1 && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-sm text-blue-900">
-                  <p className="font-medium">Back-to-back scheduling</p>
+                  <p className="font-medium">Scheduling with break</p>
                   <p className="mt-1 text-blue-700">
-                    Your {cart[0].service.name} starts at the selected time, then {cart[1].service.name} follows
-                    right after ({cart[0].service.duration_minutes} min later). Total duration: {totalDuration} min.
+                    Your {cart[0].service.name} starts at the selected time, then there&apos;s a {BETWEEN_SERVICE_BUFFER_MINUTES}-minute break before {cart[1].service.name} begins. Total block: {totalDuration + BETWEEN_SERVICE_BUFFER_MINUTES * (cart.length - 1)} min.
                   </p>
                 </div>
               )}
@@ -751,15 +887,44 @@ export default function BookingPage() {
                 ))}
               </div>
 
-              <p className="mx-auto mt-4 max-w-md text-center text-sm text-slate-600">
-                On arrival,{" "}
-                <Link href="/kiosk" className="font-medium text-[#16a349] hover:underline">check in at the kiosk</Link>{" "}
-                with the same phone number you used to book.
-              </p>
+              {/* Next steps */}
+              <div className="mx-auto mt-6 max-w-md space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">What&apos;s next</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="flex items-start gap-2.5 rounded-xl border border-[#16a349]/20 bg-[#f0fdf4] p-3">
+                    <span className="mt-0.5 text-lg">📱</span>
+                    <div>
+                      <p className="text-xs font-semibold text-[#166534]">Confirmation sent</p>
+                      <p className="text-[11px] text-[#166534]/70">
+                        {phone ? `To ${phone}` : "Via text"}{email ? ` and ${email}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                    <span className="mt-0.5 text-lg">📋</span>
+                    <div>
+                      <p className="text-xs font-semibold text-blue-900">On arrival</p>
+                      <p className="text-[11px] text-blue-700">
+                        <Link href="/kiosk" className="font-medium underline">Check in at the kiosk</Link> with your phone
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {patientLookup === "new" && (
+                  <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <span className="mt-0.5 text-lg">⏰</span>
+                    <div>
+                      <p className="text-xs font-semibold text-amber-900">First visit?</p>
+                      <p className="text-[11px] text-amber-700">Please arrive 10 minutes early to complete intake paperwork.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="mx-auto mt-6 flex max-w-md flex-col gap-3 sm:flex-row-reverse sm:justify-center">
                 <Button type="button" onClick={resetBookingFlow} className="h-auto rounded-xl px-6 py-3 text-sm font-semibold shadow-sm">Done</Button>
-                <Button type="button" variant="outline" onClick={printBookingConfirmation} className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold">Print confirmation</Button>
+                <Button type="button" variant="outline" onClick={downloadCalendar} className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold">Add to calendar</Button>
+                <Button type="button" variant="outline" onClick={printBookingConfirmation} className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold">Print</Button>
               </div>
             </div>
           )}
@@ -800,43 +965,77 @@ export default function BookingPage() {
               </div>
             )}
 
-            {cartSchedule.map((item, idx) => (
-              <div key={item.service.id} className="mt-4 rounded-xl border border-border/80 bg-background p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {cart.length > 1 ? `Service ${idx + 1}` : "Selected visit"}
-                </p>
-                <div className="mt-3 space-y-2 text-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="text-slate-500">Service</span>
-                    <span className="text-right font-medium text-slate-900">{item.service.name}</span>
-                  </div>
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="text-slate-500">Duration</span>
-                    <span className="font-medium text-slate-900">{item.service.duration_minutes} min</span>
-                  </div>
-                  {item.provider && !item.providerSkipped && (
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-slate-500">Doctor</span>
-                      <span className="text-right font-medium text-slate-900">{item.provider.provider_name}</span>
+            {/* Visual timeline for multi-service, or simple card for single */}
+            {cart.length > 1 ? (
+              <div className="mt-4 rounded-xl border border-border/80 bg-background p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your visit timeline</p>
+                <div className="relative ml-3 border-l-2 border-[#16a349]/30 pl-5">
+                  {cartSchedule.map((item, idx) => (
+                    <div key={item.service.id}>
+                      <div className="relative pb-4">
+                        <div className="absolute -left-[27px] top-0.5 h-3 w-3 rounded-full border-2 border-[#16a349] bg-white" />
+                        <p className="text-xs font-bold text-[#16a349]">{item.startTime}</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-900">{item.service.name}</p>
+                        <p className="text-xs text-slate-500">{item.service.duration_minutes} min · {formatBookingPrice(item.service.price)}</p>
+                        {item.provider && !item.providerSkipped && (
+                          <p className="text-xs text-slate-400">with {item.provider.provider_name}</p>
+                        )}
+                      </div>
+                      {idx < cartSchedule.length - 1 && (
+                        <div className="relative pb-4">
+                          <div className="absolute -left-[25px] top-0.5 h-2 w-2 rounded-full bg-amber-400" />
+                          <p className="text-xs font-medium text-amber-600">{item.endTime}</p>
+                          <p className="text-[11px] text-amber-500">{BETWEEN_SERVICE_BUFFER_MINUTES}-min break</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="text-slate-500">Time</span>
-                    <span className="font-medium text-slate-900">{item.startTime}</span>
-                  </div>
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="text-slate-500">Price</span>
-                    <span className="font-medium text-slate-900">{formatBookingPrice(item.service.price)}</span>
+                  ))}
+                  <div className="relative">
+                    <div className="absolute -left-[27px] top-0.5 h-3 w-3 rounded-full border-2 border-slate-400 bg-white" />
+                    <p className="text-xs font-bold text-slate-400">{cartSchedule[cartSchedule.length - 1]?.endTime}</p>
+                    <p className="text-[11px] text-slate-400">Done</p>
                   </div>
                 </div>
               </div>
-            ))}
+            ) : (
+              cartSchedule.map((item) => (
+                <div key={item.service.id} className="mt-4 rounded-xl border border-border/80 bg-background p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected visit</p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-slate-500">Service</span>
+                      <span className="text-right font-medium text-slate-900">{item.service.name}</span>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-slate-500">Duration</span>
+                      <span className="font-medium text-slate-900">{item.service.duration_minutes} min</span>
+                    </div>
+                    {item.provider && !item.providerSkipped && (
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-slate-500">Doctor</span>
+                        <span className="text-right font-medium text-slate-900">{item.provider.provider_name}</span>
+                      </div>
+                    )}
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-slate-500">Time</span>
+                      <span className="font-medium text-slate-900">{item.startTime}</span>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-slate-500">Price</span>
+                      <span className="font-medium text-slate-900">{formatBookingPrice(item.service.price)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
 
             <div className="mt-4 rounded-xl border border-[#e9982f]/30 bg-[#e9982f]/10 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Total</p>
               <p className="mt-1 text-3xl font-extrabold text-[#9a6700]">{formatBookingPrice(String(totalPrice))}</p>
               {cart.length > 1 && (
-                <p className="mt-1 text-xs text-[#9a6700]">{cart.length} services · {totalDuration} min total</p>
+                <p className="mt-1 text-xs text-[#9a6700]">
+                  {cart.length} services · {totalDuration} min + {BETWEEN_SERVICE_BUFFER_MINUTES}-min break
+                </p>
               )}
             </div>
           </div>
