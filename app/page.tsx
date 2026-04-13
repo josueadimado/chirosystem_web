@@ -436,6 +436,19 @@ export default function BookingPage() {
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
               Pick a service category, choose your visit, then select your time. You can book multiple services at once.
             </p>
+            {/* First thing visitors see: path to check-in without starting the booking steps */}
+            <div className="mt-5 flex max-w-lg flex-col gap-3 rounded-xl border border-primary/20 bg-primary/[0.06] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-3.5">
+              <p className="text-sm leading-snug text-foreground">
+                <span className="font-semibold text-[#0d5c2e]">Already have a visit today?</span>{" "}
+                <span className="text-muted-foreground">Check in with the phone number on your appointment — no need to book again.</span>
+              </p>
+              <Link
+                href="/kiosk"
+                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#16a349] px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm shadow-[#16a349]/20 transition hover:bg-[#13823d] active:scale-[0.99]"
+              >
+                Open check-in
+              </Link>
+            </div>
           </div>
           <div className="relative min-h-[14rem] md:min-h-full">
             <Image src="/images/clinic-reception.png" alt="Clinic reception" fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" priority />
