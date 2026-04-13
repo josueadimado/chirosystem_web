@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { NotificationBell } from "@/components/notification-bell";
 import {
+  IconBook,
   IconBot,
   IconCalendar,
   IconFileDollar,
@@ -33,6 +34,7 @@ const operationsItemsBase = [
 ];
 
 const toolsItems = [
+  { label: "User guide", href: "/admin/manual", icon: <IconBook className="w-5 h-5" /> },
   { label: "AI Assistant", href: "/admin/ai", icon: <IconBot className="w-5 h-5" /> },
   { label: "Settings", href: "/admin/settings", icon: <IconSettings className="w-5 h-5" /> },
 ];
@@ -48,6 +50,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/booking-blocks": "Booking blocks",
   "/admin/ai": "AI Assistant",
   "/admin/settings": "Settings",
+  "/admin/manual": "User guide",
 };
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -61,6 +64,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     setUserName(localStorage.getItem("chiroflow_user_name"));
     setIsOwnerAdmin(getRoleCookie() === "owner_admin");
+    // Narrow screens: start with menu closed so content uses full width (open with the menu button)
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      setSidebarOpen(false);
+    }
   }, []);
 
   const operationsItems = [
@@ -94,7 +101,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-[100dvh] min-h-screen">
       <Sidebar
         title="Relief Chiropractic"
         groups={sidebarGroups}
@@ -102,7 +109,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         onOpenChange={setSidebarOpen}
         accent="admin"
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AdminHeader
           title={title}
           sidebarOpen={sidebarOpen}
@@ -140,7 +147,7 @@ function AdminHeader({
   });
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/90 px-4 py-3 shadow-sm shadow-black/[0.04] backdrop-blur-md sm:px-6 sm:py-3.5">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/90 px-[max(1rem,env(safe-area-inset-left))] py-[max(0.75rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] shadow-sm shadow-black/[0.04] backdrop-blur-md sm:px-6 sm:py-3.5">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"

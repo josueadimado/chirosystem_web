@@ -419,8 +419,8 @@ export default function BookingPage() {
   }, [cart, selectedTime]);
 
   return (
-    <main className="content-fade-in min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
-      <div className="mx-auto max-w-7xl p-4 md:p-8">
+    <main className="content-fade-in min-h-[100dvh] min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
+      <div className="mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-4 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] md:p-8">
       <section className="mb-8 overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-white to-primary/[0.06] shadow-sm shadow-slate-200/40 ring-1 ring-primary/10">
         <div className="grid gap-0 md:grid-cols-2">
           <div className="p-6 md:p-10">
@@ -668,9 +668,11 @@ export default function BookingPage() {
               {/* Visual calendar grid */}
               <div className="rounded-xl border-2 border-primary/25 bg-primary/[0.06] p-4 ring-1 ring-primary/10">
                 <label className="mb-3 block text-sm font-semibold text-foreground">Pick a date</label>
-                <div className="grid grid-cols-7 gap-1.5 text-center">
+                <div className="grid grid-cols-7 gap-1 text-center sm:gap-1.5">
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                    <div key={d} className="pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">{d}</div>
+                    <div key={d} className="pb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400 sm:text-[11px] sm:tracking-wider">
+                      {d}
+                    </div>
                   ))}
                   {(() => {
                     const todayObj = new Date(today + "T12:00:00");
@@ -694,7 +696,7 @@ export default function BookingPage() {
                           disabled={isPast || isSunday}
                           onClick={() => setSelectedDate(iso)}
                           className={cn(
-                            "relative flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-all",
+                            "relative flex h-9 w-full items-center justify-center rounded-lg text-xs font-medium transition-all sm:h-11 sm:text-sm",
                             isPast || isSunday
                               ? "cursor-not-allowed text-slate-300"
                               : isSelected

@@ -78,45 +78,98 @@ export default function KioskPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-background via-[#ecfdf5]/30 to-muted/40 p-6">
-      <div className="content-fade-in w-full max-w-md space-y-4 rounded-2xl border border-border/90 bg-card p-6 text-center shadow-lg shadow-slate-200/50 ring-1 ring-primary/10 md:p-8">
-        <h1 className="text-4xl font-extrabold tracking-tight text-[#e9982f] sm:text-5xl">Relief Chiropractic</h1>
-        <p className="text-2xl font-semibold">Welcome</p>
-        <p className="text-sm text-slate-500">Enter your phone number to check in.</p>
-        <div className="rounded-lg border border-slate-200 p-4 text-2xl tracking-widest font-mono text-slate-800">{formatPhoneDisplay(phone)}</div>
-        <div className="grid grid-cols-3 gap-2">
-          {"123456789".split("").map((digit) => (
-            <button key={digit} onClick={() => append(digit)} className="rounded-lg bg-slate-100 p-4 text-xl font-semibold transition hover:bg-slate-200 active:scale-[0.98]">{digit}</button>
-          ))}
-          <button onClick={() => append("+")} className="rounded-lg bg-slate-100 p-4 text-lg font-semibold text-slate-600 transition hover:bg-slate-200 active:scale-[0.98]">+</button>
-          <button onClick={() => append("0")} className="rounded-lg bg-slate-100 p-4 text-xl font-semibold transition hover:bg-slate-200 active:scale-[0.98]">0</button>
-          <button onClick={backspace} className="rounded-lg bg-slate-100 p-4 text-xl transition hover:bg-slate-200 active:scale-[0.98]">⌫</button>
+    <main className="relative flex min-h-[100dvh] min-h-screen flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-[#ecfdf5] via-background to-muted/50 px-[max(1rem,env(safe-area-inset-left))] py-10 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(2.5rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))] sm:px-6">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.35]"
+        style={{
+          backgroundImage: `radial-gradient(circle at 1px 1px, oklch(0.52 0.14 150 / 0.12) 1px, transparent 0)`,
+          backgroundSize: "24px 24px",
+        }}
+        aria-hidden
+      />
+      <div className="content-fade-in relative z-[1] w-full max-w-lg">
+        <div className="overflow-hidden rounded-3xl border border-border/80 bg-card shadow-2xl shadow-primary/10 ring-1 ring-primary/15">
+          <div className="h-2 w-full bg-gradient-to-r from-[#16a349] via-[#16a349] to-[#e9982f]" aria-hidden />
+          <div className="space-y-6 px-6 pb-8 pt-7 text-center sm:px-10 sm:pb-10 sm:pt-8">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Check-in</p>
+              <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#e9982f] sm:text-4xl">Relief Chiropractic</h1>
+              <p className="mt-3 text-lg font-semibold text-foreground">Welcome — we’re glad you’re here</p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Enter the <span className="font-medium text-foreground">phone number</span> on your appointment. We’ll look up today’s visit only.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border-2 border-primary/20 bg-muted/40 px-4 py-5 font-mono text-2xl tracking-widest text-foreground shadow-inner sm:text-3xl">
+              {formatPhoneDisplay(phone)}
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 sm:gap-3.5">
+              {"123456789".split("").map((digit) => (
+                <button
+                  key={digit}
+                  type="button"
+                  onClick={() => append(digit)}
+                  className="kiosk-key flex min-h-14 items-center justify-center rounded-2xl bg-background text-2xl font-semibold text-foreground shadow-sm ring-1 ring-border/90 transition hover:bg-primary/10 hover:ring-primary/30 active:scale-[0.97] sm:min-h-16 sm:text-3xl"
+                >
+                  {digit}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => append("+")}
+                className="kiosk-key flex min-h-14 items-center justify-center rounded-2xl bg-background text-lg font-semibold text-muted-foreground shadow-sm ring-1 ring-border/90 transition hover:bg-primary/10 active:scale-[0.97] sm:min-h-16"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={() => append("0")}
+                className="kiosk-key flex min-h-14 items-center justify-center rounded-2xl bg-background text-2xl font-semibold text-foreground shadow-sm ring-1 ring-border/90 transition hover:bg-primary/10 active:scale-[0.97] sm:min-h-16 sm:text-3xl"
+              >
+                0
+              </button>
+              <button
+                type="button"
+                onClick={backspace}
+                aria-label="Delete last digit"
+                className="kiosk-key flex min-h-14 items-center justify-center rounded-2xl bg-background text-sm font-semibold text-muted-foreground shadow-sm ring-1 ring-border/90 transition hover:bg-destructive/10 hover:text-destructive active:scale-[0.97] sm:min-h-16 sm:text-base"
+              >
+                Delete
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={checkIn}
+              disabled={!canCheckIn}
+              className="flex w-full min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#16a349] px-4 text-lg font-semibold text-white shadow-lg shadow-[#16a349]/25 transition hover:bg-[#13823d] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-16 sm:text-xl"
+            >
+              {checkingIn ? (
+                <Loader variant="spinner" label="Checking in…" />
+              ) : (
+                <>
+                  Check in
+                  <IconArrowRight className="h-6 w-6" />
+                </>
+              )}
+            </button>
+
+            {digits.length >= 10 && !isValidPhone && !checkingIn && (
+              <p className="text-sm font-medium text-destructive">Please enter a valid phone number.</p>
+            )}
+            {status ? <p className="animate-fade-in text-sm font-medium text-foreground">{status}</p> : null}
+
+            <p className="border-t border-border/70 pt-5 text-sm leading-relaxed text-muted-foreground">
+              Need to book first?{" "}
+              <Link href="/" className="font-semibold text-primary underline-offset-4 hover:underline">
+                Book online
+              </Link>{" "}
+              — then you can check in here on the day of your visit.
+            </p>
+          </div>
         </div>
-        <button
-          onClick={checkIn}
-          disabled={!canCheckIn}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#16a349] px-4 py-4 text-lg font-semibold text-white transition hover:bg-[#13823d] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {checkingIn ? (
-            <Loader variant="spinner" label="Checking in…" />
-          ) : (
-            <>
-              Check In
-              <IconArrowRight className="h-5 w-5" />
-            </>
-          )}
-        </button>
-        {digits.length >= 10 && !isValidPhone && !checkingIn && (
-          <p className="text-sm font-medium text-red-600">Please enter a valid phone number.</p>
-        )}
-        {status && <p className="animate-fade-in text-sm font-medium text-slate-700">{status}</p>}
-        <p className="text-sm text-muted-foreground">
-          Haven&apos;t booked yet?{" "}
-          <Link href="/" className="font-medium text-primary hover:underline">
-            Book your appointment online
-          </Link>{" "}
-          and get confirmation before checking in.
-        </p>
+        <p className="mt-6 text-center text-xs text-muted-foreground">Having trouble? Our front desk can check you in.</p>
       </div>
     </main>
   );

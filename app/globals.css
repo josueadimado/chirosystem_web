@@ -233,7 +233,7 @@ body {
 
 /* Doctor portal: soft background behind main content */
 .doctor-zone {
-  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-background via-background to-primary/[0.07];
+  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-background via-teal-50/25 to-primary/[0.07];
 }
 
 /* Slightly richer card for doctor primary panels */
@@ -243,7 +243,7 @@ body {
 
 /* Admin portal */
 .admin-zone {
-  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-background via-background to-primary/[0.07];
+  @apply min-h-[calc(100vh-4.25rem)] bg-gradient-to-br from-background via-teal-50/20 to-primary/[0.07];
 }
 
 .admin-panel {
@@ -340,5 +340,11 @@ body {
   }
   html {
     @apply font-sans;
+  }
+
+  /* User guide pages: clearer keyboard focus on jump links */
+  .manual-prose :where(a:focus-visible) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }

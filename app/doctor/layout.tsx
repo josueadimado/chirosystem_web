@@ -4,26 +4,34 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { NotificationBell } from "@/components/notification-bell";
-import { IconCalendar, IconMenu, IconStethoscope, IconUsers } from "@/components/icons";
+import { IconBook, IconCalendar, IconMenu, IconStethoscope, IconUsers } from "@/components/icons";
 
 const items = [
   { label: "My Dashboard", href: "/doctor/dashboard", icon: <IconStethoscope className="w-5 h-5" /> },
   { label: "My Schedule", href: "/doctor/schedule", icon: <IconCalendar className="w-5 h-5" /> },
   { label: "Patient Directory", href: "/doctor/patients", icon: <IconUsers className="w-5 h-5" /> },
+  { label: "User guide", href: "/doctor/manual", icon: <IconBook className="w-5 h-5" /> },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
   "/doctor/dashboard": "My Dashboard",
   "/doctor/schedule": "My Schedule",
   "/doctor/patients": "Patient Directory",
+  "/doctor/manual": "User guide",
 };
 
 export default function DoctorLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const pathname = usePathname();
 
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      setSidebarOpen(false);
+    }
+  }, []);
+
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-[100dvh] min-h-screen">
       <Sidebar
         title="Relief Chiropractic"
         items={items}
@@ -31,7 +39,7 @@ export default function DoctorLayout({ children }: { children: React.ReactNode }
         onOpenChange={setSidebarOpen}
         accent="doctor"
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <DoctorHeader sidebarOpen={sidebarOpen} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <main className="doctor-zone flex-1">
           <div className="mx-auto max-w-7xl px-4 py-6 pb-12 sm:px-6 lg:px-8">
@@ -85,7 +93,7 @@ function DoctorHeader({
   });
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/90 px-4 py-3 shadow-sm shadow-black/[0.04] backdrop-blur-md sm:px-6 sm:py-3.5">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/90 px-[max(1rem,env(safe-area-inset-left))] py-[max(0.75rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] shadow-sm shadow-black/[0.04] backdrop-blur-md sm:px-6 sm:py-3.5">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
