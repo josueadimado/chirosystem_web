@@ -665,6 +665,23 @@ export default function BookingPage() {
             <div className="animate-fade-in-up space-y-4">
               <h2 className="text-lg font-semibold">Select date & time</h2>
 
+              {/* Help visitors who already booked and only need check-in (kiosk) */}
+              <div className="flex flex-col gap-3 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.07] to-card px-4 py-4 ring-1 ring-primary/10 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground">Already have an appointment today?</p>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    You don&apos;t need to pick a new time here. Use our check-in screen with the phone number on your
+                    booking.
+                  </p>
+                </div>
+                <Link
+                  href="/kiosk"
+                  className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#16a349] px-5 py-3 text-center text-sm font-semibold text-white shadow-md shadow-[#16a349]/20 transition hover:bg-[#13823d] active:scale-[0.99]"
+                >
+                  Open check-in
+                </Link>
+              </div>
+
               {/* Visual calendar grid */}
               <div className="rounded-xl border-2 border-primary/25 bg-primary/[0.06] p-4 ring-1 ring-primary/10">
                 <label className="mb-3 block text-sm font-semibold text-foreground">Pick a date</label>
