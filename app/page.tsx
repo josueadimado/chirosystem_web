@@ -45,6 +45,21 @@ type ServiceOption = {
 type ProviderOption = { id: number; provider_name: string };
 type BookingOptions = { services: ServiceOption[]; providers_by_service: Record<number, ProviderOption[]> };
 
+/** One row from GET /booking-options/my-appointments/ (upcoming visits the patient can reschedule). */
+type RescheduleAppointmentRow = {
+  id: number;
+  appointment_date: string;
+  start_time: string;
+  service_id: number;
+  service_name: string;
+  provider_id: number;
+  provider_name: string;
+  duration_minutes: number;
+  price: string;
+};
+
+type BookingFlowMode = "new" | "reschedule";
+
 type CartItem = {
   service: ServiceOption;
   provider: ProviderOption | null;
@@ -104,6 +119,11 @@ export default function BookingPage() {
   const [availableSlots, setAvailableSlots] = useState<string[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [patientLookup, setPatientLookup] = useState<"idle" | "loading" | "returning" | "new">("idle");
+  const [bookingFlow, setBookingFlow] = useState<BookingFlowMode>("new");
+  const [rescheduleList, setRescheduleList] = useState<RescheduleAppointmentRow[]>([]);
+  const [rescheduleListLoading, setRescheduleListLoading] = useState(false);
+  const [rescheduleListError, setRescheduleListError] = useState("");
+  const [reschedulePick, setReschedulePick] = useState<RescheduleAppointmentRow | null>(null);
   /** From patient-lookup API when returning patient has Square card on file */
   const [lookupSavedCard, setLookupSavedCard] = useState<{ card_brand: string; card_last4: string } | null>(null);
   /** Chiropractic: must use flagged new-office visit when new to practice, no chiro on file, or long inactive (server + lookup). */
@@ -130,6 +150,21 @@ export default function BookingPage() {
   const firstProvider = firstCartItem?.provider ?? null;
   const firstService = firstCartItem?.service ?? null;
 
+  /** For availability: same as cart head, or the visit being rescheduled. */
+  const effectiveSlotService = useMemo((): ServiceOption | null => {
+    if (bookingFlow === "reschedule" && reschedulePick && options) {
+      return options.services.find((s) => s.id === reschedulePick.service_id) ?? null;
+    }
+    return firstService;
+  }, [bookingFlow, reschedulePick, options, firstService]);
+
+  const effectiveSlotProvider = useMemo((): ProviderOption | null => {
+    if (bookingFlow === "reschedule" && reschedulePick) {
+      return { id: reschedulePick.provider_id, provider_name: reschedulePick.provider_name };
+    }
+    return firstProvider;
+  }, [bookingFlow, reschedulePick, firstProvider]);
+
   const totalCartMinutes = useMemo(() => {
     if (cart.length <= 1) return cart[0]?.service.duration_minutes ?? 0;
     return cart.reduce((sum, item) => sum + item.service.duration_minutes, 0)
@@ -143,24 +178,28 @@ export default function BookingPage() {
   }, [cart, firstProvider]);
 
   useEffect(() => {
-    if (!firstService || !firstProvider || !selectedDate) {
+    if (!effectiveSlotService || !effectiveSlotProvider || !selectedDate) {
       setAvailableSlots(null);
       return;
     }
     setSlotsLoading(true);
     const params = new URLSearchParams({
       date: selectedDate,
-      provider_id: String(firstProvider.id),
-      service_id: String(firstService.id),
+      provider_id: String(effectiveSlotProvider.id),
+      service_id: String(effectiveSlotService.id),
     });
-    if (cart.length > 1 && cartSameProviderChain) {
+    if (bookingFlow === "new" && cart.length > 1 && cartSameProviderChain) {
       params.set("block_minutes", String(totalCartMinutes));
+    }
+    if (bookingFlow === "reschedule" && reschedulePick && phone && isValidPhoneNumber(phone)) {
+      params.set("exclude_appointment_id", String(reschedulePick.id));
+      params.set("phone", phone);
     }
     apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
         let slots = res.available_slots;
         // Different provider per service: only the first visit is constrained server-side; rough end-of-day check for the chain.
-        if (cart.length > 1 && !cartSameProviderChain) {
+        if (bookingFlow === "new" && cart.length > 1 && !cartSameProviderChain) {
           const DAY_END = 18 * 60; // 6:00 PM in minutes
           slots = slots.filter((slot) => {
             const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
@@ -178,7 +217,17 @@ export default function BookingPage() {
       })
       .catch(() => setAvailableSlots(ALL_TIME_SLOTS))
       .finally(() => setSlotsLoading(false));
-  }, [selectedDate, firstProvider?.id, firstService?.id, totalCartMinutes, cart.length, cartSameProviderChain]);
+  }, [
+    selectedDate,
+    effectiveSlotProvider?.id,
+    effectiveSlotService?.id,
+    totalCartMinutes,
+    cart.length,
+    cartSameProviderChain,
+    bookingFlow,
+    reschedulePick?.id,
+    phone,
+  ]);
 
   useEffect(() => {
     if (availableSlots && availableSlots.length > 0 && !availableSlots.includes(selectedTime)) {
@@ -290,10 +339,13 @@ export default function BookingPage() {
       ? massageServices
       : [];
 
-  const totalPrice = useMemo(
-    () => cart.reduce((sum, item) => sum + parseFloat(item.service.price || "0"), 0),
-    [cart],
-  );
+  const totalPrice = useMemo(() => {
+    if (bookingFlow === "reschedule" && reschedulePick) {
+      const n = parseFloat(reschedulePick.price || "0");
+      return Number.isNaN(n) ? 0 : n;
+    }
+    return cart.reduce((sum, item) => sum + parseFloat(item.service.price || "0"), 0);
+  }, [bookingFlow, reschedulePick, cart]);
 
   const totalDuration = useMemo(
     () => cart.reduce((sum, item) => sum + item.service.duration_minutes, 0),
@@ -364,15 +416,80 @@ export default function BookingPage() {
     }
   };
 
+  const activateNewBookingFlow = () => {
+    setBookingFlow("new");
+    setReschedulePick(null);
+    setRescheduleList([]);
+    setRescheduleListError("");
+    setStep(1);
+  };
+
+  const activateRescheduleFlow = () => {
+    setBookingFlow("reschedule");
+    setCart([]);
+    setSelectedCategory(null);
+    setAddingAnother(false);
+    setBookingResults([]);
+    setBookingMessage("");
+    setReschedulePick(null);
+    setRescheduleList([]);
+    setRescheduleListError("");
+    setStep(1);
+  };
+
+  const loadMyAppointments = () => {
+    if (!phone || !isValidPhoneNumber(phone)) {
+      toast.error("Enter a valid cell number first.");
+      return;
+    }
+    setRescheduleListLoading(true);
+    setRescheduleListError("");
+    apiGet<{
+      first_name: string;
+      last_name: string;
+      email: string;
+      appointments: RescheduleAppointmentRow[];
+    }>(`/booking-options/my-appointments/?phone=${encodeURIComponent(phone)}`)
+      .then((res) => {
+        setRescheduleList(res.appointments ?? []);
+        setFirstName(res.first_name ?? "");
+        setLastName(res.last_name ?? "");
+        setEmail(res.email ?? "");
+        if ((res.appointments ?? []).length === 0) {
+          setRescheduleListError(
+            "No upcoming visits found for this number that can be changed online. Call the clinic if you need help.",
+          );
+        }
+      })
+      .catch((e) => {
+        setRescheduleList([]);
+        setRescheduleListError(e instanceof ApiError ? e.message : "Could not load your visits. Try again.");
+      })
+      .finally(() => setRescheduleListLoading(false));
+  };
+
   const goToPreviousStep = () => {
+    if (step === 1 && bookingFlow === "reschedule") {
+      activateNewBookingFlow();
+      return;
+    }
     if (step === 1 && selectedCategory) {
       setSelectedCategory(null);
     } else if (step === 1 && addingAnother) {
       setAddingAnother(false);
+    } else if (step === 2 && bookingFlow === "reschedule") {
+      setReschedulePick(null);
+      setStep(1);
     } else if (step === 2) {
       setStep(1);
-    } else if (step === 3 && !needsProviderSelection) {
-      setStep(1);
+    } else if (step === 3) {
+      if (bookingFlow === "reschedule" && reschedulePick) {
+        setStep(2);
+      } else if (!needsProviderSelection) {
+        setStep(1);
+      } else {
+        setStep(2);
+      }
     } else if (step > 1) {
       setStep((step - 1) as Step);
     }
@@ -385,7 +502,7 @@ export default function BookingPage() {
     setCart([]);
     setAddingAnother(false);
     setChiroIntakeRule(null);
-    setStep(1);
+    activateNewBookingFlow();
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -467,6 +584,43 @@ export default function BookingPage() {
     }
   };
 
+  const submitReschedule = async () => {
+    if (!reschedulePick || !phone || !isValidPhoneNumber(phone)) {
+      toast.error("We need your appointment and a valid cell number.");
+      return;
+    }
+    setBookingMessage("");
+    setSlotWarning("");
+    setIsSubmitting(true);
+    try {
+      const result = await apiPostPublic<BookingResult>("/booking-options/reschedule/", {
+        phone,
+        appointment_id: reschedulePick.id,
+        appointment_date: selectedDate,
+        start_time: selectedTime,
+      });
+      setBookingResults([result]);
+      setBookingMessageKind("success");
+      setBookingMessage(`Appointment rescheduled. Confirmation #${result.appointment_id}`);
+      toast.success("Your visit has been moved to the new time.");
+    } catch (error) {
+      setBookingMessageKind("error");
+      if (error instanceof ApiError && error.status === 409) {
+        setStep(3);
+        setSlotWarning(error.message);
+        setBookingMessage("Please select another available time slot.");
+        toast.info("That time is no longer available — please choose another slot.");
+      } else {
+        setBookingMessage(
+          error instanceof ApiError ? error.message : "Could not reschedule. Try again or call the clinic.",
+        );
+        toast.error(error instanceof ApiError ? error.message : "Could not reschedule.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const downloadCalendar = () => {
     if (bookingResults.length === 0) return;
     const events = bookingResults.map((r) => {
@@ -514,7 +668,7 @@ export default function BookingPage() {
         <tr><th scope="row">Confirmation #</th><td>${esc(r.appointment_id)}</td></tr>
         <tr><th scope="row">Patient</th><td>${esc(r.patient)}</td></tr>
         <tr><th scope="row">Service</th><td>${esc(r.service)}</td></tr>
-        ${!anyProviderSkipped ? `<tr><th scope="row">Doctor</th><td>${esc(r.provider)}</td></tr>` : ""}
+        ${r.provider ? `<tr><th scope="row">Doctor</th><td>${esc(r.provider)}</td></tr>` : ""}
         <tr><th scope="row">Date</th><td>${esc(r.appointment_date)}</td></tr>
         <tr><th scope="row">Time</th><td>${esc(r.start_time)}</td></tr>
         <tr class="total-row"><th scope="row">Estimated amount at visit</th><td>$${esc(r.total_amount)}</td></tr>`,
@@ -532,8 +686,25 @@ export default function BookingPage() {
     printWindow.document.close();
   };
 
-  // Schedule preview for cart items (includes 15-min break between services)
+  // Schedule preview for cart items (includes 15-min break between services), or the single visit being rescheduled
   const cartSchedule = useMemo(() => {
+    if (bookingFlow === "reschedule" && reschedulePick && options) {
+      const svc = options.services.find((s) => s.id === reschedulePick.service_id);
+      if (!svc) return [];
+      const prov: ProviderOption = {
+        id: reschedulePick.provider_id,
+        provider_name: reschedulePick.provider_name,
+      };
+      return [
+        {
+          service: svc,
+          provider: prov,
+          providerSkipped: false,
+          startTime: selectedTime,
+          endTime: addMinutesToTimeSlot(selectedTime, svc.duration_minutes),
+        },
+      ];
+    }
     let time = selectedTime;
     return cart.map((item, idx) => {
       const startTime = time;
@@ -543,7 +714,7 @@ export default function BookingPage() {
         : endTime;
       return { ...item, startTime, endTime };
     });
-  }, [cart, selectedTime]);
+  }, [bookingFlow, reschedulePick, options, cart, selectedTime]);
 
   return (
     <main className="content-fade-in min-h-[100dvh] min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
@@ -561,8 +732,36 @@ export default function BookingPage() {
               </span>
             </h1>
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
-              Pick a service category, choose your visit, then select your time. You can book multiple services at once.
+              {bookingFlow === "reschedule"
+                ? "Move a visit you already booked to another open time. We’ll verify your cell number and only show times that work for your doctor."
+                : "Pick a service category, choose your visit, then select your time. You can book multiple services at once."}
             </p>
+            <div className="mt-4 flex max-w-lg flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => activateNewBookingFlow()}
+                className={cn(
+                  "rounded-xl px-4 py-2.5 text-sm font-semibold transition-all",
+                  bookingFlow === "new"
+                    ? "bg-[#16a349] text-white shadow-sm shadow-[#16a349]/20"
+                    : "border border-border/80 bg-card text-foreground hover:border-primary/30",
+                )}
+              >
+                Book a new visit
+              </button>
+              <button
+                type="button"
+                onClick={() => activateRescheduleFlow()}
+                className={cn(
+                  "rounded-xl px-4 py-2.5 text-sm font-semibold transition-all",
+                  bookingFlow === "reschedule"
+                    ? "bg-[#16a349] text-white shadow-sm shadow-[#16a349]/20"
+                    : "border border-border/80 bg-card text-foreground hover:border-primary/30",
+                )}
+              >
+                Reschedule a visit
+              </button>
+            </div>
             {/* First thing visitors see: path to check-in without starting the booking steps */}
             <div className="mt-5 flex max-w-lg flex-col gap-3 rounded-xl border border-primary/20 bg-primary/[0.06] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-3.5">
               <p className="text-sm leading-snug text-foreground">
@@ -604,7 +803,7 @@ export default function BookingPage() {
             ))}
           </div>
 
-          {chiroGapBlocksCart && chiroIntakeRule && (
+          {bookingFlow === "new" && chiroGapBlocksCart && chiroIntakeRule && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
               <p className="font-semibold">New office visit required for chiropractic</p>
               <p className="mt-1 leading-relaxed">
@@ -638,10 +837,76 @@ export default function BookingPage() {
             </div>
           )}
 
-          {/* ─── STEP 1: Service selection ─── */}
+          {/* ─── STEP 1: Service selection (new) or find visits (reschedule) ─── */}
           {step === 1 && (
             <div className="animate-fade-in-up space-y-3">
-              {optionsError && (
+              {bookingFlow === "reschedule" && (
+                <div className="space-y-4 rounded-xl border border-[#166534]/25 bg-[#f0fdf4]/60 p-4">
+                  <h2 className="text-lg font-semibold text-[#0d5c2e]">Find your appointment</h2>
+                  <p className="text-sm leading-relaxed text-slate-600">
+                    Enter the <strong className="text-slate-800">same cell number</strong> you used when you booked. We list
+                    upcoming visits you can move. (Checked in or finished visits need the front desk.)
+                  </p>
+                  <div className={`rounded-lg border bg-white p-2 ${rescheduleListError && !rescheduleListLoading ? "border-amber-300" : "border-slate-200"}`}>
+                    <PhoneInput
+                      international
+                      defaultCountry="US"
+                      countryCallingCodeEditable={false}
+                      value={phone}
+                      onChange={(value) => {
+                        setPhone(value);
+                        setRescheduleList([]);
+                        setRescheduleListError("");
+                        setReschedulePick(null);
+                      }}
+                      placeholder="Cell number on your booking"
+                      className="phone-field text-sm"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => loadMyAppointments()}
+                    disabled={rescheduleListLoading}
+                    className="h-auto rounded-xl bg-[#0d5c2e] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4d26]"
+                  >
+                    {rescheduleListLoading ? "Looking up…" : "Show my upcoming visits"}
+                  </Button>
+                  {rescheduleListError && (
+                    <p className="text-sm text-amber-900">{rescheduleListError}</p>
+                  )}
+                  {rescheduleList.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tap a visit to reschedule</p>
+                      {rescheduleList.map((row) => (
+                        <button
+                          key={row.id}
+                          type="button"
+                          onClick={() => {
+                            setReschedulePick(row);
+                            setSlotWarning("");
+                            setStep(2);
+                          }}
+                          className="w-full rounded-xl border border-border/90 bg-card p-4 text-left transition-all hover:border-[#16a349]/40 hover:bg-[#f0fdf4]/50"
+                        >
+                          <p className="font-semibold text-slate-900">{row.service_name}</p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {row.provider_name} ·{" "}
+                            {new Date(row.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}{" "}
+                            at {row.start_time}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {bookingFlow === "new" && optionsError && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-rose-700">{optionsError}</p>
                   <Button type="button" onClick={fetchOptions} disabled={optionsLoading} size="sm" className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm">
@@ -649,12 +914,12 @@ export default function BookingPage() {
                   </Button>
                 </div>
               )}
-              {!options && !optionsError && (
+              {bookingFlow === "new" && !options && !optionsError && (
                 <Loader variant="page" label="Loading services" sublabel="Fetching available visits and times…" />
               )}
 
               {/* Cart items already added */}
-              {options && cart.length > 0 && !addingAnother && !selectedCategory && (
+              {bookingFlow === "new" && options && cart.length > 0 && !addingAnother && !selectedCategory && (
                 <div className="space-y-3">
                   <h2 className="text-lg font-semibold">Your selected services</h2>
                   {cart.some((c) => c.service.service_type === "chiropractic") && !chiroGapBlocksCart ? (
@@ -712,7 +977,7 @@ export default function BookingPage() {
               )}
 
               {/* Category selection (empty cart or adding another) */}
-              {options && cart.length === 0 && !selectedCategory && (
+              {bookingFlow === "new" && options && cart.length === 0 && !selectedCategory && (
                 <>
                   <h2 className="text-lg font-semibold">Choose a category</h2>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -743,7 +1008,7 @@ export default function BookingPage() {
               )}
 
               {/* Service list for selected category */}
-              {options && selectedCategory && (
+              {bookingFlow === "new" && options && selectedCategory && (
                 <>
                   <div className="flex items-center gap-3">
                     <button
@@ -807,9 +1072,49 @@ export default function BookingPage() {
             </div>
           )}
 
-          {/* ─── STEP 2: Provider selection ─── */}
+          {/* ─── STEP 2: Provider selection (new) or visit summary (reschedule) ─── */}
           {step === 2 && (
             <div className="animate-fade-in-up space-y-4">
+              {bookingFlow === "reschedule" && reschedulePick ? (
+                <div className="space-y-4 rounded-xl border border-[#166534]/20 bg-[#f0fdf4]/40 p-4">
+                  <h2 className="text-lg font-semibold text-[#0d5c2e]">Visit you&apos;re moving</h2>
+                  <p className="text-sm text-slate-600">
+                    You can change the <strong className="text-slate-800">date and time</strong> only. The visit type and
+                    doctor stay the same. Pick a new slot in the next step — we only show times that are open for this
+                    visit.
+                  </p>
+                  <ul className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-800">
+                    <li>
+                      <span className="text-slate-500">Service: </span>
+                      <span className="font-medium">{reschedulePick.service_name}</span>
+                    </li>
+                    <li>
+                      <span className="text-slate-500">Doctor: </span>
+                      <span className="font-medium">{reschedulePick.provider_name}</span>
+                    </li>
+                    <li>
+                      <span className="text-slate-500">Currently scheduled: </span>
+                      <span className="font-medium">
+                        {new Date(reschedulePick.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
+                          weekday: "long",
+                          month: "long",
+                          day: "numeric",
+                          year: "numeric",
+                        })}{" "}
+                        at {reschedulePick.start_time}
+                      </span>
+                    </li>
+                  </ul>
+                  <Button
+                    type="button"
+                    onClick={() => setStep(3)}
+                    className="h-auto w-full rounded-xl bg-foreground px-6 py-3 text-base font-semibold text-background hover:bg-foreground/90 sm:w-auto"
+                  >
+                    Choose new date &amp; time
+                  </Button>
+                </div>
+              ) : (
+                <>
               <h2 className="text-lg font-semibold">Choose your doctor</h2>
               {cart.filter((c) => !c.provider && !c.providerSkipped).map((item) => {
                 const providers = options?.providers_by_service?.[item.service.id] ?? [];
@@ -857,13 +1162,17 @@ export default function BookingPage() {
                   Continue
                 </Button>
               )}
+                </>
+              )}
             </div>
           )}
 
           {/* ─── STEP 3: Date & time ─── */}
           {step === 3 && (
             <div className="animate-fade-in-up space-y-4">
-              <h2 className="text-lg font-semibold">Select date & time</h2>
+              <h2 className="text-lg font-semibold">
+                {bookingFlow === "reschedule" ? "Pick your new date & time" : "Select date & time"}
+              </h2>
 
               {/* Help visitors who already booked and only need check-in (kiosk) */}
               <div className="flex flex-col gap-3 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.07] to-card px-4 py-4 ring-1 ring-primary/10 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -942,7 +1251,7 @@ export default function BookingPage() {
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Available time{" "}
-                  {cart.length > 1
+                  {bookingFlow === "new" && cart.length > 1
                     ? cartSameProviderChain
                       ? "(full block — all services, breaks, and visit length on this schedule)"
                       : "(for your first service; other visits may use a different provider)"
@@ -951,10 +1260,10 @@ export default function BookingPage() {
                 <p className="mb-2 text-xs leading-snug text-slate-500">
                   Start times are offered on a <strong className="font-medium text-slate-600">15-minute grid</strong>. Each
                   time must have enough open room for{" "}
-                  {cart.length > 1 && cartSameProviderChain ? (
+                  {bookingFlow === "new" && cart.length > 1 && cartSameProviderChain ? (
                     <>all services and breaks between them (<strong className="text-slate-600">{totalCartMinutes} min</strong> total).</>
                   ) : (
-                    <>your visit length (<strong className="text-slate-600">{firstService?.duration_minutes ?? "—"} min</strong>).</>
+                    <>your visit length (<strong className="text-slate-600">{effectiveSlotService?.duration_minutes ?? "—"} min</strong>).</>
                   )}{" "}
                   If options look far apart (e.g. 9:00 vs 10:15), the starts in between usually conflict with other
                   bookings — not a hidden 30-minute buffer added to your 45-minute visit.
@@ -1017,7 +1326,7 @@ export default function BookingPage() {
               </div>
 
               {/* Multi-service break info */}
-              {cart.length > 1 && (
+              {bookingFlow === "new" && cart.length > 1 && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-sm text-blue-900">
                   <p className="font-medium">Scheduling with break</p>
                   <p className="mt-1 text-blue-700">
@@ -1029,8 +1338,63 @@ export default function BookingPage() {
             </div>
           )}
 
-          {/* ─── STEP 4: Details & submit ─── */}
-          {step === 4 && bookingResults.length === 0 && (
+          {/* ─── STEP 4: Details & submit (new) or confirm reschedule ─── */}
+          {step === 4 && bookingResults.length === 0 && bookingFlow === "reschedule" && reschedulePick && (
+            <div className="animate-fade-in-up space-y-4">
+              <h2 className="text-lg font-semibold">Confirm your new time</h2>
+              <p className="text-sm text-slate-600">
+                We&apos;ll move <strong className="text-slate-900">{reschedulePick.service_name}</strong> with{" "}
+                <strong className="text-slate-900">{reschedulePick.provider_name}</strong> to the time you picked. Your
+                cell number must match the booking.
+              </p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-800">
+                <p>
+                  <span className="text-slate-500">New time: </span>
+                  <span className="font-semibold">
+                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}{" "}
+                    at {selectedTime}
+                  </span>
+                </p>
+                <p className="mt-2 text-xs text-slate-600">
+                  Was:{" "}
+                  {new Date(reschedulePick.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}{" "}
+                  at {reschedulePick.start_time}
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={() => void submitReschedule()}
+                disabled={isSubmitting || !phone || !isValidPhoneNumber(phone)}
+                className="h-auto w-full max-w-xs rounded-xl bg-[#e9982f] px-6 py-3 text-base font-semibold text-white shadow-md shadow-[#e9982f]/25 hover:bg-[#cf8727] sm:w-auto"
+              >
+                {isSubmitting ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader variant="spinner" />
+                    Updating…
+                  </span>
+                ) : (
+                  "Confirm new time"
+                )}
+              </Button>
+              {bookingMessage && (
+                <p className={`text-sm font-medium ${bookingMessageKind === "success" ? "text-[#166534]" : "text-rose-700"}`}>
+                  {bookingMessage}
+                </p>
+              )}
+            </div>
+          )}
+
+          {step === 4 && bookingResults.length === 0 && bookingFlow === "new" && (
             <div className="animate-fade-in-up space-y-3">
               <h2 className="text-lg font-semibold">Your details</h2>
               <p className="text-sm text-slate-600">
@@ -1125,9 +1489,11 @@ export default function BookingPage() {
                 </div>
                 <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">Thank you!</h2>
                 <p className="mt-2 max-w-md text-sm text-slate-600 sm:text-base">
-                  {bookingResults.length > 1
-                    ? "Both appointments are confirmed. We look forward to seeing you."
-                    : "Your appointment is confirmed. We look forward to seeing you."}
+                  {bookingFlow === "reschedule"
+                    ? "Your appointment has been updated to the new date and time. We look forward to seeing you."
+                    : bookingResults.length > 1
+                      ? "Both appointments are confirmed. We look forward to seeing you."
+                      : "Your appointment is confirmed. We look forward to seeing you."}
                 </p>
               </div>
 
@@ -1154,8 +1520,8 @@ export default function BookingPage() {
                       </li>
                     </ul>
                     <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                      This is what you can expect to pay for this booked service at check-in; insurance, add-ons, or taxes
-                      may change the final total.
+                      This is what you can expect to pay for this booked service at check-in; add-on services may change the
+                      final total.
                     </p>
                   </div>
                 ))}
@@ -1185,7 +1551,7 @@ export default function BookingPage() {
                     </div>
                   </div>
                 </div>
-                {patientLookup === "new" && (
+                {bookingFlow === "new" && patientLookup === "new" && (
                   <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3">
                     <span className="mt-0.5 text-lg">⏰</span>
                     <div className="space-y-1.5">
@@ -1219,14 +1585,29 @@ export default function BookingPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/80 pt-4">
             <Button
               type="button" variant="outline" onClick={goToPreviousStep}
-              disabled={(step === 1 && !selectedCategory && cart.length === 0 && !addingAnother) || (step === 4 && bookingResults.length > 0)}
+              disabled={
+                (step === 1 && !selectedCategory && cart.length === 0 && !addingAnother && bookingFlow !== "reschedule") ||
+                (step === 4 && bookingResults.length > 0)
+              }
               className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
             >
               Back
             </Button>
             <Button
-              type="button" onClick={() => { if (step === 1 && cart.length > 0 && !selectedCategory && !addingAnother) proceedFromStep1(); else if (step < 4) setStep((step + 1) as Step); }}
-              disabled={step === 4 || bookingResults.length > 0 || (step === 1 && cart.length === 0)}
+              type="button"
+              onClick={() => {
+                if (step === 1 && bookingFlow === "new" && cart.length > 0 && !selectedCategory && !addingAnother) {
+                  proceedFromStep1();
+                } else if (step < 4) {
+                  setStep((step + 1) as Step);
+                }
+              }}
+              disabled={
+                step === 4 ||
+                bookingResults.length > 0 ||
+                (step === 1 && bookingFlow === "new" && cart.length === 0) ||
+                (step === 1 && bookingFlow === "reschedule")
+              }
               className="h-auto rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90"
             >
               Next
@@ -1237,7 +1618,9 @@ export default function BookingPage() {
         {/* ─── Sidebar: Booking summary ─── */}
         <aside className="space-y-4 lg:pt-1">
           <div className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80">
-            <h3 className="text-lg font-bold tracking-tight text-foreground">Booking summary</h3>
+            <h3 className="text-lg font-bold tracking-tight text-foreground">
+              {bookingFlow === "reschedule" ? "Reschedule summary" : "Booking summary"}
+            </h3>
 
             <div className="mt-4 rounded-xl border border-border/80 bg-muted/40 p-3">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Appointment date & time</p>
@@ -1246,7 +1629,7 @@ export default function BookingPage() {
               </p>
             </div>
 
-            {cart.length === 0 && (
+            {cart.length === 0 && !(bookingFlow === "reschedule" && reschedulePick) && (
               <div className="mt-4 rounded-xl border border-border/80 bg-background p-4">
                 <p className="text-sm text-muted-foreground">No services selected yet. Choose a service in Step 1.</p>
               </div>
