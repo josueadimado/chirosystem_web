@@ -1,0 +1,33 @@
+{
+  "id": "relief-checkin",
+  "name": "Relief — Patient check-in",
+  "short_name": "Check-in",
+  "description": "Check in at Relief Chiropractic with the phone number on your appointment.",
+  "start_url": "/kiosk",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ecfdf5",
+  "theme_color": "#16a349",
+  "categories": ["health", "medical"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

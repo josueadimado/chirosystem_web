@@ -1,0 +1,33 @@
+{
+  "id": "relief-doctor",
+  "name": "Relief — Doctor portal",
+  "short_name": "Doctor",
+  "description": "Doctor dashboard, schedule, and patient tools for Relief Chiropractic.",
+  "start_url": "/auth/sign-in",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8fafc",
+  "theme_color": "#0d5c2e",
+  "categories": ["health", "medical", "business"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

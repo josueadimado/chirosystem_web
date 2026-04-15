@@ -49,6 +49,13 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/kiosk",
         icons: [{ src: "/icon-192x192.png", sizes: "192x192", type: "image/png" }],
       },
+      {
+        name: "Doctor portal",
+        short_name: "Doctor",
+        description: "Sign in to the doctor dashboard",
+        url: "/auth/sign-in",
+        icons: [{ src: "/icon-192x192.png", sizes: "192x192", type: "image/png" }],
+      },
     ],
   };
 }
