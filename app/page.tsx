@@ -136,18 +136,31 @@ export default function BookingPage() {
       + BETWEEN_SERVICE_BUFFER_MINUTES * (cart.length - 1);
   }, [cart]);
 
+  /** Multi-service chain on one provider: API must reserve the full block (each visit + breaks). */
+  const cartSameProviderChain = useMemo(() => {
+    if (cart.length <= 1 || !firstProvider) return false;
+    return cart.every((c) => c.provider && c.provider.id === firstProvider.id);
+  }, [cart, firstProvider]);
+
   useEffect(() => {
     if (!firstService || !firstProvider || !selectedDate) {
       setAvailableSlots(null);
       return;
     }
     setSlotsLoading(true);
-    apiGet<{ available_slots: string[] }>(
-      `/booking-options/availability/?date=${selectedDate}&provider_id=${firstProvider.id}&service_id=${firstService.id}`
-    )
+    const params = new URLSearchParams({
+      date: selectedDate,
+      provider_id: String(firstProvider.id),
+      service_id: String(firstService.id),
+    });
+    if (cart.length > 1 && cartSameProviderChain) {
+      params.set("block_minutes", String(totalCartMinutes));
+    }
+    apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
         let slots = res.available_slots;
-        if (cart.length > 1) {
+        // Different provider per service: only the first visit is constrained server-side; rough end-of-day check for the chain.
+        if (cart.length > 1 && !cartSameProviderChain) {
           const DAY_END = 18 * 60; // 6:00 PM in minutes
           slots = slots.filter((slot) => {
             const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
@@ -165,7 +178,7 @@ export default function BookingPage() {
       })
       .catch(() => setAvailableSlots(ALL_TIME_SLOTS))
       .finally(() => setSlotsLoading(false));
-  }, [selectedDate, firstProvider?.id, firstService?.id, totalCartMinutes]);
+  }, [selectedDate, firstProvider?.id, firstService?.id, totalCartMinutes, cart.length, cartSameProviderChain]);
 
   useEffect(() => {
     if (availableSlots && availableSlots.length > 0 && !availableSlots.includes(selectedTime)) {
@@ -928,7 +941,12 @@ export default function BookingPage() {
               {/* Time slots grouped by period */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Available time {cart.length > 1 ? "(for your first service)" : ""}
+                  Available time{" "}
+                  {cart.length > 1
+                    ? cartSameProviderChain
+                      ? "(full block — all services, breaks, and visit length on this schedule)"
+                      : "(for your first service; other visits may use a different provider)"
+                    : ""}
                 </label>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
