@@ -91,6 +91,28 @@ function addMinutesToTimeSlot(slot: string, minutes: number): string {
   return `${displayH}:${String(newM).padStart(2, "0")} ${newAmpm}`;
 }
 
+/** Parse API display time (e.g. 2:30 PM) + date into local Date for policy checks. */
+function appointmentStartDateTimeLocal(appointmentDate: string, displayTime12h: string): Date | null {
+  const m = displayTime12h.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = m[3].toUpperCase();
+  if (ap === "PM" && h !== 12) h += 12;
+  if (ap === "AM" && h === 12) h = 0;
+  const d = new Date(`${appointmentDate}T${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function isMassageLateCancelWindow(row: RescheduleAppointmentRow, bookingOptions: BookingOptions | null): boolean {
+  const svc = bookingOptions?.services.find((s) => s.id === row.service_id);
+  if (!svc || svc.service_type !== "massage") return false;
+  const dt = appointmentStartDateTimeLocal(row.appointment_date, row.start_time);
+  if (!dt) return false;
+  const ms = dt.getTime() - Date.now();
+  return ms > 0 && ms < 24 * 60 * 60 * 1000;
+}
+
 export default function BookingPage() {
   const { toast } = useAppFeedback();
   const today = new Date().toISOString().slice(0, 10);
@@ -466,6 +488,28 @@ export default function BookingPage() {
         setRescheduleListError(e instanceof ApiError ? e.message : "Could not load your visits. Try again.");
       })
       .finally(() => setRescheduleListLoading(false));
+  };
+
+  const cancelPublicAppointment = async (row: RescheduleAppointmentRow) => {
+    if (!phone || !isValidPhoneNumber(phone)) {
+      toast.error("Enter a valid cell number first.");
+      return;
+    }
+    const lateMassage = isMassageLateCancelWindow(row, options);
+    const msg = lateMassage
+      ? `This massage starts within 24 hours. Our policy charges the full massage price (${formatBookingPrice(row.price)}) for late cancellations. If the office already moved you to another time today, call us instead of cancelling here. Cancel online anyway?`
+      : "Cancel this appointment? Chiropractic visits are not charged when you cancel before the visit time. Massage visits with at least 24 hours’ notice are also free to cancel.";
+    if (!window.confirm(msg)) return;
+    try {
+      await apiPostPublic<{ detail?: string }>("/booking-options/cancel-appointment/", {
+        phone,
+        appointment_id: row.id,
+      });
+      toast.success("Your appointment was cancelled.");
+      setRescheduleList((prev) => prev.filter((r) => r.id !== row.id));
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not cancel. Call the clinic if you need help.");
+    }
   };
 
   const goToPreviousStep = () => {
@@ -876,30 +920,45 @@ export default function BookingPage() {
                   )}
                   {rescheduleList.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Tap a visit to reschedule</p>
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Reschedule or cancel — same cell number must match the booking
+                      </p>
                       {rescheduleList.map((row) => (
-                        <button
+                        <div
                           key={row.id}
-                          type="button"
-                          onClick={() => {
-                            setReschedulePick(row);
-                            setSlotWarning("");
-                            setStep(2);
-                          }}
-                          className="w-full rounded-xl border border-border/90 bg-card p-4 text-left transition-all hover:border-[#16a349]/40 hover:bg-[#f0fdf4]/50"
+                          className="flex flex-col gap-2 rounded-xl border border-border/90 bg-card p-3 sm:flex-row sm:items-center"
                         >
-                          <p className="font-semibold text-slate-900">{row.service_name}</p>
-                          <p className="mt-1 text-sm text-slate-600">
-                            {row.provider_name} ·{" "}
-                            {new Date(row.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
-                              weekday: "short",
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })}{" "}
-                            at {row.start_time}
-                          </p>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReschedulePick(row);
+                              setSlotWarning("");
+                              setStep(2);
+                            }}
+                            className="min-w-0 flex-1 rounded-lg border border-transparent p-2 text-left transition-all hover:border-[#16a349]/40 hover:bg-[#f0fdf4]/50"
+                          >
+                            <p className="font-semibold text-slate-900">{row.service_name}</p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {row.provider_name} ·{" "}
+                              {new Date(row.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
+                                weekday: "short",
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}{" "}
+                              at {row.start_time}
+                            </p>
+                            <p className="mt-1 text-[11px] text-[#166534]">Tap to pick a new time →</p>
+                          </button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-auto shrink-0 rounded-xl border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-50"
+                            onClick={() => void cancelPublicAppointment(row)}
+                          >
+                            Cancel visit
+                          </Button>
+                        </div>
                       ))}
                     </div>
                   )}

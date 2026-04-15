@@ -18,6 +18,8 @@ type Appointment = {
   provider_name: string;
   booked_service: number | null;
   service_name: string;
+  /** From API: chiropractic | massage */
+  service_type?: string;
   appointment_date: string;
   start_time: string;
   end_time: string;
@@ -51,6 +53,14 @@ function formatTime(t: string): string {
   const ampm = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 || 12;
   return `${h12}:${m} ${ampm}`;
+}
+
+/** True if appointment start is in the future but less than 24 hours away (local clock). */
+function within24HoursBeforeStart(appointmentDate: string, startTime: string): boolean {
+  const t = (startTime || "09:00:00").slice(0, 8);
+  const start = new Date(`${appointmentDate}T${t}`);
+  const ms = start.getTime() - Date.now();
+  return ms > 0 && ms < 24 * 60 * 60 * 1000;
 }
 
 function formatVisitDate(isoDate: string): string {
@@ -96,6 +106,7 @@ function AdminSchedulePageContent() {
   const [checkingIn, setCheckingIn] = useState(false);
   const [savingDesk, setSavingDesk] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
+  const [waiveLateCancelFee, setWaiveLateCancelFee] = useState(false);
   const [resDate, setResDate] = useState("");
   const [resTime, setResTime] = useState("09:00");
   const [resProviderId, setResProviderId] = useState("");
@@ -167,6 +178,7 @@ function AdminSchedulePageContent() {
 
   useEffect(() => {
     setShowReschedule(false);
+    setWaiveLateCancelFee(false);
     if (selected) {
       setResDate(selected.appointment_date);
       const raw = selected.start_time;
@@ -544,47 +556,73 @@ function AdminSchedulePageContent() {
               )}
 
               {canMarkNoShowOrCancel(selected.status) && (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={savingDesk}
-                    onClick={() => {
-                      if (!confirm("Mark this visit as no-show? It will no longer count as an active booking.")) return;
-                      void runWithFeedback(
-                        async () => {
-                          await patchAppointment(selected.id, { status: "no_show" });
-                        },
-                        {
-                          loadingMessage: "Updating…",
-                          successMessage: "Marked as no-show.",
-                          errorFallback: "Could not update status.",
-                        }
-                      );
-                    }}
-                    className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-                  >
-                    No-show
-                  </button>
-                  <button
-                    type="button"
-                    disabled={savingDesk}
-                    onClick={() => {
-                      if (!confirm("Cancel this appointment? It will free the slot.")) return;
-                      void runWithFeedback(
-                        async () => {
-                          await patchAppointment(selected.id, { status: "cancelled" });
-                        },
-                        {
-                          loadingMessage: "Updating…",
-                          successMessage: "Appointment cancelled.",
-                          errorFallback: "Could not cancel.",
-                        }
-                      );
-                    }}
-                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Cancel visit
-                  </button>
+                <div className="space-y-2">
+                  {selected.service_type === "massage" &&
+                    within24HoursBeforeStart(selected.appointment_date, selected.start_time) && (
+                      <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
+                        <input
+                          type="checkbox"
+                          checked={waiveLateCancelFee}
+                          onChange={(e) => setWaiveLateCancelFee(e.target.checked)}
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <strong>Waive late-cancellation fee</strong> — check only if the patient called and you moved
+                          them to another same-day slot (under 24h policy).
+                        </span>
+                      </label>
+                    )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={savingDesk}
+                      onClick={() => {
+                        if (!confirm("Mark this visit as no-show? It will no longer count as an active booking.")) return;
+                        void runWithFeedback(
+                          async () => {
+                            await patchAppointment(selected.id, { status: "no_show" });
+                          },
+                          {
+                            loadingMessage: "Updating…",
+                            successMessage: "Marked as no-show.",
+                            errorFallback: "Could not update status.",
+                          }
+                        );
+                      }}
+                      className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      No-show
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingDesk}
+                      onClick={() => {
+                        const lateMassage =
+                          selected.service_type === "massage" &&
+                          within24HoursBeforeStart(selected.appointment_date, selected.start_time);
+                        const msg = lateMassage
+                          ? "This massage is inside the 24-hour window: the patient will be charged the full massage price unless you checked “Waive late-cancellation fee.” Continue?"
+                          : "Cancel this appointment? It will free the slot.";
+                        if (!confirm(msg)) return;
+                        void runWithFeedback(
+                          async () => {
+                            await patchAppointment(selected.id, {
+                              status: "cancelled",
+                              ...(waiveLateCancelFee ? { waive_late_cancel_fee: true } : {}),
+                            });
+                          },
+                          {
+                            loadingMessage: "Updating…",
+                            successMessage: "Appointment cancelled.",
+                            errorFallback: "Could not cancel.",
+                          }
+                        );
+                      }}
+                      className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Cancel visit
+                    </button>
+                  </div>
                 </div>
               )}
 

@@ -26,6 +26,7 @@ type Appointment = {
   patient_id: number;
   service: string;
   booked_service_id: number | null;
+  service_type?: string;
   /** YYYY-MM-DD — used when rescheduling from this screen. */
   appointment_date: string;
   /** e.g. "09:30:00" — send to the API when changing start time. */
@@ -54,6 +55,12 @@ type ServiceOpt = {
 };
 
 type BillLine = { service_id: number; quantity: string; unit_price: string };
+
+function doctorApptWithin24Hours(appt: Appointment): boolean {
+  const start = new Date(`${appt.appointment_date}T${appt.start_time_iso}`);
+  const ms = start.getTime() - Date.now();
+  return ms > 0 && ms < 24 * 60 * 60 * 1000;
+}
 
 type CompleteVisitPayment = {
   status: string;
@@ -1069,7 +1076,12 @@ export default function DoctorDashboardPage() {
                       type="button"
                       disabled={savingDesk}
                       onClick={() => {
-                        if (!confirm("Cancel this appointment? The time slot will be freed.")) return;
+                        const lateM =
+                          appt.service_type === "massage" && doctorApptWithin24Hours(appt);
+                        const msg = lateM
+                          ? "This massage is inside the 24-hour window: the patient will be charged the full massage price. To waive the fee when you rescheduled them same-day by phone, cancel from Admin → Schedule with “Waive late-cancellation fee” checked. Continue to cancel from here?"
+                          : "Cancel this appointment? The time slot will be freed.";
+                        if (!confirm(msg)) return;
                         void runWithFeedback(
                           async () => {
                             await apiPatch(`/appointments/${appt.id}/`, { status: "cancelled" });

@@ -250,9 +250,10 @@ export default function AdminSettingsPage() {
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   No-show fee (USD)
                   <HelpTip label="No-show billing">
-                    When staff marks a visit as no-show, this amount is invoiced. If the patient has a card on file, it is charged
-                    automatically; otherwise the appointment moves to <strong>Awaiting payment</strong> until collected. Use{" "}
-                    <strong>0</strong> to turn off the fee (status becomes no-show only, no invoice).
+                    Chiropractic and massage no-shows use the <strong>booked visit price</strong> from Services. This field is
+                    only a <strong>fallback</strong> if a visit has no price. Saved cards are charged when possible; otherwise
+                    the visit may move to <strong>Awaiting payment</strong>. Massage late cancellations (&lt;24h) use the
+                    massage price separately. Use <strong>0</strong> to disable only the fallback amount.
                   </HelpTip>
                 </label>
                 <input
