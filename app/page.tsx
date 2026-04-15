@@ -39,6 +39,8 @@ type ServiceOption = {
   price: string;
   service_type?: string;
   allow_provider_choice?: boolean;
+  /** True = new patient / reactivation visit (required online after long gap since last chiro visit). */
+  is_new_client_intake?: boolean;
 };
 type ProviderOption = { id: number; provider_name: string };
 type BookingOptions = { services: ServiceOption[]; providers_by_service: Record<number, ProviderOption[]> };
@@ -102,6 +104,15 @@ export default function BookingPage() {
   const [availableSlots, setAvailableSlots] = useState<string[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [patientLookup, setPatientLookup] = useState<"idle" | "loading" | "returning" | "new">("idle");
+  /** From patient-lookup API when returning patient has Square card on file */
+  const [lookupSavedCard, setLookupSavedCard] = useState<{ card_brand: string; card_last4: string } | null>(null);
+  /** Chiropractic: patient must book a flagged "new client" visit after long inactivity (server + lookup). */
+  const [chiroIntakeRule, setChiroIntakeRule] = useState<{
+    requiresIntake: boolean;
+    intakeServices: Array<{ id: number; name: string }>;
+    gapDays: number;
+    lastVisit: string | null;
+  } | null>(null);
 
   const fetchOptions = () => {
     setOptionsError("");
@@ -163,25 +174,55 @@ export default function BookingPage() {
 
   useEffect(() => {
     if (step !== 4 || !phone || !isValidPhoneNumber(phone)) {
-      if (step !== 4) setPatientLookup("idle");
+      if (step !== 4) {
+        setPatientLookup("idle");
+        setLookupSavedCard(null);
+      }
       return;
     }
     const t = setTimeout(() => {
       setPatientLookup("loading");
-      apiGet<{ found: boolean; first_name?: string; last_name?: string; email?: string }>(
-        `/booking-options/patient-lookup/?phone=${encodeURIComponent(phone)}`
-      )
+      apiGet<{
+        found: boolean;
+        first_name?: string;
+        last_name?: string;
+        email?: string;
+        has_saved_card?: boolean;
+        card_brand?: string;
+        card_last4?: string;
+        chiropractic_returning_gap_requires_intake?: boolean;
+        chiropractic_intake_services?: Array<{ id: number; name: string }>;
+        chiropractic_gap_days?: number;
+        last_chiropractic_visit_date?: string | null;
+      }>(`/booking-options/patient-lookup/?phone=${encodeURIComponent(phone)}`)
         .then((res) => {
           if (res.found && res.first_name != null && res.last_name != null) {
             setFirstName(res.first_name);
             setLastName(res.last_name);
             setEmail(res.email ?? "");
             setPatientLookup("returning");
+            setLookupSavedCard(
+              res.has_saved_card && res.card_last4
+                ? { card_brand: res.card_brand ?? "", card_last4: res.card_last4 }
+                : null,
+            );
+            setChiroIntakeRule({
+              requiresIntake: res.chiropractic_returning_gap_requires_intake === true,
+              intakeServices: Array.isArray(res.chiropractic_intake_services) ? res.chiropractic_intake_services : [],
+              gapDays: typeof res.chiropractic_gap_days === "number" ? res.chiropractic_gap_days : 730,
+              lastVisit: res.last_chiropractic_visit_date ?? null,
+            });
           } else {
             setPatientLookup("new");
+            setLookupSavedCard(null);
+            setChiroIntakeRule(null);
           }
         })
-        .catch(() => setPatientLookup("new"));
+        .catch(() => {
+          setPatientLookup("new");
+          setLookupSavedCard(null);
+          setChiroIntakeRule(null);
+        });
     }, 500);
     return () => clearTimeout(t);
   }, [step, phone]);
@@ -205,6 +246,12 @@ export default function BookingPage() {
     return null;
   }, [cartCategoryTypes, chiroServices.length, massageServices.length]);
 
+  /** Returning chiropractic patient inactive too long: cart must only use new-client intake visit types (plus massage is fine). */
+  const chiroGapBlocksCart = useMemo(() => {
+    if (!chiroIntakeRule?.requiresIntake) return false;
+    return cart.some((c) => c.service.service_type === "chiropractic" && !c.service.is_new_client_intake);
+  }, [chiroIntakeRule, cart]);
+
   const servicesForCategory = selectedCategory === "chiropractic"
     ? chiroServices
     : selectedCategory === "massage"
@@ -224,6 +271,19 @@ export default function BookingPage() {
   const anyProviderSkipped = cart.every((c) => c.providerSkipped);
 
   const addServiceToCart = (service: ServiceOption) => {
+    if (
+      chiroIntakeRule?.requiresIntake &&
+      service.service_type === "chiropractic" &&
+      !service.is_new_client_intake
+    ) {
+      const names = chiroIntakeRule.intakeServices.map((s) => s.name).join(", ");
+      toast.error(
+        names
+          ? `Your last chiropractic visit was over ${Math.round(chiroIntakeRule.gapDays / 365)} years ago. Please choose a new patient or reactivation visit first: ${names}.`
+          : "Please choose a new patient or reactivation visit type for chiropractic (ask the clinic to mark one in Services).",
+      );
+      return;
+    }
     const providers = options?.providers_by_service?.[service.id] ?? [];
     const item: CartItem = {
       service,
@@ -242,6 +302,12 @@ export default function BookingPage() {
   const needsProviderSelection = cart.some((c) => !c.provider && !c.providerSkipped);
 
   const proceedFromStep1 = () => {
+    if (chiroGapBlocksCart) {
+      toast.error(
+        "Update your chiropractic visit to a new patient or reactivation type (see the notice above), then continue.",
+      );
+      return;
+    }
     if (needsProviderSelection) {
       setStep(2);
     } else {
@@ -269,6 +335,7 @@ export default function BookingPage() {
     setSelectedCategory(null);
     setCart([]);
     setAddingAnother(false);
+    setChiroIntakeRule(null);
     setStep(1);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -280,10 +347,8 @@ export default function BookingPage() {
     const nextErrors: FormErrors = {};
     if (!firstName.trim()) nextErrors.firstName = "First name is required.";
     if (!lastName.trim()) nextErrors.lastName = "Last name is required.";
-    if (!email.trim()) {
-      nextErrors.email = "Email is required.";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      nextErrors.email = "Please enter a valid email address.";
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      nextErrors.email = "Please enter a valid email address, or leave it blank.";
     }
     if (!phone || !isValidPhoneNumber(phone)) {
       nextErrors.phone = "Please enter a valid phone number.";
@@ -292,6 +357,14 @@ export default function BookingPage() {
     if (Object.keys(nextErrors).length > 0) {
       setBookingMessageKind("error");
       setBookingMessage("Please correct the highlighted fields.");
+      return;
+    }
+    if (chiroGapBlocksCart) {
+      setBookingMessageKind("error");
+      setBookingMessage(
+        "Please update your chiropractic visit to a new patient or reactivation appointment, then try again.",
+      );
+      toast.error("This booking requires a new client chiropractic visit. Go back and change your selected visit type.");
       return;
     }
     setIsSubmitting(true);
@@ -395,11 +468,16 @@ export default function BookingPage() {
         ${!anyProviderSkipped ? `<tr><th scope="row">Doctor</th><td>${esc(r.provider)}</td></tr>` : ""}
         <tr><th scope="row">Date</th><td>${esc(r.appointment_date)}</td></tr>
         <tr><th scope="row">Time</th><td>${esc(r.start_time)}</td></tr>
-        <tr class="total-row"><th scope="row">Estimated total</th><td>$${esc(r.total_amount)}</td></tr>`,
+        <tr class="total-row"><th scope="row">Estimated amount at visit</th><td>$${esc(r.total_amount)}</td></tr>`,
       )
       .join("");
+    const grandNum = bookingResults.reduce((sum, r) => sum + Number.parseFloat(String(r.total_amount)), 0);
+    const grandRow =
+      bookingResults.length > 1
+        ? `<tr class="total-row"><th scope="row">Combined estimate (all visits)</th><td>${esc(formatBookingPrice(String(grandNum)))}</td></tr>`
+        : "";
 
-    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Appointment confirmation — Relief Chiropractic</title><style>@page{margin:14mm 16mm;size:letter}*{box-sizing:border-box}body{margin:0;padding:20px;font-family:"Georgia","Times New Roman",serif;color:#1e293b;background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}.screen-note{max-width:640px;margin:0 auto 16px;padding:10px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#475569;text-align:center;background:#fff;border:1px solid #cbd5e1;border-radius:8px}.form{max-width:640px;margin:0 auto;background:#fff;border:2px solid #0f172a;box-shadow:0 4px 24px rgba(15,23,42,.08)}.form-accent{height:6px;background:linear-gradient(90deg,#16a349 0%,#16a349 38%,#e9982f 38%,#e9982f 100%)}.form-inner{padding:28px 32px 32px}.form-header{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px;margin-bottom:20px;border-bottom:2px solid #0f172a}.clinic-name{margin:0;font-family:system-ui,-apple-system,sans-serif;font-size:26px;font-weight:800;letter-spacing:-.02em;color:#e9982f}.doc-title{margin:4px 0 0;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#64748b}.badge-wrap{text-align:right}.badge{display:inline-block;padding:8px 14px;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:4px}h2.section-title{margin:0 0 12px;font-family:system-ui,sans-serif;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#334155}table.details{width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:14px;border:1px solid #cbd5e1}table.details tr{border-bottom:1px solid #e2e8f0}table.details tr:last-child{border-bottom:none}table.details th{width:38%;padding:12px 14px;text-align:left;font-weight:600;font-size:12px;color:#475569;background:#f8fafc;border-right:1px solid #e2e8f0;vertical-align:top}table.details td{padding:12px 14px;font-weight:600;color:#0f172a;vertical-align:top;line-height:1.45}tr.total-row th{background:#fffbeb;color:#92400e;border-right-color:#fde68a}tr.total-row td{background:#fffbeb;font-size:18px;font-weight:800;color:#b45309}.instructions{margin-top:22px;padding:14px 16px;font-family:system-ui,sans-serif;font-size:12px;line-height:1.55;color:#475569;background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px}.instructions strong{color:#334155}.form-footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:system-ui,sans-serif;font-size:10px;color:#94a3b8;text-align:center;letter-spacing:.04em}@media print{body{padding:0;background:#fff}.screen-note{display:none!important}.form{max-width:none;border:2px solid #000;box-shadow:none}.form-inner{padding:20px 24px 24px}}</style></head><body><p class="screen-note">A print dialog will open next. Choose your printer or <strong>Save as PDF</strong>.</p><article class="form"><div class="form-accent"></div><div class="form-inner"><header class="form-header"><div><h1 class="clinic-name">Relief Chiropractic</h1><p class="doc-title">Appointment confirmation</p></div><div class="badge-wrap"><span class="badge">Confirmed</span></div></header><h2 class="section-title">Visit details</h2><table class="details"><tbody>${rowsHtml}</tbody></table><div class="instructions"><strong>Before your visit:</strong> Please arrive a few minutes early. Bring this confirmation or check in at the clinic kiosk using your phone number.</div><footer class="form-footer">Document generated ${generated} · Relief Chiropractic · Online booking confirmation</footer></div></article><script>window.onload=function(){window.print()};<\/script></body></html>`;
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Appointment confirmation — Relief Chiropractic</title><style>@page{margin:14mm 16mm;size:letter}*{box-sizing:border-box}body{margin:0;padding:20px;font-family:"Georgia","Times New Roman",serif;color:#1e293b;background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}.screen-note{max-width:640px;margin:0 auto 16px;padding:10px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#475569;text-align:center;background:#fff;border:1px solid #cbd5e1;border-radius:8px}.form{max-width:640px;margin:0 auto;background:#fff;border:2px solid #0f172a;box-shadow:0 4px 24px rgba(15,23,42,.08)}.form-accent{height:6px;background:linear-gradient(90deg,#16a349 0%,#16a349 38%,#e9982f 38%,#e9982f 100%)}.form-inner{padding:28px 32px 32px}.form-header{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px;margin-bottom:20px;border-bottom:2px solid #0f172a}.clinic-name{margin:0;font-family:system-ui,-apple-system,sans-serif;font-size:26px;font-weight:800;letter-spacing:-.02em;color:#e9982f}.doc-title{margin:4px 0 0;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#64748b}.badge-wrap{text-align:right}.badge{display:inline-block;padding:8px 14px;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:4px}h2.section-title{margin:0 0 12px;font-family:system-ui,sans-serif;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#334155}table.details{width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:14px;border:1px solid #cbd5e1}table.details tr{border-bottom:1px solid #e2e8f0}table.details tr:last-child{border-bottom:none}table.details th{width:38%;padding:12px 14px;text-align:left;font-weight:600;font-size:12px;color:#475569;background:#f8fafc;border-right:1px solid #e2e8f0;vertical-align:top}table.details td{padding:12px 14px;font-weight:600;color:#0f172a;vertical-align:top;line-height:1.45}tr.total-row th{background:#fffbeb;color:#92400e;border-right-color:#fde68a}tr.total-row td{background:#fffbeb;font-size:18px;font-weight:800;color:#b45309}.instructions{margin-top:22px;padding:14px 16px;font-family:system-ui,sans-serif;font-size:12px;line-height:1.55;color:#475569;background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px}.instructions strong{color:#334155}.form-footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:system-ui,sans-serif;font-size:10px;color:#94a3b8;text-align:center;letter-spacing:.04em}@media print{body{padding:0;background:#fff}.screen-note{display:none!important}.form{max-width:none;border:2px solid #000;box-shadow:none}.form-inner{padding:20px 24px 24px}}</style></head><body><p class="screen-note">A print dialog will open next. Choose your printer or <strong>Save as PDF</strong>.</p><article class="form"><div class="form-accent"></div><div class="form-inner"><header class="form-header"><div><h1 class="clinic-name">Relief Chiropractic</h1><p class="doc-title">Appointment confirmation</p></div><div class="badge-wrap"><span class="badge">Confirmed</span></div></header><h2 class="section-title">Visit details</h2><table class="details"><tbody>${rowsHtml}${grandRow}</tbody></table><div class="instructions"><strong>Before your visit:</strong> Please arrive a few minutes early. Bring this confirmation or check in at the clinic kiosk using your phone number. <strong>Payment:</strong> Amounts above are estimates for the booked service(s); your final balance may change with insurance, taxes, or additional services at check-out.</div><footer class="form-footer">Document generated ${generated} · Relief Chiropractic · Online booking confirmation</footer></div></article><script>window.onload=function(){window.print()};<\/script></body></html>`;
     printWindow.document.open();
     printWindow.document.write(html);
     printWindow.document.close();
@@ -476,6 +554,20 @@ export default function BookingPage() {
               </button>
             ))}
           </div>
+
+          {chiroGapBlocksCart && chiroIntakeRule && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+              <p className="font-semibold">New patient / reactivation visit required</p>
+              <p className="mt-1 leading-relaxed">
+                Our records show it has been over {Math.round(chiroIntakeRule.gapDays / 365)} years since your last
+                completed chiropractic visit
+                {chiroIntakeRule.lastVisit ? ` (last visit ${chiroIntakeRule.lastVisit})` : ""}. Online booking needs a{" "}
+                <strong>new client</strong> or <strong>reactivation</strong> visit first:{" "}
+                {chiroIntakeRule.intakeServices.map((s) => s.name).join(", ") || "ask the clinic to mark a visit type in Admin → Services."}{" "}
+                Remove your current chiropractic service below and add one of those. Massage-only bookings are fine.
+              </p>
+            </div>
+          )}
 
           {/* ─── STEP 1: Service selection ─── */}
           {step === 1 && (
@@ -603,7 +695,14 @@ export default function BookingPage() {
                               {service.service_type === "chiropractic" ? "🦴" : "💆"}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-foreground">{service.name}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-semibold text-foreground">{service.name}</p>
+                                {service.is_new_client_intake ? (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                    New patient / reactivation
+                                  </span>
+                                ) : null}
+                              </div>
                               {service.description && (
                                 <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{service.description}</p>
                               )}
@@ -830,15 +929,26 @@ export default function BookingPage() {
           {step === 4 && bookingResults.length === 0 && (
             <div className="animate-fade-in-up space-y-3">
               <h2 className="text-lg font-semibold">Your details</h2>
-              <p className="text-sm text-slate-600">Enter your phone first—we&apos;ll look up your info if you&apos;ve visited before.</p>
+              <p className="text-sm text-slate-600">
+                Phone number is required. Email is optional (used for confirmation if you have one). Enter your phone
+                first—we&apos;ll look up your info if you&apos;ve visited before.
+              </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Phone number</label>
+                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                    Phone number <span className="text-rose-600">*</span>
+                  </label>
                   <div className={`rounded-lg border bg-white p-2 ${formErrors.phone ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}>
                     <PhoneInput
                       international defaultCountry="US" countryCallingCodeEditable={false}
                       value={phone}
-                      onChange={(value) => { setPhone(value); setFormErrors((p) => ({ ...p, phone: undefined })); setPatientLookup("idle"); }}
+                      onChange={(value) => {
+                        setPhone(value);
+                        setFormErrors((p) => ({ ...p, phone: undefined }));
+                        setPatientLookup("idle");
+                        setLookupSavedCard(null);
+                        setChiroIntakeRule(null);
+                      }}
                       placeholder="Enter phone number" className="phone-field text-sm"
                     />
                   </div>
@@ -857,10 +967,31 @@ export default function BookingPage() {
                 {formErrors.firstName && <p className="-mt-2 text-xs text-rose-700">{formErrors.firstName}</p>}
                 <input className={`rounded-lg border p-2 ${formErrors.lastName ? "border-rose-400 bg-rose-50" : "border-slate-200"}`} placeholder="Last name" value={lastName} onChange={(e) => { setLastName(e.target.value); setFormErrors((p) => ({ ...p, lastName: undefined })); }} />
                 {formErrors.lastName && <p className="-mt-2 text-xs text-rose-700">{formErrors.lastName}</p>}
-                <input className={`rounded-lg border p-2 ${formErrors.email ? "border-rose-400 bg-rose-50" : "border-slate-200"}`} placeholder="Email" value={email} onChange={(e) => { setEmail(e.target.value); setFormErrors((p) => ({ ...p, email: undefined })); }} />
-                {formErrors.email && <p className="-mt-2 text-xs text-rose-700">{formErrors.email}</p>}
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                    Email <span className="font-normal normal-case text-slate-400">(optional)</span>
+                  </label>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    className={`w-full rounded-lg border p-2 ${formErrors.email ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}
+                    placeholder="Optional — for confirmation email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setFormErrors((p) => ({ ...p, email: undefined }));
+                    }}
+                  />
+                  {formErrors.email && <p className="mt-1 text-xs text-rose-700">{formErrors.email}</p>}
+                </div>
               </div>
-              <BookingCardSetup firstName={firstName} lastName={lastName} email={email} phone={phone} />
+              <BookingCardSetup
+                firstName={firstName}
+                lastName={lastName}
+                email={email}
+                phone={phone}
+                existingSavedCard={lookupSavedCard}
+              />
               <Button
                 type="button"
                 onClick={() => void submitBooking()}
@@ -913,8 +1044,15 @@ export default function BookingPage() {
                           {new Date(result.appointment_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })} at {result.start_time}
                         </span>
                       </li>
-                      <li><span className="text-slate-500">Estimated total: </span><span className="font-semibold text-[#b45309]">${result.total_amount}</span></li>
+                      <li>
+                        <span className="text-slate-500">Estimated at visit: </span>
+                        <span className="font-semibold text-[#b45309]">{formatBookingPrice(result.total_amount)}</span>
+                      </li>
                     </ul>
+                    <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                      This is what you can expect to pay for this booked service at check-in; insurance, add-ons, or taxes
+                      may change the final total.
+                    </p>
                   </div>
                 ))}
               </div>
@@ -928,7 +1066,8 @@ export default function BookingPage() {
                     <div>
                       <p className="text-xs font-semibold text-[#166534]">Confirmation sent</p>
                       <p className="text-[11px] text-[#166534]/70">
-                        {phone ? `To ${phone}` : "Via text"}{email ? ` and ${email}` : ""}
+                        {phone ? `Text to ${phone}` : "By text"}
+                        {email?.trim() ? ` · Email copy to ${email}` : " · No email given — confirmation is by text only."}
                       </p>
                     </div>
                   </div>
@@ -1062,8 +1201,12 @@ export default function BookingPage() {
             )}
 
             <div className="mt-4 rounded-xl border border-[#e9982f]/30 bg-[#e9982f]/10 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Total</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Estimated total at visit</p>
               <p className="mt-1 text-3xl font-extrabold text-[#9a6700]">{formatBookingPrice(String(totalPrice))}</p>
+              <p className="mt-2 text-xs leading-snug text-[#9a6700]/90">
+                Expect to pay about this amount when you arrive; the final bill can differ if you add services or use
+                insurance.
+              </p>
               {cart.length > 1 && (
                 <p className="mt-1 text-xs text-[#9a6700]">
                   {cart.length} services · {totalDuration} min + {BETWEEN_SERVICE_BUFFER_MINUTES}-min break

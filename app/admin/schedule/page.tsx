@@ -5,7 +5,7 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { IconCalendar } from "@/components/icons";
 import { Loader } from "@/components/loader";
-import { StatusChipView } from "@/components/status-chip";
+import { StatusChipView, appointmentStatusStripeClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -34,7 +34,6 @@ type Provider = {
 const STATUS_OPTIONS = [
   { value: "", label: "All statuses" },
   { value: "booked", label: "Booked" },
-  { value: "confirmed", label: "Confirmed" },
   { value: "checked_in", label: "Checked in" },
   { value: "in_consultation", label: "In consultation" },
   { value: "awaiting_payment", label: "Awaiting payment" },
@@ -211,8 +210,7 @@ function AdminSchedulePageContent() {
     }
   };
 
-  const canMarkNoShowOrCancel = (s: string) =>
-    s === "booked" || s === "confirmed" || s === "checked_in";
+  const canMarkNoShowOrCancel = (s: string) => s === "booked" || s === "checked_in";
 
   const canMarkCompletedStaff = (s: string) =>
     s === "in_consultation" || s === "awaiting_payment" || s === "checked_in";
@@ -413,7 +411,7 @@ function AdminSchedulePageContent() {
                             key={a.id}
                             type="button"
                             onClick={() => setSelected(a)}
-                            className={`w-full rounded-lg p-2 text-left transition ${
+                            className={`w-full rounded-lg p-2 pl-2.5 text-left transition ${appointmentStatusStripeClass(a.status)} ${
                               isSelected
                                 ? "bg-[#16a349]/20 ring-2 ring-[#16a349]/50"
                                 : "bg-[#16a349]/10 hover:bg-[#16a349]/15"
@@ -479,13 +477,7 @@ function AdminSchedulePageContent() {
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
                 <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</dt>
                 <dd>
-                  <StatusChipView
-                    status={
-                      selected.status === "booked" || selected.status === "confirmed"
-                        ? "scheduled"
-                        : selected.status
-                    }
-                  />
+                  <StatusChipView status={selected.status === "booked" ? "scheduled" : selected.status} />
                 </dd>
               </div>
             </dl>

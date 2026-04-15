@@ -6,6 +6,7 @@ import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
+import { appointmentStatusPillClass } from "@/components/status-chip";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
@@ -166,14 +167,21 @@ export default function DoctorDashboardPage() {
     ];
   }, [appointments]);
 
-  const load = async () => {
+  const load = async (opts?: { focusAppointmentId?: number }) => {
     setLoading(true);
     setError("");
     try {
       const appts = await apiGetAuth<Appointment[]>(`/doctor/appointments/?date=${selectedDate}`);
       setAppointments(appts);
-      const inConsult = appts.find((a) => a.status === "in_consultation");
-      setActiveAppt(inConsult ?? null);
+      const pickActive = () => {
+        const fid = opts?.focusAppointmentId;
+        if (fid != null) {
+          const focused = appts.find((a) => a.id === fid && a.status === "in_consultation");
+          if (focused) return focused;
+        }
+        return appts.find((a) => a.status === "in_consultation") ?? null;
+      };
+      setActiveAppt(pickActive());
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load.");
       setAppointments([]);
@@ -210,10 +218,10 @@ export default function DoctorDashboardPage() {
   }, [selectedDate]);
 
   useEffect(() => {
-    apiGetAuth<ServiceOpt[]>("/services/")
+    apiGetAuth<ServiceOpt[]>(`/services/?for_date=${encodeURIComponent(selectedDate)}`)
       .then((list) => setServices(list.filter((s) => s.is_active)))
       .catch(() => setServices([]));
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
     setDoctorNotes("");
@@ -253,7 +261,7 @@ export default function DoctorDashboardPage() {
             appointment_id: activeAppt.id,
             clinical_handoff_notes: handoffNotes,
           });
-          await load();
+          await load({ focusAppointmentId: activeAppt.id });
         },
         {
           loadingMessage: "Saving chart note…",
@@ -272,7 +280,7 @@ export default function DoctorDashboardPage() {
     await runWithFeedback(
       async () => {
         await apiPost(`/doctor/${appt.id}/start_visit/`, {});
-        await load();
+        await load({ focusAppointmentId: appt.id });
       },
       {
         loadingMessage: "Starting visit…",
@@ -438,13 +446,18 @@ export default function DoctorDashboardPage() {
   };
 
   const sortedBillServices = useMemo(() => {
+    const bookedId = activeAppt?.booked_service_id ?? null;
     return [...services].sort((a, b) => {
+      if (bookedId != null) {
+        if (a.id === bookedId && b.id !== bookedId) return -1;
+        if (b.id === bookedId && a.id !== bookedId) return 1;
+      }
       const ca = (a.billing_code || "").toLowerCase();
       const cb = (b.billing_code || "").toLowerCase();
       if (ca !== cb) return ca.localeCompare(cb);
       return a.name.localeCompare(b.name);
     });
-  }, [services]);
+  }, [services, activeAppt?.booked_service_id]);
 
   /** Estimated total for checked bill lines (same math as complete visit uses on the server). */
   const consultationEstimatedTotal = useMemo(() => {
@@ -548,7 +561,6 @@ export default function DoctorDashboardPage() {
   const statusDisplay = (s: string) => {
     const map: Record<string, string> = {
       booked: "scheduled",
-      confirmed: "scheduled",
       checked_in: "checked_in",
       in_consultation: "in_consultation",
       awaiting_payment: "awaiting_payment",
@@ -570,7 +582,6 @@ export default function DoctorDashboardPage() {
     const map: Record<string, string> = {
       scheduled: "SCHEDULED",
       booked: "SCHEDULED",
-      confirmed: "SCHEDULED",
       checked_in: "CHECKED IN",
       in_consultation: "IN CONSULTATION",
       completed: "COMPLETED",
@@ -582,8 +593,7 @@ export default function DoctorDashboardPage() {
   };
 
   /** Before the visit starts, doctors can mark no-show/cancel or reschedule (front desk rules apply for trickier cases). */
-  const canDoctorPreVisitDesk = (s: string) =>
-    s === "booked" || s === "confirmed" || s === "checked_in";
+  const canDoctorPreVisitDesk = (s: string) => s === "booked" || s === "checked_in";
 
   const submitReschedule = async () => {
     if (!rescheduleAppt) return;
@@ -920,7 +930,40 @@ export default function DoctorDashboardPage() {
                   className="flex cursor-pointer items-center justify-between px-4 py-3.5"
                 >
                   <div className="flex items-center gap-4">
-                    <span className="w-12 shrink-0 text-sm font-medium text-slate-600">{appt.start_time}</span>
+                    <span
+                      className={`w-12 shrink-0 text-sm font-medium ${
+                        appt.status === "in_consultation"
+                          ? "cursor-pointer text-[#166534] underline decoration-[#16a349]/40 decoration-dotted underline-offset-2 hover:text-[#0d5c2e]"
+                          : "text-slate-600"
+                      }`}
+                      role={appt.status === "in_consultation" ? "button" : undefined}
+                      tabIndex={appt.status === "in_consultation" ? 0 : undefined}
+                      title={
+                        appt.status === "in_consultation"
+                          ? "Open this visit in the Active visit panel (right column)"
+                          : undefined
+                      }
+                      onClick={
+                        appt.status === "in_consultation"
+                          ? (e) => {
+                              e.stopPropagation();
+                              setActiveAppt(appt);
+                            }
+                          : undefined
+                      }
+                      onKeyDown={
+                        appt.status === "in_consultation"
+                          ? (e) => {
+                              if (e.key === "Enter") {
+                                e.stopPropagation();
+                                setActiveAppt(appt);
+                              }
+                            }
+                          : undefined
+                      }
+                    >
+                      {appt.start_time}
+                    </span>
                     <div>
                       <p className="font-semibold text-slate-900">{appt.patient}</p>
                       <p className="text-sm text-slate-500">{appt.service || "Follow-up"}</p>
@@ -928,23 +971,11 @@ export default function DoctorDashboardPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                        appt.status === "completed"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : appt.status === "in_consultation"
-                            ? "bg-cyan-100 text-cyan-700"
-                            : appt.status === "awaiting_payment"
-                              ? "bg-orange-100 text-orange-800"
-                              : appt.status === "checked_in"
-                                ? "bg-amber-100 text-amber-700"
-                                : appt.status === "no_show" || appt.status === "cancelled"
-                                  ? "bg-slate-200 text-slate-600"
-                                  : "bg-slate-100 text-slate-600"
-                      }`}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${appointmentStatusPillClass(appt.status)}`}
                     >
                       {badgeLabel(statusDisplay(appt.status))}
                     </span>
-                    {(appt.status === "booked" || appt.status === "confirmed") && (
+                    {appt.status === "booked" && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1085,9 +1116,21 @@ export default function DoctorDashboardPage() {
                 <p className="text-xs text-slate-500">Patient #{activeAppt.patient_id}</p>
               </div>
             </div>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-[#166534]">Booked for this visit</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-900">{activeAppt.service || "—"}</p>
+              <p className="mt-1 text-xs text-slate-600">
+                {activeAppt.start_time} – {activeAppt.end_time} · The procedure list below includes this visit type first, then your
+                role&apos;s billable codes for this calendar day.
+              </p>
+            </div>
             <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for visit</p>
-              <p className="text-sm text-slate-700">{activeAppt.reason_for_visit || "No reason noted."}</p>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for visit (chart)</p>
+              <p className="text-sm text-slate-700">
+                {activeAppt.reason_for_visit?.trim()
+                  ? activeAppt.reason_for_visit
+                  : "Not recorded yet — add details in Visit notes below or in the patient chart."}
+              </p>
             </div>
             <div className="rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
               <div className="mb-1 flex flex-wrap items-center gap-1.5">
@@ -1125,15 +1168,14 @@ export default function DoctorDashboardPage() {
               <div className="mb-2 flex items-center gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Billable procedures (tap to add)</p>
                 <HelpTip label="Patient bill lines" tone="emerald">
-                  This list is the clinic&apos;s full catalog of active billable procedures (from admin Services & codes). Check each line
-                  that applies—like a paper patient bill. Add-ons and extra CPTs go here; it is not limited by which visit types a doctor is
-                  listed under on the public booking site. Units multiply the clinic price; leave fee override blank unless you need a custom
-                  amount.
+                  You see active services allowed for your role (chiropractic vs massage), plus any visit types booked for you on this
+                  calendar day so the patient&apos;s scheduled service is never missing. Check each line that applies. Units multiply the
+                  clinic price; leave fee override blank unless you need a custom amount.
                 </HelpTip>
               </div>
               <p className="mb-2 text-xs text-slate-500">
-                The booked visit type is checked for you. Tap any other procedures the patient received this visit; you can uncheck or
-                change units before completing. This uses the whole clinic list, not only &quot;types this doctor offers&quot; online.
+                The booked visit type is checked first. Add or remove lines for anything else you performed. If something is missing, ask
+                admin to mark the service visible to your role in Services &amp; codes.
               </p>
               <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2">
                 {sortedBillServices.map((s) => {

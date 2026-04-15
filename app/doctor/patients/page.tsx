@@ -3,6 +3,7 @@
 import { DoctorPageIntro, DoctorSectionLabel } from "@/components/doctor-shell";
 import { HelpTip } from "@/components/help-tip";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
+import { appointmentStatusPillClass } from "@/components/status-chip";
 import { IconFilter, IconMoreVertical, IconSearch } from "@/components/icons";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,7 +30,6 @@ type SortKey = "recent" | "name_asc" | "name_desc" | "next_appt";
 
 const APPT_STATUS_LABEL: Record<string, string> = {
   booked: "Booked",
-  confirmed: "Confirmed",
   checked_in: "Checked in",
   in_consultation: "In visit",
   awaiting_payment: "Awaiting payment",
@@ -90,11 +90,11 @@ function statusBadge(p: PatientRow): { label: string; className: string } {
     const label = APPT_STATUS_LABEL[raw] || raw.replace(/_/g, " ");
     return {
       label,
-      className: "bg-emerald-100 text-emerald-800",
+      className: appointmentStatusPillClass(raw),
     };
   }
   if (p.has_upcoming) {
-    return { label: "Scheduled", className: "bg-emerald-100 text-emerald-800" };
+    return { label: "Scheduled", className: appointmentStatusPillClass("booked") };
   }
   if (p.last_visit) {
     return { label: "No upcoming", className: "bg-slate-100 text-slate-600" };

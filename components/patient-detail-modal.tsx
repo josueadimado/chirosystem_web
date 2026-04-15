@@ -2,6 +2,7 @@
 
 import { DoctorSectionLabel } from "@/components/doctor-shell";
 import { Loader } from "@/components/loader";
+import { appointmentStatusPillClass } from "@/components/status-chip";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -63,9 +64,7 @@ type PatientDetail = {
 type Tab = "overview" | "intake" | "history";
 
 function statusBadgeClass(status: string): string {
-  if (status === "completed") return "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200/60";
-  if (status === "cancelled" || status === "no_show") return "bg-slate-100 text-slate-600 ring-1 ring-slate-200/80";
-  return "bg-amber-100 text-amber-900 ring-1 ring-amber-200/70";
+  return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
 }
 
 export function PatientDetailModal({

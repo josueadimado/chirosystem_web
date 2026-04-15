@@ -70,7 +70,7 @@ export default function SignInPage() {
   const handleLogin = async () => {
     setErrorMessage("");
     if (!username.trim() || !password.trim()) {
-      setErrorMessage("Enter your username and password.");
+      setErrorMessage("Enter your username or email and your password.");
       return;
     }
     setIsSubmitting(true);
@@ -88,7 +88,8 @@ export default function SignInPage() {
       }
       finishSignIn(result);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Invalid login. Please check your username and password.";
+      const msg =
+        e instanceof Error ? e.message : "Invalid login. Please check your username or email and password.";
       setErrorMessage(msg);
     } finally {
       setIsSubmitting(false);
@@ -208,7 +209,7 @@ export default function SignInPage() {
                     onClick={backToPassword}
                     className="w-full text-center text-sm text-muted-foreground underline-offset-2 hover:underline"
                   >
-                    Back to username and password
+                    Back to sign in
                   </button>
                 </form>
               ) : (
@@ -220,13 +221,13 @@ export default function SignInPage() {
                   className="space-y-5"
                 >
                   <div className="space-y-2">
-                    <Label htmlFor="username">Username</Label>
+                    <Label htmlFor="username">Username or email</Label>
                     <Input
                       id="username"
                       type="text"
                       autoComplete="username"
                       className="h-11 px-4"
-                      placeholder="Enter your username"
+                      placeholder="Clinic username or your email"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                     />

@@ -25,6 +25,8 @@ type Service = {
   /** In-room bill: massage therapists see this line when true. */
   visible_to_massage_staff?: boolean;
   service_type?: ServiceType;
+  /** Chiropractic: counts as new-patient / reactivation visit for long-gap booking rule. */
+  is_new_client_intake?: boolean;
 };
 
 function formatPrice(p: string): string {
@@ -44,6 +46,7 @@ const emptyForm = {
   visible_to_chiropractic_staff: true,
   visible_to_massage_staff: true,
   service_type: "chiropractic" as ServiceType,
+  is_new_client_intake: false,
 };
 
 const fieldLabel =
@@ -71,6 +74,7 @@ export default function AdminServicesPage() {
           show_in_public_booking: s.show_in_public_booking !== false,
           visible_to_chiropractic_staff: s.visible_to_chiropractic_staff !== false,
           visible_to_massage_staff: s.visible_to_massage_staff !== false,
+          is_new_client_intake: s.is_new_client_intake === true,
         })),
       );
     } catch (e) {
@@ -118,6 +122,7 @@ export default function AdminServicesPage() {
       visible_to_chiropractic_staff: s.visible_to_chiropractic_staff !== false,
       visible_to_massage_staff: s.visible_to_massage_staff !== false,
       service_type: s.service_type === "massage" ? "massage" : "chiropractic",
+      is_new_client_intake: s.service_type === "massage" ? false : s.is_new_client_intake === true,
     });
     setError("");
   };
@@ -143,6 +148,7 @@ export default function AdminServicesPage() {
           visible_to_chiropractic_staff: form.visible_to_chiropractic_staff,
           visible_to_massage_staff: form.visible_to_massage_staff,
           service_type: form.service_type,
+          is_new_client_intake: form.service_type === "chiropractic" && form.is_new_client_intake,
         };
         if (editing) {
           await apiPatch(`/services/${editing.id}/`, payload);
@@ -188,7 +194,8 @@ export default function AdminServicesPage() {
       form.show_in_public_booking !== (editing.show_in_public_booking !== false) ||
       form.visible_to_chiropractic_staff !== (editing.visible_to_chiropractic_staff !== false) ||
       form.visible_to_massage_staff !== (editing.visible_to_massage_staff !== false) ||
-      form.service_type !== (editing.service_type === "massage" ? "massage" : "chiropractic"));
+      form.service_type !== (editing.service_type === "massage" ? "massage" : "chiropractic") ||
+      (form.service_type === "chiropractic" && form.is_new_client_intake !== (editing.is_new_client_intake === true)));
 
   const isNew = editing === null;
 
@@ -314,6 +321,11 @@ export default function AdminServicesPage() {
                             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                               {st}
                             </span>
+                            {s.service_type !== "massage" && s.is_new_client_intake && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                Intake / reactivation
+                              </span>
+                            )}
                             {!s.is_active && (
                               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
                                 Inactive
@@ -499,15 +511,40 @@ export default function AdminServicesPage() {
                         id="svc-type"
                         className="admin-input cursor-pointer border-0 bg-transparent py-3 shadow-none ring-0 focus:ring-0"
                         value={form.service_type}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, service_type: e.target.value as ServiceType }))
-                        }
+                        onChange={(e) => {
+                          const service_type = e.target.value as ServiceType;
+                          setForm((f) => ({
+                            ...f,
+                            service_type,
+                            ...(service_type === "massage" ? { is_new_client_intake: false } : {}),
+                          }));
+                        }}
                       >
                         <option value="chiropractic">Chiropractic — one doctor assigned by the clinic</option>
                         <option value="massage">Massage — patient picks from doctors who offer it</option>
                       </select>
                     </div>
                   </div>
+                  {form.service_type === "chiropractic" && (
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200/80 bg-amber-50/50 p-3">
+                      <input
+                        type="checkbox"
+                        checked={form.is_new_client_intake}
+                        onChange={(e) => setForm((f) => ({ ...f, is_new_client_intake: e.target.checked }))}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-800">
+                          New patient / reactivation visit (long-gap rule)
+                        </span>
+                        <span className="mt-1 block text-xs leading-relaxed text-slate-600">
+                          Check this for the visit type returning patients must book online if they have not had a completed chiropractic
+                          visit in over two years (for example &quot;New patient exam&quot; or &quot;Reactivation&quot;). Only applies when
+                          this service is shown on public booking. Massage visit types ignore this flag.
+                        </span>
+                      </span>
+                    </label>
+                  )}
                   <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200/80 bg-white/80 p-3">
                     <input
                       type="checkbox"

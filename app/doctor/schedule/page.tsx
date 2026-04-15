@@ -6,6 +6,7 @@ import { HelpTip } from "@/components/help-tip";
 import { IconChevronLeft, IconChevronRight } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
+import { appointmentStatusPillClass, appointmentStatusStripeClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -356,11 +357,16 @@ function DoctorSchedulePageInner() {
                             key={a.id}
                             type="button"
                             onClick={() => setPatientDetailId(a.patient_id)}
-                            className="w-full rounded-xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-2.5 text-left text-xs shadow-sm transition hover:border-[#16a349]/35 hover:shadow-md"
+                            className={`w-full rounded-xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-2.5 pl-2 text-left text-xs shadow-sm transition hover:border-[#16a349]/35 hover:shadow-md ${appointmentStatusStripeClass(a.status)}`}
                           >
                             <p className="font-semibold text-[#0d5c2e]">{a.start_time}</p>
                             <p className="truncate font-medium text-slate-800">{a.patient}</p>
                             {a.service ? <p className="truncate text-slate-500">{a.service}</p> : null}
+                            <p
+                              className={`mt-1.5 inline-block max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${appointmentStatusPillClass(a.status)}`}
+                            >
+                              {(a.status || "booked").replaceAll("_", " ")}
+                            </p>
                           </button>
                         ))}
                       </div>

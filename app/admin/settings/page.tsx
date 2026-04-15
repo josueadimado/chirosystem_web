@@ -16,6 +16,8 @@ type ClinicProfile = {
   phone: string;
   email: string;
   pos_default: string;
+  /** USD amount charged on no-show (0 = no fee / no auto-invoice). */
+  no_show_fee: string;
   business_hours: Array<{ day: string; hours: string }>;
 };
 
@@ -44,6 +46,7 @@ function emptyProfile(): ClinicProfile {
     phone: "",
     email: "",
     pos_default: "11",
+    no_show_fee: "25.00",
     business_hours: [],
   };
 }
@@ -71,6 +74,7 @@ export default function AdminSettingsPage() {
         phone: data.phone ?? "",
         email: data.email ?? "",
         pos_default: data.pos_default ?? "11",
+        no_show_fee: data.no_show_fee ?? "25.00",
         business_hours: Array.isArray(data.business_hours) ? data.business_hours : [],
       });
     } catch (e) {
@@ -140,6 +144,7 @@ export default function AdminSettingsPage() {
           phone: draft.phone,
           email: draft.email,
           pos_default: draft.pos_default,
+          no_show_fee: draft.no_show_fee,
           business_hours: draft.business_hours,
         });
         setDraft({
@@ -149,6 +154,7 @@ export default function AdminSettingsPage() {
           phone: updated.phone ?? "",
           email: updated.email ?? "",
           pos_default: updated.pos_default ?? "11",
+          no_show_fee: updated.no_show_fee ?? "25.00",
           business_hours: Array.isArray(updated.business_hours) ? updated.business_hours : [],
         });
       },
@@ -238,6 +244,25 @@ export default function AdminSettingsPage() {
                   value={draft.pos_default}
                   onChange={(e) => updateField("pos_default", e.target.value)}
                   disabled={!canSave}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  No-show fee (USD)
+                  <HelpTip label="No-show billing">
+                    When staff marks a visit as no-show, this amount is invoiced. If the patient has a card on file, it is charged
+                    automatically; otherwise the appointment moves to <strong>Awaiting payment</strong> until collected. Use{" "}
+                    <strong>0</strong> to turn off the fee (status becomes no-show only, no invoice).
+                  </HelpTip>
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="admin-input w-full max-w-[10rem] py-2.5 text-sm font-mono"
+                  value={draft.no_show_fee}
+                  onChange={(e) => updateField("no_show_fee", e.target.value)}
+                  disabled={!canSave}
+                  placeholder="25.00"
                 />
               </div>
             </div>
