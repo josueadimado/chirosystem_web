@@ -106,12 +106,13 @@ export default function BookingPage() {
   const [patientLookup, setPatientLookup] = useState<"idle" | "loading" | "returning" | "new">("idle");
   /** From patient-lookup API when returning patient has Square card on file */
   const [lookupSavedCard, setLookupSavedCard] = useState<{ card_brand: string; card_last4: string } | null>(null);
-  /** Chiropractic: patient must book a flagged "new client" visit after long inactivity (server + lookup). */
+  /** Chiropractic: must use flagged new-office visit when new to practice, no chiro on file, or long inactive (server + lookup). */
   const [chiroIntakeRule, setChiroIntakeRule] = useState<{
     requiresIntake: boolean;
     intakeServices: Array<{ id: number; name: string }>;
     gapDays: number;
     lastVisit: string | null;
+    reason: "gap" | "first_chiro" | "new_patient" | null;
   } | null>(null);
 
   const fetchOptions = () => {
@@ -191,11 +192,34 @@ export default function BookingPage() {
         card_brand?: string;
         card_last4?: string;
         chiropractic_returning_gap_requires_intake?: boolean;
+        chiropractic_first_chiro_requires_intake?: boolean;
+        chiropractic_new_patient_requires_intake?: boolean;
         chiropractic_intake_services?: Array<{ id: number; name: string }>;
         chiropractic_gap_days?: number;
         last_chiropractic_visit_date?: string | null;
       }>(`/booking-options/patient-lookup/?phone=${encodeURIComponent(phone)}`)
         .then((res) => {
+          const intakeServices = Array.isArray(res.chiropractic_intake_services) ? res.chiropractic_intake_services : [];
+          const gapDays = typeof res.chiropractic_gap_days === "number" ? res.chiropractic_gap_days : 730;
+          const lastVisit = res.last_chiropractic_visit_date ?? null;
+          let reason: "gap" | "first_chiro" | "new_patient" | null = null;
+          if (res.chiropractic_returning_gap_requires_intake === true) reason = "gap";
+          else if (res.chiropractic_first_chiro_requires_intake === true) reason = "first_chiro";
+          else if (res.chiropractic_new_patient_requires_intake === true) reason = "new_patient";
+          const needsIntake =
+            res.chiropractic_returning_gap_requires_intake === true ||
+            res.chiropractic_first_chiro_requires_intake === true ||
+            res.chiropractic_new_patient_requires_intake === true;
+          const nextRule = needsIntake
+            ? {
+                requiresIntake: true as const,
+                intakeServices,
+                gapDays,
+                lastVisit,
+                reason: (reason ?? "new_patient") as "gap" | "first_chiro" | "new_patient",
+              }
+            : null;
+
           if (res.found && res.first_name != null && res.last_name != null) {
             setFirstName(res.first_name);
             setLastName(res.last_name);
@@ -206,16 +230,11 @@ export default function BookingPage() {
                 ? { card_brand: res.card_brand ?? "", card_last4: res.card_last4 }
                 : null,
             );
-            setChiroIntakeRule({
-              requiresIntake: res.chiropractic_returning_gap_requires_intake === true,
-              intakeServices: Array.isArray(res.chiropractic_intake_services) ? res.chiropractic_intake_services : [],
-              gapDays: typeof res.chiropractic_gap_days === "number" ? res.chiropractic_gap_days : 730,
-              lastVisit: res.last_chiropractic_visit_date ?? null,
-            });
+            setChiroIntakeRule(nextRule);
           } else {
             setPatientLookup("new");
             setLookupSavedCard(null);
-            setChiroIntakeRule(null);
+            setChiroIntakeRule(nextRule);
           }
         })
         .catch(() => {
@@ -246,7 +265,7 @@ export default function BookingPage() {
     return null;
   }, [cartCategoryTypes, chiroServices.length, massageServices.length]);
 
-  /** Returning chiropractic patient inactive too long: cart must only use new-client intake visit types (plus massage is fine). */
+  /** Chiropractic cart must use new-office / intake visit types when policy requires it (new patient, first chiro here, or long gap). */
   const chiroGapBlocksCart = useMemo(() => {
     if (!chiroIntakeRule?.requiresIntake) return false;
     return cart.some((c) => c.service.service_type === "chiropractic" && !c.service.is_new_client_intake);
@@ -277,11 +296,28 @@ export default function BookingPage() {
       !service.is_new_client_intake
     ) {
       const names = chiroIntakeRule.intakeServices.map((s) => s.name).join(", ");
-      toast.error(
-        names
-          ? `Your last chiropractic visit was over ${Math.round(chiroIntakeRule.gapDays / 365)} years ago. Please choose a new patient or reactivation visit first: ${names}.`
-          : "Please choose a new patient or reactivation visit type for chiropractic (ask the clinic to mark one in Services).",
-      );
+      const fallback =
+        "Please choose a new patient or new office visit type for chiropractic (ask the clinic to mark one in Services).";
+      const r = chiroIntakeRule.reason;
+      if (r === "new_patient") {
+        toast.error(
+          names
+            ? `We don't have this number on file yet. Your first chiropractic visit must be a new office visit: ${names}.`
+            : fallback,
+        );
+      } else if (r === "first_chiro") {
+        toast.error(
+          names
+            ? `We don't have a completed chiropractic visit on file for you yet. Please book a new office visit first: ${names}.`
+            : fallback,
+        );
+      } else {
+        toast.error(
+          names
+            ? `It's been over ${Math.round(chiroIntakeRule.gapDays / 365)} years since your last chiro visit here — book a first-time-style visit (new office / new patient / reactivation): ${names}.`
+            : fallback,
+        );
+      }
       return;
     }
     const providers = options?.providers_by_service?.[service.id] ?? [];
@@ -351,7 +387,7 @@ export default function BookingPage() {
       nextErrors.email = "Please enter a valid email address, or leave it blank.";
     }
     if (!phone || !isValidPhoneNumber(phone)) {
-      nextErrors.phone = "Please enter a valid phone number.";
+      nextErrors.phone = "Please enter a valid cell number.";
     }
     setFormErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -518,7 +554,7 @@ export default function BookingPage() {
             <div className="mt-5 flex max-w-lg flex-col gap-3 rounded-xl border border-primary/20 bg-primary/[0.06] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-3.5">
               <p className="text-sm leading-snug text-foreground">
                 <span className="font-semibold text-[#0d5c2e]">Already have a visit today?</span>{" "}
-                <span className="text-muted-foreground">Check in with the phone number on your appointment — no need to book again.</span>
+                <span className="text-muted-foreground">Check in with the cell number on your appointment — no need to book again.</span>
               </p>
               <Link
                 href="/kiosk"
@@ -557,14 +593,34 @@ export default function BookingPage() {
 
           {chiroGapBlocksCart && chiroIntakeRule && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
-              <p className="font-semibold">New patient / reactivation visit required</p>
+              <p className="font-semibold">New office visit required for chiropractic</p>
               <p className="mt-1 leading-relaxed">
-                Our records show it has been over {Math.round(chiroIntakeRule.gapDays / 365)} years since your last
-                completed chiropractic visit
-                {chiroIntakeRule.lastVisit ? ` (last visit ${chiroIntakeRule.lastVisit})` : ""}. Online booking needs a{" "}
-                <strong>new client</strong> or <strong>reactivation</strong> visit first:{" "}
-                {chiroIntakeRule.intakeServices.map((s) => s.name).join(", ") || "ask the clinic to mark a visit type in Admin → Services."}{" "}
-                Remove your current chiropractic service below and add one of those. Massage-only bookings are fine.
+                {chiroIntakeRule.reason === "new_patient" ? (
+                  <>
+                    This looks like your <strong>first time</strong> booking with us under this number. For chiropractic
+                    care, please start with a <strong>new patient</strong> or <strong>new office visit</strong>:{" "}
+                    {chiroIntakeRule.intakeServices.map((s) => s.name).join(", ") || "ask the clinic to mark a visit type in Admin → Services."}{" "}
+                    Remove the chiropractic line below if it isn&apos;t one of those, then add the correct visit. Massage
+                    is fine to add as usual.
+                  </>
+                ) : chiroIntakeRule.reason === "first_chiro" ? (
+                  <>
+                    We don&apos;t have a <strong>completed chiropractic visit</strong> on file for you yet. Please choose
+                    a <strong>new patient</strong> or <strong>new office visit</strong> first:{" "}
+                    {chiroIntakeRule.intakeServices.map((s) => s.name).join(", ") || "ask the clinic to mark a visit type in Admin → Services."}{" "}
+                    Swap your chiropractic selection below. Massage-only bookings are fine.
+                  </>
+                ) : (
+                  <>
+                    You haven&apos;t had a <strong>completed chiropractic visit</strong> here in over{" "}
+                    {Math.round(chiroIntakeRule.gapDays / 365)} years
+                    {chiroIntakeRule.lastVisit ? ` (last one on file: ${chiroIntakeRule.lastVisit})` : ""}. For chiropractic,
+                    you need to come back in through a <strong>first-time-style visit</strong> — book a{" "}
+                    <strong>new patient</strong>, <strong>new office visit</strong>, or <strong>reactivation</strong> type:{" "}
+                    {chiroIntakeRule.intakeServices.map((s) => s.name).join(", ") || "ask the clinic to mark a visit type in Admin → Services."}{" "}
+                    Remove the regular chiropractic visit below and add one of those. Massage-only bookings are fine.
+                  </>
+                )}
               </p>
             </div>
           )}
@@ -590,10 +646,10 @@ export default function BookingPage() {
                   <h2 className="text-lg font-semibold">Your selected services</h2>
                   {cart.some((c) => c.service.service_type === "chiropractic") && !chiroGapBlocksCart ? (
                     <p className="text-xs leading-snug text-slate-600">
-                      Chiropractic: if it&apos;s been <span className="font-medium text-slate-800">over 24 months</span> since your
-                      last visit at Relief, choose a <span className="font-medium text-slate-800">new patient</span> or{" "}
-                      <span className="font-medium text-slate-800">reactivation</span> visit — we&apos;ll confirm when you enter your
-                      phone number.
+                      Chiropractic: new here or first chiro with us? Pick a <span className="font-medium text-slate-800">new office visit</span>.
+                      <span className="font-medium text-slate-800">Over 2 years</span> since last chiro? You&apos;ll need a{" "}
+                      <span className="font-medium text-slate-800">first-time-style</span> visit (new office / reactivation). We confirm
+                      when you enter your cell number.
                     </p>
                   ) : null}
                   <div className="space-y-2">
@@ -690,11 +746,13 @@ export default function BookingPage() {
                   </div>
                   {selectedCategory === "chiropractic" ? (
                     <p className="rounded-lg border border-[#166534]/20 bg-[#ecfdf5]/80 px-3 py-2.5 text-xs leading-relaxed text-slate-700">
-                      <span className="font-semibold text-[#0d5c2e]">Note for returning patients: </span>
-                      If it&apos;s been <strong className="text-slate-900">over 24 months</strong> since your last chiropractic visit
-                      at Relief, you&apos;ll need a <strong className="text-slate-900">new patient</strong> or{" "}
-                      <strong className="text-slate-900">reactivation</strong> office visit so we can re-establish you in our system.
-                      Online booking will prompt you for the right visit type after you enter your phone number.
+                      <span className="font-semibold text-[#0d5c2e]">Chiropractic visits: </span>
+                      <strong className="text-slate-900">New to Relief</strong> or{" "}
+                      <strong className="text-slate-900">first chiropractic visit</strong> here? Choose a{" "}
+                      <strong className="text-slate-900">new patient</strong> or <strong className="text-slate-900">new office visit</strong>.
+                      Inactive <strong className="text-slate-900">over 2 years (24 months)</strong> for chiropractic? You&apos;ll be asked to
+                      book a <strong className="text-slate-900">first-time-style visit</strong> (new office / reactivation) before regular
+                      visits. Online booking checks your cell number and will guide you.
                     </p>
                   ) : null}
                   <div className="space-y-2">
@@ -799,7 +857,7 @@ export default function BookingPage() {
                 <div className="min-w-0">
                   <p className="font-semibold text-foreground">Already have an appointment today?</p>
                   <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    You don&apos;t need to pick a new time here. Use our check-in screen with the phone number on your
+                    You don&apos;t need to pick a new time here. Use our check-in screen with the cell number on your
                     booking.
                   </p>
                 </div>
@@ -947,13 +1005,13 @@ export default function BookingPage() {
             <div className="animate-fade-in-up space-y-3">
               <h2 className="text-lg font-semibold">Your details</h2>
               <p className="text-sm text-slate-600">
-                Phone number is required. Email is optional (used for confirmation if you have one). Enter your phone
-                first—we&apos;ll look up your info if you&apos;ve visited before.
+                Cell number is required. Email is optional (used for confirmation if you have one). Enter your cell
+                number first—we&apos;ll look up your info if you&apos;ve visited before.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                    Phone number <span className="text-rose-600">*</span>
+                    Cell number <span className="text-rose-600">*</span>
                   </label>
                   <div className={`rounded-lg border bg-white p-2 ${formErrors.phone ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}>
                     <PhoneInput
@@ -966,7 +1024,7 @@ export default function BookingPage() {
                         setLookupSavedCard(null);
                         setChiroIntakeRule(null);
                       }}
-                      placeholder="Enter phone number" className="phone-field text-sm"
+                      placeholder="Enter cell number" className="phone-field text-sm"
                     />
                   </div>
                   {formErrors.phone && <p className="mt-1 text-xs text-rose-700">{formErrors.phone}</p>}
@@ -1093,7 +1151,7 @@ export default function BookingPage() {
                     <div>
                       <p className="text-xs font-semibold text-blue-900">On arrival</p>
                       <p className="text-[11px] text-blue-700">
-                        <Link href="/kiosk" className="font-medium underline">Check in at the kiosk</Link> with your phone
+                        <Link href="/kiosk" className="font-medium underline">Check in at the kiosk</Link> with your cell number
                       </p>
                     </div>
                   </div>
