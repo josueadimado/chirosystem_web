@@ -948,6 +948,17 @@ export default function BookingPage() {
                       : "(for your first service; other visits may use a different provider)"
                     : ""}
                 </label>
+                <p className="mb-2 text-xs leading-snug text-slate-500">
+                  Start times are offered on a <strong className="font-medium text-slate-600">15-minute grid</strong>. Each
+                  time must have enough open room for{" "}
+                  {cart.length > 1 && cartSameProviderChain ? (
+                    <>all services and breaks between them (<strong className="text-slate-600">{totalCartMinutes} min</strong> total).</>
+                  ) : (
+                    <>your visit length (<strong className="text-slate-600">{firstService?.duration_minutes ?? "—"} min</strong>).</>
+                  )}{" "}
+                  If options look far apart (e.g. 9:00 vs 10:15), the starts in between usually conflict with other
+                  bookings — not a hidden 30-minute buffer added to your 45-minute visit.
+                </p>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
                   const slotsToShow = availableSlots === null ? ALL_TIME_SLOTS : availableSlots;
@@ -1177,9 +1188,21 @@ export default function BookingPage() {
                 {patientLookup === "new" && (
                   <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3">
                     <span className="mt-0.5 text-lg">⏰</span>
-                    <div>
+                    <div className="space-y-1.5">
                       <p className="text-xs font-semibold text-amber-900">First visit?</p>
-                      <p className="text-[11px] text-amber-700">Please arrive 10 minutes early to complete intake paperwork.</p>
+                      <p className="text-[11px] text-amber-700">
+                        <a
+                          href="https://www.reliefchiropractic.net/s/New-Patient-Paperwork-2025.doc"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium underline decoration-amber-600/70 underline-offset-2 hover:text-amber-900"
+                        >
+                          Download new-patient paperwork
+                        </a>{" "}
+                        and bring the completed forms,{" "}
+                        <span className="font-medium text-amber-900">or</span> arrive{" "}
+                        <span className="font-medium text-amber-900">25 minutes early</span> to fill them out at the office.
+                      </p>
                     </div>
                   </div>
                 )}
