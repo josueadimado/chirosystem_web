@@ -588,6 +588,14 @@ export default function BookingPage() {
               {options && cart.length > 0 && !addingAnother && !selectedCategory && (
                 <div className="space-y-3">
                   <h2 className="text-lg font-semibold">Your selected services</h2>
+                  {cart.some((c) => c.service.service_type === "chiropractic") && !chiroGapBlocksCart ? (
+                    <p className="text-xs leading-snug text-slate-600">
+                      Chiropractic: if it&apos;s been <span className="font-medium text-slate-800">over 24 months</span> since your
+                      last visit at Relief, choose a <span className="font-medium text-slate-800">new patient</span> or{" "}
+                      <span className="font-medium text-slate-800">reactivation</span> visit — we&apos;ll confirm when you enter your
+                      phone number.
+                    </p>
+                  ) : null}
                   <div className="space-y-2">
                     {cart.map((item) => (
                       <div key={item.service.id} className="flex items-center justify-between rounded-xl border-2 border-primary/30 bg-primary/[0.06] p-4">
@@ -680,6 +688,15 @@ export default function BookingPage() {
                       {selectedCategory === "chiropractic" ? "Chiropractic" : "Massage"} services
                     </h2>
                   </div>
+                  {selectedCategory === "chiropractic" ? (
+                    <p className="rounded-lg border border-[#166534]/20 bg-[#ecfdf5]/80 px-3 py-2.5 text-xs leading-relaxed text-slate-700">
+                      <span className="font-semibold text-[#0d5c2e]">Note for returning patients: </span>
+                      If it&apos;s been <strong className="text-slate-900">over 24 months</strong> since your last chiropractic visit
+                      at Relief, you&apos;ll need a <strong className="text-slate-900">new patient</strong> or{" "}
+                      <strong className="text-slate-900">reactivation</strong> office visit so we can re-establish you in our system.
+                      Online booking will prompt you for the right visit type after you enter your phone number.
+                    </p>
+                  ) : null}
                   <div className="space-y-2">
                     {servicesForCategory
                       .filter((svc) => !cart.some((c) => c.service.id === svc.id))
@@ -1201,11 +1218,10 @@ export default function BookingPage() {
             )}
 
             <div className="mt-4 rounded-xl border border-[#e9982f]/30 bg-[#e9982f]/10 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Estimated total at visit</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Total due at visit</p>
               <p className="mt-1 text-3xl font-extrabold text-[#9a6700]">{formatBookingPrice(String(totalPrice))}</p>
               <p className="mt-2 text-xs leading-snug text-[#9a6700]/90">
-                Expect to pay about this amount when you arrive; the final bill can differ if you add services or use
-                insurance.
+                Please note payment is due at time of service.
               </p>
               {cart.length > 1 && (
                 <p className="mt-1 text-xs text-[#9a6700]">
