@@ -191,6 +191,11 @@ export default function KioskPage() {
         aria-hidden
       />
       <div className="content-fade-in relative z-[1] w-full max-w-lg">
+        <p className="mb-3 text-center">
+          <Link href="/start" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+            ← Portal menu
+          </Link>
+        </p>
         <div className="overflow-hidden rounded-3xl border border-border/80 bg-card shadow-2xl shadow-primary/10 ring-1 ring-primary/15">
           <div className="h-2 w-full bg-gradient-to-r from-[#16a349] via-[#16a349] to-[#e9982f]" aria-hidden />
           <div className="space-y-6 px-6 pb-8 pt-7 text-center sm:px-10 sm:pb-10 sm:pt-8">
@@ -319,7 +324,15 @@ export default function KioskPage() {
             ) : null}
           </div>
         </div>
-        <p className="mt-6 text-center text-xs text-muted-foreground">Having trouble? Our front desk can check you in.</p>
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          <Link href="/start" className="font-medium text-primary underline-offset-2 hover:underline">
+            Portal menu
+          </Link>
+          <span className="mx-1.5" aria-hidden>
+            ·
+          </span>
+          Having trouble? Our front desk can check you in.
+        </p>
       </div>
     </main>
   );

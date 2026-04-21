@@ -1,8 +1,11 @@
-import { AdminLayoutClient } from "./admin-layout-client";
+import { InstallAppCallout } from "@/components/install-app-callout";
 import type { Metadata, Viewport } from "next";
 
-/** Staff admin area: same PWA manifest as sign-in so installs open the staff entry point, not public booking. */
+/** Staff-only routes: use the staff PWA manifest so “Add to Home Screen” opens sign-in, not public booking. */
 export const metadata: Metadata = {
+  title: "Staff sign in",
+  description: "Secure sign-in for Relief Chiropractic staff.",
+  applicationName: "Relief — Staff",
   manifest: "/manifest-staff.webmanifest",
   robots: { index: false, follow: false },
   appleWebApp: {
@@ -21,14 +24,19 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#16a349" },
-    { media: "(prefers-color-scheme: dark)", color: "#0d5c2e" },
+    { media: "(prefers-color-scheme: light)", color: "#0d5c2e" },
+    { media: "(prefers-color-scheme: dark)", color: "#052e18" },
   ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
 };
 
-export default function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <AdminLayoutClient>{children}</AdminLayoutClient>;
+export default function AuthLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <>
+      {children}
+      <InstallAppCallout variant="staff" />
+    </>
+  );
 }

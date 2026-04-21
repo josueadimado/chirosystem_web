@@ -763,6 +763,25 @@ export default function BookingPage() {
   return (
     <main className="content-fade-in min-h-[100dvh] min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
       <div className="mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-4 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] md:p-8">
+      <nav
+        aria-label="Site sections"
+        className="mb-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-xl border border-border/70 bg-card/90 px-3 py-2.5 text-sm shadow-sm backdrop-blur-sm sm:justify-between"
+      >
+        <span className="w-full text-center text-xs font-medium text-muted-foreground sm:w-auto sm:text-left">
+          Looking for something else?
+        </span>
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:justify-end">
+          <Link href="/start" className="font-semibold text-primary underline-offset-4 hover:underline">
+            All portals
+          </Link>
+          <span className="text-muted-foreground" aria-hidden>
+            ·
+          </span>
+          <Link href="/kiosk" className="font-medium text-[#0d5c2e] underline-offset-4 hover:underline">
+            Check-in
+          </Link>
+        </div>
+      </nav>
       <section className="mb-8 overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-white to-primary/[0.06] shadow-sm shadow-slate-200/40 ring-1 ring-primary/10">
         <div className="grid gap-0 md:grid-cols-2">
           <div className="p-6 md:p-10">

@@ -50,7 +50,7 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
           </div>
         </main>
       </div>
-      <InstallAppCallout variant="doctor" />
+      <InstallAppCallout variant="staff" />
     </div>
   );
 }

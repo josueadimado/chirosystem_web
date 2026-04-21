@@ -1,8 +1,8 @@
 {
-  "id": "relief-doctor",
-  "name": "Relief — Doctor portal",
-  "short_name": "Doctor",
-  "description": "Doctor dashboard, schedule, and patient tools for Relief Chiropractic.",
+  "id": "relief-staff",
+  "name": "Relief — Staff",
+  "short_name": "Staff",
+  "description": "Staff sign-in and clinic tools for Relief Chiropractic (admin and doctors).",
   "start_url": "/auth/sign-in",
   "scope": "/",
   "display": "standalone",

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const storageKey = (variant: "kiosk" | "doctor") => `chiroflow_install_hint_dismissed_${variant}`;
+const storageKey = (variant: "kiosk" | "staff") => `chiroflow_install_hint_dismissed_${variant}`;
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -21,10 +21,10 @@ function isIosLike(): boolean {
 }
 
 /**
- * Shown on kiosk and doctor areas so staff can install a focused PWA (Chrome/Edge install button;
+ * Shown on kiosk and staff areas so tablets/desktops can install a focused PWA (Chrome/Edge install button;
  * iPad/iPhone instructions for Add to Home Screen). Hidden when already running as an installed app.
  */
-export function InstallAppCallout({ variant }: { variant: "kiosk" | "doctor" }) {
+export function InstallAppCallout({ variant }: { variant: "kiosk" | "staff" }) {
   const [visible, setVisible] = useState(false);
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
 
@@ -74,11 +74,12 @@ export function InstallAppCallout({ variant }: { variant: "kiosk" | "doctor" }) 
 
   if (!visible) return null;
 
-  const title = variant === "kiosk" ? "Install check-in on this tablet" : "Install doctor portal on this device";
+  const title =
+    variant === "kiosk" ? "Install check-in on this tablet" : "Install staff portal on this device";
   const bodyChrome =
     variant === "kiosk"
       ? "Add this screen to your home screen or apps for a full-screen check-in experience."
-      : "Add this portal to your home screen or taskbar for quick access like a desktop app.";
+      : "Add this screen to your home screen or taskbar for quick access. Installed staff apps open the sign-in page.";
 
   return (
     <div

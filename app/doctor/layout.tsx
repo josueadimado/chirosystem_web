@@ -5,7 +5,8 @@ export const metadata: Metadata = {
   title: "Doctor portal",
   description: "Doctor dashboard, schedule, and patient tools.",
   applicationName: "Relief — Doctor",
-  manifest: "/manifest-doctor.webmanifest",
+  manifest: "/manifest-staff.webmanifest",
+  robots: { index: false, follow: false },
   appleWebApp: {
     capable: true,
     title: "Relief Doctor",
