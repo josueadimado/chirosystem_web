@@ -2,7 +2,7 @@
   "id": "relief-checkin",
   "name": "Relief — Patient check-in",
   "short_name": "Check-in",
-  "description": "Check in at Relief Chiropractic with the phone number on your appointment.",
+  "description": "Check-in at Relief Chiropractic with the phone number on your appointment.",
   "start_url": "/kiosk",
   "scope": "/",
   "display": "standalone",

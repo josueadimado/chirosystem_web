@@ -225,7 +225,11 @@ export default function SignInPage() {
                     <Input
                       id="username"
                       type="text"
+                      name="username"
                       autoComplete="username"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       className="h-11 px-4"
                       placeholder="Clinic username or your email"
                       value={username}

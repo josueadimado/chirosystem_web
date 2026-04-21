@@ -152,13 +152,13 @@ export default function DoctorDashboardPage() {
       {
         label: "On your schedule",
         value: list.length,
-        help: "All visits assigned to you for the day you picked—not only people who have checked in yet.",
+        help: "All visits assigned to you for the day you picked—not only people who have finished check-in yet.",
       },
       {
-        label: "Checked in",
+        label: "Checked-in",
         value: list.filter((a) => a.status === "checked_in").length,
         tone: "amber" as const,
-        help: "Checked in at the kiosk, front desk, or by you. Tap Start visit on their row when you are ready to see them.",
+        help: "Check-in completed at the kiosk, front desk, or by you. Tap Start visit on their row when you are ready to see them.",
       },
       {
         label: "In consultation",
@@ -381,9 +381,9 @@ export default function DoctorDashboardPage() {
         await load();
       },
       {
-        loadingMessage: "Checking in…",
-        successMessage: `${appt.patient} is checked in — you can start the visit now.`,
-        errorFallback: "Could not check in this patient.",
+        loadingMessage: "Completing check-in…",
+        successMessage: `${appt.patient} — check-in complete. You can start the visit now.`,
+        errorFallback: "Could not complete check-in for this patient.",
       },
     );
     setIsCheckingIn(false);
@@ -992,7 +992,7 @@ export default function DoctorDashboardPage() {
                         disabled={isCheckingIn}
                         className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50"
                       >
-                        {isCheckingIn ? "Checking in…" : "Check in"}
+                        {isCheckingIn ? "Completing check-in…" : "Check-in"}
                       </button>
                     )}
                     {appt.status === "checked_in" && (
@@ -1114,7 +1114,7 @@ export default function DoctorDashboardPage() {
         )}
       </section>
       <aside className="doctor-panel space-y-4 ring-1 ring-emerald-100/70">
-        <DoctorSectionLabel help="Shows the patient currently in consultation with you. When empty, start someone from the list after they check in.">
+        <DoctorSectionLabel help="Shows the patient currently in consultation with you. When empty, start someone from the list after check-in.">
           Active visit
         </DoctorSectionLabel>
         {activeAppt ? (
@@ -1324,7 +1324,7 @@ export default function DoctorDashboardPage() {
         ) : (
           <DoctorEmptyWell
             title="No active visit"
-            description="Check in a patient from their row (or they can check in at the kiosk), then tap Start visit. Their chart, services, and notes will open here."
+            description="Tap Check-in on a patient’s row (or they can use the kiosk), then tap Start visit. Their chart, services, and notes will open here."
           >
             <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
               <IconStethoscope className="h-6 w-6" />

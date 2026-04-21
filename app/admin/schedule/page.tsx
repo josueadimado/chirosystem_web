@@ -198,9 +198,9 @@ function AdminSchedulePageContent() {
         setSelected((prev) => (prev ? { ...prev, status: "checked_in" } : null));
       },
       {
-        loadingMessage: "Checking in patient…",
-        successMessage: "Patient checked in.",
-        errorFallback: "Could not check in this appointment.",
+        loadingMessage: "Completing check-in…",
+        successMessage: "Check-in complete.",
+        errorFallback: "Could not complete check-in for this appointment.",
       },
     );
     setCheckingIn(false);
@@ -343,7 +343,7 @@ function AdminSchedulePageContent() {
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="text-sm text-slate-500">Filters</span>
           <HelpTip label="Filters">
-            Provider limits the list to one doctor. Status matches the visit workflow (booked, checked in, completed, etc.). Both send
+            Provider limits the list to one doctor. Status matches the visit workflow (booked, checked-in, completed, etc.). Both send
             new requests to the server. Use the side panel to mark <strong>no-show</strong>, <strong>cancel</strong>, or{' '}
             <strong>completed</strong>, or to <strong>reschedule</strong>—missed visits stop blocking the slot once marked.
           </HelpTip>
@@ -662,9 +662,9 @@ function AdminSchedulePageContent() {
                       disabled={checkingIn}
                       className="min-w-0 flex-1 rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 transition hover:bg-[#13823d] disabled:opacity-50"
                     >
-                      {checkingIn ? "Checking in…" : "Check In"}
+                      {checkingIn ? "Completing check-in…" : "Check-in"}
                     </button>
-                    <HelpTip label="Check In" align="center">
+                    <HelpTip label="Check-in" align="center">
                       Records arrival for this appointment (same API as the kiosk). The assigned doctor may get an SMS if their alert
                       number is set under Providers.
                     </HelpTip>

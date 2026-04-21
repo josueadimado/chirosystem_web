@@ -79,7 +79,7 @@ function lookupToNotice(data: KioskLookupNotice): Notice {
       return {
         tone: "amber",
         title: "A little early",
-        body: `${data.message}\n\nYour appointment is at ${data.start_time_display}. From this kiosk you can check in starting around ${data.earliest_checkin_display}. If the front desk or your doctor is ready sooner, they can check you in at the desk.`,
+        body: `${data.message}\n\nYour appointment is at ${data.start_time_display}. From this kiosk, check-in opens around ${data.earliest_checkin_display}. If the front desk or your doctor is ready sooner, they can complete your check-in at the desk.`,
       };
     case "wrong_day":
       return {
@@ -96,7 +96,7 @@ function lookupToNotice(data: KioskLookupNotice): Notice {
     case "already_checked_in":
       return {
         tone: "sky",
-        title: "Already checked in",
+        title: "Already checked-in",
         body: data.message,
       };
     case "visit_completed_today":
@@ -156,7 +156,7 @@ export default function KioskPage() {
         return;
       }
       setSuccessVisible(true);
-      toast.success("Checked in successfully.");
+      toast.success("Check-in complete.");
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -164,7 +164,7 @@ export default function KioskPage() {
           : "Something went wrong. Please see the front desk or try again.";
       setNotice({
         tone: "rose",
-        title: "Could not check in",
+        title: "Could not complete check-in",
         body: msg,
       });
       toast.error(msg);
@@ -216,7 +216,7 @@ export default function KioskPage() {
                 aria-live="polite"
               >
                 <p className="text-2xl font-extrabold leading-tight text-[#0d5c2e] sm:text-3xl md:text-4xl">
-                  You&apos;re checked in!
+                  Check-in complete!
                 </p>
                 <p className="mt-5 text-lg font-semibold leading-snug text-foreground sm:text-xl md:text-2xl">
                   Please have a seat in the waiting area.
@@ -298,10 +298,10 @@ export default function KioskPage() {
                   className="flex w-full min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#16a349] px-4 text-lg font-semibold text-white shadow-lg shadow-[#16a349]/25 transition hover:bg-[#13823d] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-16 sm:text-xl"
                 >
                   {checkingIn ? (
-                    <Loader variant="spinner" label="Checking in…" />
+                    <Loader variant="spinner" label="Completing check-in…" />
                   ) : (
                     <>
-                      Check in
+                      Check-in
                       <IconArrowRight className="h-6 w-6" />
                     </>
                   )}
@@ -319,7 +319,7 @@ export default function KioskPage() {
                 <Link href="/" className="font-semibold text-primary underline-offset-4 hover:underline">
                   Book online
                 </Link>{" "}
-                — then you can check in here on the day of your visit.
+                — then you can use check-in here on the day of your visit.
               </p>
             ) : null}
           </div>
@@ -331,7 +331,7 @@ export default function KioskPage() {
           <span className="mx-1.5" aria-hidden>
             ·
           </span>
-          Having trouble? Our front desk can check you in.
+          Having trouble? Our front desk can help with check-in.
         </p>
       </div>
     </main>

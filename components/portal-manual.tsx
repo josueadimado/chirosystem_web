@@ -40,7 +40,7 @@ const SECTIONS: ManualSection[] = [
       "Open the kiosk URL on a tablet at the front desk (same site as booking, path /kiosk).",
       "The patient enters the phone number used when they booked (same format as on file: usually10 digits or +1…).",
       "The system looks up an appointment for today only — not tomorrow or last week.",
-      "After check-in, the visit shows as checked in for staff; the assigned doctor may get an SMS if alerts are configured.",
+      "After check-in, the visit shows as checked-in for staff; the assigned doctor may get an SMS if alerts are configured.",
       "If lookup fails, the patient may have the wrong number, no visit today, or a cancelled visit — use the front desk or Schedule to help.",
     ],
     tip: "Bookmark the kiosk page in the tablet browser for one-tap access.",
@@ -51,7 +51,7 @@ const SECTIONS: ManualSection[] = [
     roles: ["admin"],
     bullets: [
       "Review today’s volume, arrivals, and quick links to common tasks.",
-      "Use this page to spot who is checked in and what still needs attention.",
+      "Use this page to spot who has completed check-in and what still needs attention.",
     ],
   },
   {
@@ -60,7 +60,7 @@ const SECTIONS: ManualSection[] = [
     roles: ["admin"],
     bullets: [
       "View and manage appointments by day.",
-      "You can mark a patient as checked in from here (same action as the kiosk) when someone walks in without using the tablet.",
+      "You can complete check-in for a patient from here (same action as the kiosk) when someone walks in without using the tablet.",
       "Drag or edit according to your clinic’s workflow where the UI allows.",
     ],
   },
@@ -108,8 +108,8 @@ const SECTIONS: ManualSection[] = [
     title: "Doctor — My dashboard",
     roles: ["doctor"],
     bullets: [
-      "See today’s patients, who checked in, and start visits from your queue when you are ready.",
-      "Checked in means the patient arrived (kiosk or staff) — then you can begin the visit flow the app provides.",
+      "See today’s patients, who have completed check-in, and start visits from your queue when you are ready.",
+      "Checked-in means the patient arrived (kiosk or staff) — then you can begin the visit flow the app provides.",
     ],
   },
   {
@@ -127,7 +127,7 @@ const SECTIONS: ManualSection[] = [
     roles: ["doctor"],
     bullets: [
       "Look up patients you are allowed to see under your clinic’s rules.",
-      "Use notifications to learn when someone checked in or when the schedule changes.",
+      "Use notifications to learn when someone completes check-in or when the schedule changes.",
     ],
   },
 ];

@@ -168,6 +168,17 @@ export default function BookingPage() {
 
   useEffect(() => { fetchOptions(); }, []);
 
+  /** Weekends are not bookable online — move to next Monday if we land on Sat/Sun (e.g. opened on a weekend). */
+  useEffect(() => {
+    if (step !== 3) return;
+    const d = new Date(`${selectedDate}T12:00:00`);
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) return;
+    const n = new Date(d);
+    n.setDate(n.getDate() + (wd === 0 ? 1 : 2));
+    setSelectedDate(n.toISOString().slice(0, 10));
+  }, [step, selectedDate]);
+
   const firstCartItem = cart[0] ?? null;
   const firstProvider = firstCartItem?.provider ?? null;
   const firstService = firstCartItem?.service ?? null;
@@ -829,7 +840,9 @@ export default function BookingPage() {
             <div className="mt-5 flex max-w-lg flex-col gap-3 rounded-xl border border-primary/20 bg-primary/[0.06] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-3.5">
               <p className="text-sm leading-snug text-foreground">
                 <span className="font-semibold text-[#0d5c2e]">Already have a visit today?</span>{" "}
-                <span className="text-muted-foreground">Check in with the cell number on your appointment — no need to book again.</span>
+                <span className="text-muted-foreground">
+                  Check-in with the cell number on your phone, or at the office using the kiosk — no need to book again.
+                </span>
               </p>
               <Link
                 href="/kiosk"
@@ -1257,8 +1270,8 @@ export default function BookingPage() {
                 <div className="min-w-0">
                   <p className="font-semibold text-foreground">Already have an appointment today?</p>
                   <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    You don&apos;t need to pick a new time here. Use our check-in screen with the cell number on your
-                    booking.
+                    You don&apos;t need to pick a new time here. Check-in with the cell number on your phone, or at the
+                    office using the kiosk.
                   </p>
                 </div>
                 <Link
@@ -1290,18 +1303,18 @@ export default function BookingPage() {
                       d.setDate(startOfWeek.getDate() + i);
                       const iso = d.toISOString().slice(0, 10);
                       const isPast = iso < today;
-                      const isSunday = d.getDay() === 0;
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                       const isSelected = iso === selectedDate;
                       const isToday = iso === today;
                       days.push(
                         <button
                           key={iso}
                           type="button"
-                          disabled={isPast || isSunday}
+                          disabled={isPast || isWeekend}
                           onClick={() => setSelectedDate(iso)}
                           className={cn(
                             "relative flex h-9 w-full items-center justify-center rounded-lg text-xs font-medium transition-all sm:h-11 sm:text-sm",
-                            isPast || isSunday
+                            isPast || isWeekend
                               ? "cursor-not-allowed text-slate-300"
                               : isSelected
                                 ? "bg-[#16a349] font-bold text-white shadow-md shadow-[#16a349]/25"
@@ -1322,6 +1335,12 @@ export default function BookingPage() {
                   <strong className="text-[#166534]">
                     {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                   </strong>
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                  Online booking is <strong className="font-medium text-slate-700">Monday–Friday</strong> only (closed
+                  weekends). Chiropractic: 8:00 AM–6:00 PM; massage: 9:00 AM–6:00 PM;{" "}
+                  <strong className="font-medium text-slate-700">Friday we close at 4:00 PM</strong>. Times shown match
+                  your visit type and the schedule.
                 </p>
               </div>
 
@@ -1624,7 +1643,7 @@ export default function BookingPage() {
                     <div>
                       <p className="text-xs font-semibold text-blue-900">On arrival</p>
                       <p className="text-[11px] text-blue-700">
-                        <Link href="/kiosk" className="font-medium underline">Check in at the kiosk</Link> with your cell number
+                        <Link href="/kiosk" className="font-medium underline">Check-in at the kiosk</Link> with your cell number
                       </p>
                     </div>
                   </div>

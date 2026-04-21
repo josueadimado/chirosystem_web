@@ -109,8 +109,8 @@ export default function AdminDashboardPage() {
         </div>
         <div className="admin-panel">
           <p className="flex items-center gap-1.5 text-sm text-slate-500">
-            Checked in
-            <HelpTip label="Checked in">Patients who have completed check-in for today (kiosk or staff).</HelpTip>
+            Checked-in
+            <HelpTip label="Checked-in">Patients who have completed check-in for today (kiosk or staff).</HelpTip>
           </p>
           <p className="mt-2 text-3xl font-bold tracking-tight text-[#16a349]">{data.checked_in}</p>
         </div>

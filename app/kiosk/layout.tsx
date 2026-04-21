@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
   title: "Patient check-in",
-  description: "Check in with the phone number on your appointment.",
+  description: "Check-in with the phone number on your appointment.",
   applicationName: "Relief — Check-in",
   manifest: "/manifest-kiosk.webmanifest",
   appleWebApp: {
