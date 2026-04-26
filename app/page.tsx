@@ -8,6 +8,7 @@ import { IconCheck } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { BookingCardSetup } from "@/components/booking-card-setup";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiGet, apiPostPublic } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { withMinimumDelay } from "@/lib/with-minimum-delay";
@@ -156,6 +157,8 @@ export default function BookingPage() {
     lastVisit: string | null;
     reason: "gap" | "first_chiro" | "new_patient" | null;
   } | null>(null);
+  /** SMS opt-in on the final submit step; must stay unchecked until the user agrees (TCPA-style consent). */
+  const [smsConsent, setSmsConsent] = useState(false);
 
   const fetchOptions = () => {
     setOptionsError("");
@@ -454,6 +457,7 @@ export default function BookingPage() {
     setReschedulePick(null);
     setRescheduleList([]);
     setRescheduleListError("");
+    setSmsConsent(false);
     setStep(1);
   };
 
@@ -467,6 +471,7 @@ export default function BookingPage() {
     setReschedulePick(null);
     setRescheduleList([]);
     setRescheduleListError("");
+    setSmsConsent(false);
     setStep(1);
   };
 
@@ -545,6 +550,9 @@ export default function BookingPage() {
       } else {
         setStep(2);
       }
+    } else if (step === 4 && bookingResults.length === 0) {
+      setSmsConsent(false);
+      setStep(3);
     } else if (step > 1) {
       setStep((step - 1) as Step);
     }
@@ -580,6 +588,11 @@ export default function BookingPage() {
       setBookingMessage("Please correct the highlighted fields.");
       return;
     }
+    if (!smsConsent) {
+      setBookingMessageKind("error");
+      setBookingMessage("Please check the SMS consent box to confirm your appointment.");
+      return;
+    }
     if (chiroGapBlocksCart) {
       setBookingMessageKind("error");
       setBookingMessage(
@@ -599,6 +612,7 @@ export default function BookingPage() {
           last_name: lastName,
           phone,
           email,
+          sms_consent: smsConsent,
           service_id: item.service.id,
           provider_id: item.provider?.id,
           provider_name: item.provider?.provider_name ?? "",
@@ -644,6 +658,12 @@ export default function BookingPage() {
       toast.error("We need your appointment and a valid cell number.");
       return;
     }
+    if (!smsConsent) {
+      setBookingMessageKind("error");
+      setBookingMessage("Please check the SMS consent box to confirm your new time.");
+      toast.error("Please agree to SMS appointment reminders to continue.");
+      return;
+    }
     setBookingMessage("");
     setSlotWarning("");
     setIsSubmitting(true);
@@ -653,6 +673,7 @@ export default function BookingPage() {
         appointment_id: reschedulePick.id,
         appointment_date: selectedDate,
         start_time: selectedTime,
+        sms_consent: smsConsent,
       });
       setBookingResults([result]);
       setBookingMessageKind("success");
@@ -1468,10 +1489,31 @@ export default function BookingPage() {
                   at {reschedulePick.start_time}
                 </p>
               </div>
+              <div className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <Checkbox
+                  id="sms-consent-reschedule"
+                  checked={smsConsent}
+                  onCheckedChange={setSmsConsent}
+                  className="mt-0.5"
+                />
+                <label htmlFor="sms-consent-reschedule" className="cursor-pointer text-sm leading-relaxed text-slate-700">
+                  By checking this box, I consent to receive SMS text message appointment reminders and updates from Relief
+                  Chiropractic at the phone number I provided. Message & data rates may apply. Reply STOP to opt out at any
+                  time. View our Terms of Service:{" "}
+                  <a
+                    href="https://www.reliefchiropractic.net/terms-of-service-3"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-[#16a349] underline decoration-[#16a349]/50 underline-offset-2 hover:text-[#13823d]"
+                  >
+                    https://www.reliefchiropractic.net/terms-of-service-3
+                  </a>
+                </label>
+              </div>
               <Button
                 type="button"
                 onClick={() => void submitReschedule()}
-                disabled={isSubmitting || !phone || !isValidPhoneNumber(phone)}
+                disabled={isSubmitting || !phone || !isValidPhoneNumber(phone) || !smsConsent}
                 className="h-auto w-full max-w-xs rounded-xl bg-[#e9982f] px-6 py-3 text-base font-semibold text-white shadow-md shadow-[#e9982f]/25 hover:bg-[#cf8727] sm:w-auto"
               >
                 {isSubmitting ? (
@@ -1557,10 +1599,31 @@ export default function BookingPage() {
                 phone={phone}
                 existingSavedCard={lookupSavedCard}
               />
+              <div className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <Checkbox
+                  id="sms-consent-new"
+                  checked={smsConsent}
+                  onCheckedChange={setSmsConsent}
+                  className="mt-0.5"
+                />
+                <label htmlFor="sms-consent-new" className="cursor-pointer text-sm leading-relaxed text-slate-700">
+                  By checking this box, I consent to receive SMS text message appointment reminders and updates from Relief
+                  Chiropractic at the phone number I provided. Message & data rates may apply. Reply STOP to opt out at any
+                  time. View our Terms of Service:{" "}
+                  <a
+                    href="https://www.reliefchiropractic.net/terms-of-service-3"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-[#16a349] underline decoration-[#16a349]/50 underline-offset-2 hover:text-[#13823d]"
+                  >
+                    https://www.reliefchiropractic.net/terms-of-service-3
+                  </a>
+                </label>
+              </div>
               <Button
                 type="button"
                 onClick={() => void submitBooking()}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !smsConsent}
                 className="h-auto w-full max-w-xs rounded-xl bg-[#e9982f] px-6 py-3 text-base font-semibold text-white shadow-md shadow-[#e9982f]/25 hover:bg-[#cf8727] sm:w-auto"
               >
                 {isSubmitting ? (
