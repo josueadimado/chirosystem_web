@@ -67,6 +67,29 @@ type CartItem = {
   providerSkipped: boolean;
 };
 
+/**
+ * Online booking: chiropractic does not ask the patient to pick a doctor — use the first linked provider
+ * (same as admin-assigned / single-calendar behavior). Massage with several therapists still requires a choice.
+ */
+function providerPickForService(
+  service: ServiceOption,
+  providers: ProviderOption[],
+): { provider: ProviderOption | null; providerSkipped: boolean } {
+  if (providers.length === 0) {
+    return { provider: null, providerSkipped: false };
+  }
+  if (providers.length === 1) {
+    return { provider: providers[0], providerSkipped: true };
+  }
+  /** New office / intake visits are chiropractic; auto-pick so the schedule API always gets a provider_id. */
+  const isChiroBooking =
+    service.service_type === "chiropractic" || service.is_new_client_intake === true;
+  if (isChiroBooking) {
+    return { provider: providers[0], providerSkipped: true };
+  }
+  return { provider: null, providerSkipped: false };
+}
+
 const BETWEEN_SERVICE_BUFFER_MINUTES = 15;
 
 /** YYYY-MM-DD in the user's local calendar (UTC `toISOString()` can shift the date near midnight). */
@@ -232,10 +255,7 @@ export default function BookingPage() {
 
   useEffect(() => { fetchOptions(); }, []);
 
-  /**
-   * If the cart was built before /booking-options/ finished, provider lists were empty and we may have
-   * providerSkipped true with no provider — wrong for "single provider" services. Re-assign when options arrive.
-   */
+  /** When options load or change, auto-assign providers (chiro / single-provider) and fix invalid picks. */
   useEffect(() => {
     if (!options) return;
     setCart((prev) => {
@@ -243,20 +263,20 @@ export default function BookingPage() {
       let changed = false;
       const next = prev.map((item) => {
         const list = options.providers_by_service[item.service.id] ?? [];
-        if (item.provider != null) return item;
-        if (list.length === 1) {
+        const currentProvider = item.provider;
+        if (currentProvider != null) {
+          if (list.some((p) => p.id === currentProvider.id)) return item;
           changed = true;
-          return { ...item, provider: list[0], providerSkipped: true };
+          const pick = providerPickForService(item.service, list);
+          return { ...item, provider: pick.provider, providerSkipped: pick.providerSkipped };
         }
-        if (list.length === 0 && item.providerSkipped) {
-          changed = true;
-          return { ...item, provider: null, providerSkipped: false };
-        }
-        if (list.length > 1 && item.providerSkipped) {
-          changed = true;
-          return { ...item, provider: null, providerSkipped: false };
-        }
-        return item;
+        const pick = providerPickForService(item.service, list);
+        const same =
+          (pick.provider?.id ?? -1) === -1 &&
+          pick.providerSkipped === item.providerSkipped;
+        if (same) return item;
+        changed = true;
+        return { ...item, provider: pick.provider, providerSkipped: pick.providerSkipped };
       });
       return changed ? next : prev;
     });
@@ -536,11 +556,12 @@ export default function BookingPage() {
       }
       return;
     }
-    const providers = options?.providers_by_service?.[service.id] ?? [];
+    const providers = options.providers_by_service[service.id] ?? [];
+    const pick = providerPickForService(service, providers);
     const item: CartItem = {
       service,
-      provider: providers.length === 1 ? providers[0] : null,
-      providerSkipped: providers.length <= 1,
+      provider: pick.provider,
+      providerSkipped: pick.providerSkipped,
     };
     setCart((prev) => [...prev, item]);
     setSelectedCategory(null);
@@ -553,7 +574,12 @@ export default function BookingPage() {
 
   const needsProviderSelection = cart.some((c) => !c.provider && !c.providerSkipped);
 
-  /** If options reconciliation shows a provider must be picked (or none exist), step 3 cannot load times — send user to step 2. */
+  const cartHasServiceWithNoProviders = useMemo(() => {
+    if (!options) return false;
+    return cart.some((c) => (options.providers_by_service[c.service.id] ?? []).length === 0);
+  }, [cart, options]);
+
+  /** If someone lands on step 3 without a required provider, send them to step 2 (massage multi-therapist only). */
   useEffect(() => {
     if (bookingFlow !== "new" || step !== 3) return;
     if (needsProviderSelection) {
@@ -570,6 +596,10 @@ export default function BookingPage() {
     }
     if (optionsLoading || !options) {
       toast.error("Still loading visit options. Please wait a second, then tap Continue again.");
+      return;
+    }
+    if (cartHasServiceWithNoProviders) {
+      toast.error("A visit in your cart has no provider available online. Remove it or call the clinic.");
       return;
     }
     if (needsProviderSelection) {
@@ -1358,6 +1388,12 @@ export default function BookingPage() {
               ) : (
                 <>
               <h2 className="text-lg font-semibold">Choose your provider</h2>
+              {needsProviderSelection ? (
+                <p className="text-sm text-slate-600">
+                  Pick a therapist for each massage below. (Chiropractic does not use this step — you already chose your
+                  visit type.)
+                </p>
+              ) : null}
               {cart.filter((c) => !c.provider && !c.providerSkipped).map((item) => {
                 const providers = options?.providers_by_service?.[item.service.id] ?? [];
                 return (
@@ -1916,9 +1952,28 @@ export default function BookingPage() {
             <Button
               type="button"
               onClick={() => {
-                if (step === 1 && bookingFlow === "new" && cart.length > 0 && !selectedCategory && !addingAnother) {
+                if (step === 1 && bookingFlow === "new") {
+                  if (cart.length === 0) return;
+                  if (selectedCategory || addingAnother) {
+                    toast.error("Finish adding your visit to the cart, or close the category picker first.");
+                    return;
+                  }
                   proceedFromStep1();
-                } else if (step < 4) {
+                  return;
+                }
+                if (step === 2) {
+                  if (bookingFlow === "reschedule") {
+                    setStep(3);
+                    return;
+                  }
+                  if (needsProviderSelection) {
+                    toast.error("Choose a provider for each service above.");
+                    return;
+                  }
+                  setStep(3);
+                  return;
+                }
+                if (step < 4) {
                   setStep((step + 1) as Step);
                 }
               }}
@@ -1926,7 +1981,8 @@ export default function BookingPage() {
                 step === 4 ||
                 bookingResults.length > 0 ||
                 (step === 1 && bookingFlow === "new" && cart.length === 0) ||
-                (step === 1 && bookingFlow === "reschedule")
+                (step === 1 && bookingFlow === "reschedule") ||
+                (step === 2 && bookingFlow === "new" && needsProviderSelection)
               }
               className="h-auto rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90"
             >
