@@ -2,8 +2,10 @@
 
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
-import { ApiError, apiGetAuth } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
+import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
 type Patient = {
   id: number;
@@ -57,12 +59,22 @@ function patientDirectoryName(p: Patient): { last: string; first: string } {
   return { last: p.last_name.trim() || "—", first: p.first_name.trim() || "—" };
 }
 
+const inputClass =
+  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
+
 export default function AdminPatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detailPatientId, setDetailPatientId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addFirstName, setAddFirstName] = useState("");
+  const [addLastName, setAddLastName] = useState("");
+  const [addPhone, setAddPhone] = useState<string | undefined>(undefined);
+  const [addEmail, setAddEmail] = useState("");
+  const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addError, setAddError] = useState("");
 
   const loadPatients = useCallback(() => {
     return apiGetAuth<Patient[]>("/admin/patients/")
@@ -93,10 +105,63 @@ export default function AdminPatientsPage() {
       (p.email && p.email.toLowerCase().includes(search.toLowerCase()))
   );
 
+  const resetAddForm = () => {
+    setAddFirstName("");
+    setAddLastName("");
+    setAddPhone(undefined);
+    setAddEmail("");
+    setAddError("");
+  };
+
+  const openAddModal = () => {
+    resetAddForm();
+    setShowAddModal(true);
+  };
+
+  const submitNewPatient = async () => {
+    setAddError("");
+    const fn = addFirstName.trim();
+    const ln = addLastName.trim();
+    if (!fn || !ln) {
+      setAddError("First and last name are required.");
+      return;
+    }
+    if (!addPhone || !isValidPhoneNumber(addPhone)) {
+      setAddError("Enter a valid cell or primary phone number.");
+      return;
+    }
+    setAddSubmitting(true);
+    try {
+      const created = await apiPost<{ id: number }>("/patients/", {
+        first_name: fn,
+        last_name: ln,
+        phone: addPhone,
+        email: addEmail.trim(),
+      });
+      setShowAddModal(false);
+      resetAddForm();
+      await loadPatients();
+      setDetailPatientId(created.id);
+    } catch (e) {
+      setAddError(e instanceof ApiError ? e.message : "Could not create patient.");
+    } finally {
+      setAddSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="card">
-        <h1 className="mb-4 text-2xl font-bold">All Patients</h1>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-2xl font-bold">All Patients</h1>
+          <Button
+            type="button"
+            onClick={openAddModal}
+            className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
+          >
+            Add patient
+          </Button>
+        </div>
         {error && (
           <p className="mb-3 rounded-lg bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>
         )}
@@ -187,6 +252,104 @@ export default function AdminPatientsPage() {
           detailPath="/admin/patient_detail"
           onPatientDeleted={() => void loadPatients()}
         />
+      )}
+
+      {showAddModal && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[1px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-patient-title"
+          onClick={() => {
+            if (!addSubmitting) {
+              setShowAddModal(false);
+              resetAddForm();
+            }
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="add-patient-title" className="text-lg font-bold text-slate-900">
+              Add patient
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Creates a chart record so they can be booked, checked in, and billed. Phone must be unique.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">First name</span>
+                <input
+                  className={inputClass}
+                  value={addFirstName}
+                  onChange={(e) => setAddFirstName(e.target.value)}
+                  autoComplete="given-name"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Last name</span>
+                <input
+                  className={inputClass}
+                  value={addLastName}
+                  onChange={(e) => setAddLastName(e.target.value)}
+                  autoComplete="family-name"
+                />
+              </label>
+              <div>
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Phone</span>
+                <div className="rounded-lg border border-slate-200 bg-white p-2">
+                  <PhoneInput
+                    international
+                    defaultCountry="US"
+                    countryCallingCodeEditable={false}
+                    value={addPhone}
+                    onChange={setAddPhone}
+                    placeholder="Cell or primary number"
+                    className="phone-field text-sm"
+                  />
+                </div>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
+                  Email <span className="font-normal normal-case text-slate-400">(optional)</span>
+                </span>
+                <input
+                  type="email"
+                  className={inputClass}
+                  value={addEmail}
+                  onChange={(e) => setAddEmail(e.target.value)}
+                  autoComplete="email"
+                />
+              </label>
+            </div>
+            {addError && (
+              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{addError}</p>
+            )}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={addSubmitting}
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetAddForm();
+                }}
+                className="rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={addSubmitting}
+                onClick={() => void submitNewPatient()}
+                className="rounded-xl bg-[#16a349] font-semibold text-white hover:bg-[#13823d]"
+              >
+                {addSubmitting ? "Saving…" : "Create patient"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

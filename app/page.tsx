@@ -69,13 +69,35 @@ type CartItem = {
 
 const BETWEEN_SERVICE_BUFFER_MINUTES = 15;
 
-/** Fallback grid when availability API fails: 45-minute chiropractic-style starts, 8:00 AM–last start before 6:00 PM close. */
-const ALL_TIME_SLOTS: string[] = (() => {
+/** YYYY-MM-DD in the user's local calendar (UTC `toISOString()` can shift the date near midnight). */
+function toLocalISODate(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+/** Closing minute for online booking (visits must end by this time): Friday 4:00 PM, else 6:00 PM — matches server policy. */
+function publicBookingDayEndMinutes(dateIso: string): number {
+  const d = new Date(`${dateIso}T12:00:00`);
+  return d.getDay() === 5 ? 16 * 60 : 18 * 60;
+}
+
+/**
+ * Last-resort slots if the availability API errors — uses the same Fri 4 PM / Mon–Thu 6 PM rule as the server.
+ * Step size matches the selected service duration (e.g. 15 vs 45 min chiropractic).
+ */
+function buildFallbackTimeSlots(
+  dateIso: string,
+  slotStepMin: number,
+  serviceType: "chiropractic" | "massage" | undefined,
+): string[] {
+  const openMin = serviceType === "massage" ? 9 * 60 : 8 * 60;
+  const closeMin = publicBookingDayEndMinutes(dateIso);
+  const step = Math.max(5, slotStepMin);
+  if (openMin >= closeMin) return [];
   const out: string[] = [];
-  const dayStartMin = 8 * 60;
-  const dayEndMin = 18 * 60;
-  const visitLen = 45;
-  for (let t = dayStartMin; t + visitLen <= dayEndMin; t += visitLen) {
+  for (let t = openMin; t + step <= closeMin; t += step) {
     const h24 = Math.floor(t / 60);
     const m = t % 60;
     const suffix = h24 < 12 ? "AM" : "PM";
@@ -83,7 +105,7 @@ const ALL_TIME_SLOTS: string[] = (() => {
     out.push(`${displayH}:${String(m).padStart(2, "0")} ${suffix}`);
   }
   return out;
-})();
+}
 
 /** Minutes between two visits on the same provider: none for chiro→chiro; 15 when types differ (e.g. chiro→massage). */
 function interVisitBufferMinutes(prev: ServiceOption, nextSvc: ServiceOption): number {
@@ -91,12 +113,6 @@ function interVisitBufferMinutes(prev: ServiceOption, nextSvc: ServiceOption): n
     return 0;
   }
   return BETWEEN_SERVICE_BUFFER_MINUTES;
-}
-
-/** Closing minute for online booking (visits must end by this time): Friday 4:00 PM, else 6:00 PM — matches server policy. */
-function publicBookingDayEndMinutes(dateIso: string): number {
-  const d = new Date(`${dateIso}T12:00:00`);
-  return d.getDay() === 5 ? 16 * 60 : 18 * 60;
 }
 
 function formatBookingPrice(p: string): string {
@@ -145,7 +161,7 @@ function isMassageLateCancelWindow(row: RescheduleAppointmentRow, bookingOptions
 
 export default function BookingPage() {
   const { toast } = useAppFeedback();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toLocalISODate(new Date());
   const [options, setOptions] = useState<BookingOptions | null>(null);
   const [optionsError, setOptionsError] = useState("");
   const [optionsLoading, setOptionsLoading] = useState(true);
@@ -156,7 +172,7 @@ export default function BookingPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [addingAnother, setAddingAnother] = useState(false);
 
-  const [selectedTime, setSelectedTime] = useState(ALL_TIME_SLOTS[2]);
+  const [selectedTime, setSelectedTime] = useState("9:00 AM");
   const [selectedDate, setSelectedDate] = useState(today);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -208,7 +224,7 @@ export default function BookingPage() {
     if (wd !== 0 && wd !== 6) return;
     const n = new Date(d);
     n.setDate(n.getDate() + (wd === 0 ? 1 : 2));
-    setSelectedDate(n.toISOString().slice(0, 10));
+    setSelectedDate(toLocalISODate(n));
   }, [step, selectedDate]);
 
   const firstCartItem = cart[0] ?? null;
@@ -263,6 +279,7 @@ export default function BookingPage() {
       return;
     }
     setSlotsLoading(true);
+    setAvailableSlots(null);
     const params = new URLSearchParams({
       date: selectedDate,
       provider_id: String(effectiveSlotProvider.id),
@@ -295,7 +312,19 @@ export default function BookingPage() {
         setAvailableSlots(slots);
         setSlotWarning("");
       })
-      .catch(() => setAvailableSlots(ALL_TIME_SLOTS))
+      .catch(() => {
+        if (!effectiveSlotService) {
+          setAvailableSlots([]);
+          return;
+        }
+        setAvailableSlots(
+          buildFallbackTimeSlots(
+            selectedDate,
+            effectiveSlotService.duration_minutes,
+            effectiveSlotService.service_type,
+          ),
+        );
+      })
       .finally(() => setSlotsLoading(false));
   }, [
     selectedDate,
@@ -1369,7 +1398,7 @@ export default function BookingPage() {
                     for (let i = 0; i < 14; i++) {
                       const d = new Date(startOfWeek);
                       d.setDate(startOfWeek.getDate() + i);
-                      const iso = d.toISOString().slice(0, 10);
+                      const iso = toLocalISODate(d);
                       const isPast = iso < today;
                       const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                       const isSelected = iso === selectedDate;
@@ -1424,7 +1453,17 @@ export default function BookingPage() {
                 </label>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
-                  const slotsToShow = availableSlots === null ? ALL_TIME_SLOTS : availableSlots;
+                  if (slotsLoading) {
+                    return null;
+                  }
+                  if (availableSlots === null) {
+                    return (
+                      <p className="text-sm text-slate-500">
+                        Select a date — open times load from the clinic schedule (Friday closes at 4:00 PM).
+                      </p>
+                    );
+                  }
+                  const slotsToShow = availableSlots;
                   if (slotsToShow.length === 0) {
                     return (
                       <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">

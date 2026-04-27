@@ -99,8 +99,26 @@ async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
-      const data = (await res.json()) as { detail?: string };
-      throw new ApiError(data.detail || "Request failed", res.status);
+      const data = (await res.json()) as Record<string, unknown>;
+      let message =
+        typeof data.detail === "string"
+          ? data.detail
+          : Array.isArray(data.detail)
+            ? (data.detail as string[]).join(" ")
+            : "";
+      if (!message && typeof data === "object" && data !== null) {
+        const parts: string[] = [];
+        for (const [k, v] of Object.entries(data)) {
+          if (k === "detail") continue;
+          if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
+            parts.push(`${k}: ${(v as string[]).join(" ")}`);
+          } else if (typeof v === "string") {
+            parts.push(`${k}: ${v}`);
+          }
+        }
+        if (parts.length) message = parts.join(" ");
+      }
+      throw new ApiError(message || "Request failed", res.status);
     }
     const message = await res.text();
     throw new ApiError(summarizeNonJsonError(message, res.status), res.status);
