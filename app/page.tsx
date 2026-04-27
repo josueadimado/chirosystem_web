@@ -38,7 +38,7 @@ type ServiceOption = {
   description?: string;
   duration_minutes: number;
   price: string;
-  service_type?: string;
+  service_type?: "chiropractic" | "massage";
   allow_provider_choice?: boolean;
   /** True = new patient / reactivation visit (required online after long gap since last chiro visit). */
   is_new_client_intake?: boolean;
