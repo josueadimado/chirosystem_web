@@ -3,6 +3,7 @@
 import { DoctorSectionLabel } from "@/components/doctor-shell";
 import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -58,6 +59,8 @@ type PatientDetail = {
   card_brand: string;
   card_last4: string;
   has_saved_card?: boolean;
+  /** When true, public booking skips “must book intake chiro first” for this patient (migrated / established). */
+  online_chiro_intake_waived?: boolean;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -102,6 +105,8 @@ export function PatientDetailModal({
   const [handoffEdits, setHandoffEdits] = useState<Record<number, string>>({});
   const [savingHandoffId, setSavingHandoffId] = useState<number | null>(null);
   const [handoffMsg, setHandoffMsg] = useState("");
+  /** Admin-only: allow regular chiro online without a completed chiro visit on file */
+  const [onlineChiroIntakeWaived, setOnlineChiroIntakeWaived] = useState(false);
 
   useEffect(() => {
     setPortalReady(true);
@@ -138,6 +143,7 @@ export function PatientDetailModal({
     apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`)
       .then((d) => {
         setDetail(d);
+        setOnlineChiroIntakeWaived(d.online_chiro_intake_waived === true);
         setIntakeForm({
           address_line1: d.address_line1 || "",
           address_line2: d.address_line2 || "",
@@ -197,6 +203,7 @@ export function PatientDetailModal({
         emergency_contact_name: intakeForm.emergency_contact_name,
         emergency_contact_phone: intakeForm.emergency_contact_phone,
         date_of_birth: intakeForm.date_of_birth || null,
+        ...(detailPath === "/admin/patient_detail" ? { online_chiro_intake_waived: onlineChiroIntakeWaived } : {}),
       });
       setIntakeMsg("Saved.");
       const refreshed = await apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`);
@@ -343,6 +350,14 @@ export function PatientDetailModal({
                             : "None on file"}
                         </p>
                       </div>
+                      {detail.online_chiro_intake_waived ? (
+                        <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 shadow-sm sm:col-span-2">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-800">Online booking</p>
+                          <p className="mt-1.5 text-sm font-medium text-amber-950">
+                            Intake-first rule waived — patient may book regular chiropractic visits online.
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -459,6 +474,24 @@ export function PatientDetailModal({
                       />
                     </label>
                   </div>
+                  {detailPath === "/admin/patient_detail" && (
+                    <div className="flex gap-3 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
+                      <Checkbox
+                        id="online-chiro-intake-waived"
+                        checked={onlineChiroIntakeWaived}
+                        onCheckedChange={(c) => setOnlineChiroIntakeWaived(c)}
+                        className="mt-0.5"
+                      />
+                      <label htmlFor="online-chiro-intake-waived" className="cursor-pointer text-sm leading-relaxed text-slate-700">
+                        <span className="font-semibold text-slate-900">Waive “intake first” for online chiropractic booking</span>
+                        <span className="mt-1 block font-normal text-slate-600">
+                          Turn this on for established or imported patients who should be allowed to book regular (non-intake)
+                          chiropractic visits online even though this system has no completed chiropractic visit on file yet.
+                          Owner and staff only.
+                        </span>
+                      </label>
+                    </div>
+                  )}
                   {canSaveIntake && (
                     <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
                       <button

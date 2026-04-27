@@ -67,8 +67,37 @@ type CartItem = {
   providerSkipped: boolean;
 };
 
-const ALL_TIME_SLOTS = ["9:00 AM", "10:15 AM", "2:30 PM", "3:45 PM", "5:15 PM"];
 const BETWEEN_SERVICE_BUFFER_MINUTES = 15;
+
+/** Fallback grid when availability API fails: 45-minute chiropractic-style starts, 8:00 AM–last start before 6:00 PM close. */
+const ALL_TIME_SLOTS: string[] = (() => {
+  const out: string[] = [];
+  const dayStartMin = 8 * 60;
+  const dayEndMin = 18 * 60;
+  const visitLen = 45;
+  for (let t = dayStartMin; t + visitLen <= dayEndMin; t += visitLen) {
+    const h24 = Math.floor(t / 60);
+    const m = t % 60;
+    const suffix = h24 < 12 ? "AM" : "PM";
+    const displayH = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24 === 12 ? 12 : h24;
+    out.push(`${displayH}:${String(m).padStart(2, "0")} ${suffix}`);
+  }
+  return out;
+})();
+
+/** Minutes between two visits on the same provider: none for chiro→chiro; 15 when types differ (e.g. chiro→massage). */
+function interVisitBufferMinutes(prev: ServiceOption, nextSvc: ServiceOption): number {
+  if (prev.service_type === "chiropractic" && nextSvc.service_type === "chiropractic") {
+    return 0;
+  }
+  return BETWEEN_SERVICE_BUFFER_MINUTES;
+}
+
+/** Closing minute for online booking (visits must end by this time): Friday 4:00 PM, else 6:00 PM — matches server policy. */
+function publicBookingDayEndMinutes(dateIso: string): number {
+  const d = new Date(`${dateIso}T12:00:00`);
+  return d.getDay() === 5 ? 16 * 60 : 18 * 60;
+}
 
 function formatBookingPrice(p: string): string {
   const n = parseFloat(p);
@@ -203,8 +232,23 @@ export default function BookingPage() {
 
   const totalCartMinutes = useMemo(() => {
     if (cart.length <= 1) return cart[0]?.service.duration_minutes ?? 0;
-    return cart.reduce((sum, item) => sum + item.service.duration_minutes, 0)
-      + BETWEEN_SERVICE_BUFFER_MINUTES * (cart.length - 1);
+    let sum = 0;
+    for (let i = 0; i < cart.length; i++) {
+      sum += cart[i].service.duration_minutes;
+      if (i < cart.length - 1) {
+        sum += interVisitBufferMinutes(cart[i].service, cart[i + 1].service);
+      }
+    }
+    return sum;
+  }, [cart]);
+
+  const totalInterVisitBufferMinutes = useMemo(() => {
+    if (cart.length < 2) return 0;
+    let b = 0;
+    for (let i = 0; i < cart.length - 1; i++) {
+      b += interVisitBufferMinutes(cart[i].service, cart[i + 1].service);
+    }
+    return b;
   }, [cart]);
 
   /** Multi-service chain on one provider: API must reserve the full block (each visit + breaks). */
@@ -236,7 +280,7 @@ export default function BookingPage() {
         let slots = res.available_slots;
         // Different provider per service: only the first visit is constrained server-side; rough end-of-day check for the chain.
         if (bookingFlow === "new" && cart.length > 1 && !cartSameProviderChain) {
-          const DAY_END = 18 * 60; // 6:00 PM in minutes
+          const dayEnd = publicBookingDayEndMinutes(selectedDate);
           slots = slots.filter((slot) => {
             const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
             if (!m) return true;
@@ -245,7 +289,7 @@ export default function BookingPage() {
             const ap = m[3].toUpperCase();
             if (ap === "PM" && h !== 12) h += 12;
             if (ap === "AM" && h === 12) h = 0;
-            return h * 60 + min + totalCartMinutes <= DAY_END;
+            return h * 60 + min + totalCartMinutes <= dayEnd;
           });
         }
         setAvailableSlots(slots);
@@ -606,7 +650,8 @@ export default function BookingPage() {
     let currentTime = selectedTime;
 
     try {
-      for (const item of cart) {
+      for (let i = 0; i < cart.length; i++) {
+        const item = cart[i];
         const result = await apiPostPublic<BookingResult>("/appointments/book/", {
           first_name: firstName,
           last_name: lastName,
@@ -623,10 +668,10 @@ export default function BookingPage() {
           start_time: currentTime,
         });
         results.push(result);
-        currentTime = addMinutesToTimeSlot(
-          currentTime,
-          item.service.duration_minutes + BETWEEN_SERVICE_BUFFER_MINUTES,
-        );
+        if (i < cart.length - 1) {
+          const gap = interVisitBufferMinutes(item.service, cart[i + 1].service);
+          currentTime = addMinutesToTimeSlot(currentTime, item.service.duration_minutes + gap);
+        }
       }
       setBookingResults(results);
       setBookingMessageKind("success");
@@ -781,15 +826,17 @@ export default function BookingPage() {
         },
       ];
     }
+    const rows: Array<CartItem & { startTime: string; endTime: string; breakAfterMinutes: number }> = [];
     let time = selectedTime;
-    return cart.map((item, idx) => {
+    cart.forEach((item, idx) => {
       const startTime = time;
       const endTime = addMinutesToTimeSlot(time, item.service.duration_minutes);
-      time = idx < cart.length - 1
-        ? addMinutesToTimeSlot(endTime, BETWEEN_SERVICE_BUFFER_MINUTES)
-        : endTime;
-      return { ...item, startTime, endTime };
+      const next = cart[idx + 1];
+      const breakAfterMinutes = next ? interVisitBufferMinutes(item.service, next.service) : 0;
+      rows.push({ ...item, startTime, endTime, breakAfterMinutes });
+      time = next ? addMinutesToTimeSlot(endTime, breakAfterMinutes) : endTime;
     });
+    return rows;
   }, [bookingFlow, reschedulePick, options, cart, selectedTime]);
 
   return (
@@ -1227,7 +1274,7 @@ export default function BookingPage() {
                 </div>
               ) : (
                 <>
-              <h2 className="text-lg font-semibold">Choose your doctor</h2>
+              <h2 className="text-lg font-semibold">Choose your provider</h2>
               {cart.filter((c) => !c.provider && !c.providerSkipped).map((item) => {
                 const providers = options?.providers_by_service?.[item.service.id] ?? [];
                 return (
@@ -1236,7 +1283,7 @@ export default function BookingPage() {
                       For <span className="font-medium text-slate-900">{item.service.name}</span>:
                     </p>
                     {providers.length === 0 ? (
-                      <p className="text-slate-500">No doctors available. Please choose another service.</p>
+                      <p className="text-slate-500">No providers available. Please choose another service.</p>
                     ) : (
                       <div className="grid gap-2 sm:grid-cols-3">
                         {providers.map((provider) => (
@@ -1375,17 +1422,6 @@ export default function BookingPage() {
                       : "(for your first service; other visits may use a different provider)"
                     : ""}
                 </label>
-                <p className="mb-2 text-xs leading-snug text-slate-500">
-                  Start times are offered on a <strong className="font-medium text-slate-600">15-minute grid</strong>. Each
-                  time must have enough open room for{" "}
-                  {bookingFlow === "new" && cart.length > 1 && cartSameProviderChain ? (
-                    <>all services and breaks between them (<strong className="text-slate-600">{totalCartMinutes} min</strong> total).</>
-                  ) : (
-                    <>your visit length (<strong className="text-slate-600">{effectiveSlotService?.duration_minutes ?? "—"} min</strong>).</>
-                  )}{" "}
-                  If options look far apart (e.g. 9:00 vs 10:15), the starts in between usually conflict with other
-                  bookings — not a hidden 30-minute buffer added to your 45-minute visit.
-                </p>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
                   const slotsToShow = availableSlots === null ? ALL_TIME_SLOTS : availableSlots;
@@ -1446,9 +1482,22 @@ export default function BookingPage() {
               {/* Multi-service break info */}
               {bookingFlow === "new" && cart.length > 1 && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-sm text-blue-900">
-                  <p className="font-medium">Scheduling with break</p>
+                  <p className="font-medium">
+                    {totalInterVisitBufferMinutes > 0 ? "Scheduling with break" : "Scheduling back-to-back"}
+                  </p>
                   <p className="mt-1 text-blue-700">
-                    Your {cart[0].service.name} starts at the selected time, then there&apos;s a {BETWEEN_SERVICE_BUFFER_MINUTES}-minute break before {cart[1].service.name} begins. Total block: {totalDuration + BETWEEN_SERVICE_BUFFER_MINUTES * (cart.length - 1)} min.
+                    {totalInterVisitBufferMinutes > 0 ? (
+                      <>
+                        Your {cart[0].service.name} starts at the selected time, then there&apos;s a{" "}
+                        {totalInterVisitBufferMinutes}-minute break between visits where needed. Total block:{" "}
+                        {totalDuration + totalInterVisitBufferMinutes} min.
+                      </>
+                    ) : (
+                      <>
+                        Your visits run one after another with no scheduled gap (typical for multiple chiropractic visits).
+                        Total time: {totalDuration} min.
+                      </>
+                    )}
                   </p>
                 </div>
               )}
@@ -1815,7 +1864,11 @@ export default function BookingPage() {
                         <div className="relative pb-4">
                           <div className="absolute -left-[25px] top-0.5 h-2 w-2 rounded-full bg-amber-400" />
                           <p className="text-xs font-medium text-amber-600">{item.endTime}</p>
-                          <p className="text-[11px] text-amber-500">{BETWEEN_SERVICE_BUFFER_MINUTES}-min break</p>
+                          {"breakAfterMinutes" in item && item.breakAfterMinutes > 0 ? (
+                            <p className="text-[11px] text-amber-500">{item.breakAfterMinutes}-min break</p>
+                          ) : (
+                            <p className="text-[11px] text-slate-500">Back-to-back</p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1867,7 +1920,10 @@ export default function BookingPage() {
               </p>
               {cart.length > 1 && (
                 <p className="mt-1 text-xs text-[#9a6700]">
-                  {cart.length} services · {totalDuration} min + {BETWEEN_SERVICE_BUFFER_MINUTES}-min break
+                  {cart.length} services · {totalDuration} min
+                  {totalInterVisitBufferMinutes > 0
+                    ? ` + ${totalInterVisitBufferMinutes} min between visits`
+                    : " · back-to-back"}
                 </p>
               )}
             </div>
