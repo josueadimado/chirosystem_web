@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppFeedback } from "@/components/app-feedback";
-import { IconCheck } from "@/components/icons";
+import { IconCheck, IconChevronLeft, IconChevronRight } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { BookingCardSetup } from "@/components/booking-card-setup";
 import { Button } from "@/components/ui/button";
@@ -98,6 +98,29 @@ function toLocalISODate(d: Date): string {
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${mo}-${day}`;
+}
+
+/** First day of the month in local time, noon (avoids DST edge cases). */
+function startOfCalendarMonth(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(12, 0, 0, 0);
+  x.setDate(1);
+  return x;
+}
+
+function addCalendarMonths(d: Date, delta: number): Date {
+  const x = new Date(d);
+  x.setMonth(x.getMonth() + delta);
+  return x;
+}
+
+/** Latest Mon–Fri date on or before `iso` (for edge cases near booking horizon). */
+function lastWeekdayOnOrBefore(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() - 1);
+  }
+  return toLocalISODate(d);
 }
 
 /** Closing minute for online booking (visits must end by this time): Friday 4:00 PM, else 6:00 PM — matches server policy. */
@@ -245,6 +268,17 @@ export default function BookingPage() {
   /** SMS opt-in on the final submit step; must stay unchecked until the user agrees (TCPA-style consent). */
   const [smsConsent, setSmsConsent] = useState(false);
 
+  /** Latest calendar day patients may book online (today + 6 months in local time). */
+  const maxBookDateIso = useMemo(() => {
+    const d = new Date(`${today}T12:00:00`);
+    d.setMonth(d.getMonth() + 6);
+    return toLocalISODate(d);
+  }, [today]);
+
+  /** Month currently shown in the step-3 date picker. */
+  const [bookingCalendarMonth, setBookingCalendarMonth] = useState(() => startOfCalendarMonth(new Date()));
+  const prevStepForCalendarRef = useRef<Step>(1);
+
   const fetchOptions = () => {
     setOptionsError("");
     setOptionsLoading(true);
@@ -283,6 +317,22 @@ export default function BookingPage() {
     });
   }, [options]);
 
+  /** When opening date & time, focus the calendar on the month of the selected day. */
+  useEffect(() => {
+    if (step === 3 && prevStepForCalendarRef.current !== 3) {
+      setBookingCalendarMonth(startOfCalendarMonth(new Date(`${selectedDate}T12:00:00`)));
+    }
+    prevStepForCalendarRef.current = step;
+  }, [step, selectedDate]);
+
+  /** Keep selected day inside the allowed booking horizon. */
+  useEffect(() => {
+    if (step !== 3) return;
+    if (selectedDate > maxBookDateIso) {
+      setSelectedDate(lastWeekdayOnOrBefore(maxBookDateIso));
+    }
+  }, [step, selectedDate, maxBookDateIso]);
+
   /** Weekends are not bookable online — move to next Monday if we land on Sat/Sun (e.g. opened on a weekend). */
   useEffect(() => {
     if (step !== 3) return;
@@ -291,8 +341,13 @@ export default function BookingPage() {
     if (wd !== 0 && wd !== 6) return;
     const n = new Date(d);
     n.setDate(n.getDate() + (wd === 0 ? 1 : 2));
-    setSelectedDate(toLocalISODate(n));
-  }, [step, selectedDate]);
+    let nextIso = toLocalISODate(n);
+    if (nextIso > maxBookDateIso) {
+      setSelectedDate(lastWeekdayOnOrBefore(maxBookDateIso));
+      return;
+    }
+    setSelectedDate(nextIso);
+  }, [step, selectedDate, maxBookDateIso]);
 
   const firstCartItem = cart[0] ?? null;
   const firstProvider = firstCartItem?.provider ?? null;
@@ -1470,58 +1525,131 @@ export default function BookingPage() {
                 </Link>
               </div>
 
-              {/* Visual calendar grid */}
+              {/* Month calendar: up to 6 months ahead */}
               <div className="rounded-xl border-2 border-primary/25 bg-primary/[0.06] p-4 ring-1 ring-primary/10">
-                <label className="mb-3 block text-sm font-semibold text-foreground">Pick a date</label>
-                <div className="grid grid-cols-7 gap-1 text-center sm:gap-1.5">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                    <div key={d} className="pb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400 sm:text-[11px] sm:tracking-wider">
-                      {d}
-                    </div>
-                  ))}
-                  {(() => {
-                    const todayObj = new Date(today + "T12:00:00");
-                    const days: React.ReactNode[] = [];
-                    // Start from today's week start (Sunday)
-                    const startOfWeek = new Date(todayObj);
-                    startOfWeek.setDate(todayObj.getDate() - todayObj.getDay());
-                    // Show 14 days from the start of this week
-                    for (let i = 0; i < 14; i++) {
-                      const d = new Date(startOfWeek);
-                      d.setDate(startOfWeek.getDate() + i);
-                      const iso = toLocalISODate(d);
-                      const isPast = iso < today;
-                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                      const isSelected = iso === selectedDate;
-                      const isToday = iso === today;
-                      days.push(
+                <label className="mb-1 block text-sm font-semibold text-foreground">Pick a date</label>
+                <p className="mb-3 text-xs leading-relaxed text-slate-600">
+                  Book up to <strong className="font-medium text-slate-800">6 months</strong> ahead. Use the arrows to
+                  change month.
+                </p>
+                {(() => {
+                  const monthStart = startOfCalendarMonth(bookingCalendarMonth);
+                  const firstDow = monthStart.getDay();
+                  const daysInMonth = new Date(
+                    monthStart.getFullYear(),
+                    monthStart.getMonth() + 1,
+                    0,
+                    12,
+                    0,
+                    0,
+                    0,
+                  ).getDate();
+                  const todayMonthStart = startOfCalendarMonth(new Date(`${today}T12:00:00`));
+                  const canPrevMonth =
+                    monthStart.getFullYear() > todayMonthStart.getFullYear() ||
+                    (monthStart.getFullYear() === todayMonthStart.getFullYear() &&
+                      monthStart.getMonth() > todayMonthStart.getMonth());
+                  const nextMonthFirstIso = toLocalISODate(addCalendarMonths(monthStart, 1));
+                  const canNextMonth = nextMonthFirstIso <= maxBookDateIso;
+                  const cells: (Date | null)[] = [];
+                  for (let i = 0; i < firstDow; i++) cells.push(null);
+                  for (let day = 1; day <= daysInMonth; day++) {
+                    cells.push(new Date(monthStart.getFullYear(), monthStart.getMonth(), day, 12, 0, 0, 0));
+                  }
+                  while (cells.length % 7 !== 0) cells.push(null);
+                  return (
+                    <>
+                      <div className="mb-3 flex items-center justify-between gap-2">
                         <button
-                          key={iso}
                           type="button"
-                          disabled={isPast || isWeekend}
-                          onClick={() => setSelectedDate(iso)}
+                          aria-label="Previous month"
+                          disabled={!canPrevMonth}
+                          onClick={() => setBookingCalendarMonth((m) => addCalendarMonths(m, -1))}
                           className={cn(
-                            "relative flex h-9 w-full items-center justify-center rounded-lg text-xs font-medium transition-all sm:h-11 sm:text-sm",
-                            isPast || isWeekend
-                              ? "cursor-not-allowed text-slate-300"
-                              : isSelected
-                                ? "bg-[#16a349] font-bold text-white shadow-md shadow-[#16a349]/25"
-                                : "hover:bg-primary/10 text-slate-700",
-                            isToday && !isSelected && "ring-2 ring-[#16a349]/40",
+                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50",
+                            !canPrevMonth && "cursor-not-allowed opacity-40",
                           )}
                         >
-                          {d.getDate()}
-                          {isToday && <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-[#16a349]" />}
-                        </button>,
-                      );
-                    }
-                    return days;
-                  })()}
-                </div>
+                          <IconChevronLeft className="h-4 w-4" />
+                        </button>
+                        <p className="min-w-0 flex-1 text-center text-sm font-semibold text-slate-900 sm:text-base">
+                          {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                        </p>
+                        <button
+                          type="button"
+                          aria-label="Next month"
+                          disabled={!canNextMonth}
+                          onClick={() => setBookingCalendarMonth((m) => addCalendarMonths(m, 1))}
+                          className={cn(
+                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50",
+                            !canNextMonth && "cursor-not-allowed opacity-40",
+                          )}
+                        >
+                          <IconChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 text-center sm:gap-1.5">
+                        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                          <div
+                            key={d}
+                            className="pb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400 sm:text-[11px] sm:tracking-wider"
+                          >
+                            {d}
+                          </div>
+                        ))}
+                        {cells.map((d, idx) => {
+                          if (!d) {
+                            return <div key={`pad-${idx}`} className="h-9 sm:h-11" aria-hidden />;
+                          }
+                          const iso = toLocalISODate(d);
+                          const isPast = iso < today;
+                          const isAfterMax = iso > maxBookDateIso;
+                          const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                          const isDisabled = isPast || isWeekend || isAfterMax;
+                          const isSelected = iso === selectedDate;
+                          const isTodayCell = iso === today;
+                          return (
+                            <button
+                              key={iso}
+                              type="button"
+                              disabled={isDisabled}
+                              onClick={() => setSelectedDate(iso)}
+                              className={cn(
+                                "relative flex h-9 w-full items-center justify-center rounded-lg text-xs font-medium transition-all sm:h-11 sm:text-sm",
+                                isDisabled
+                                  ? "cursor-not-allowed text-slate-300"
+                                  : isSelected
+                                    ? "bg-[#16a349] font-bold text-white shadow-md shadow-[#16a349]/25"
+                                    : "hover:bg-primary/10 text-slate-700",
+                                isTodayCell && !isSelected && "ring-2 ring-[#16a349]/40",
+                              )}
+                            >
+                              {d.getDate()}
+                              {isTodayCell && (
+                                <span
+                                  className={cn(
+                                    "absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full",
+                                    isSelected ? "bg-white" : "bg-[#16a349]",
+                                  )}
+                                  aria-hidden
+                                />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
                 <p className="mt-3 text-sm text-slate-600">
                   Selected:{" "}
                   <strong className="text-[#166534]">
-                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
+                      weekday: "long",
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })}
                   </strong>
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">

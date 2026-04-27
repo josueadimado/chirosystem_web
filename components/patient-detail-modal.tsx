@@ -66,6 +66,57 @@ type PatientDetail = {
 
 type Tab = "overview" | "intake" | "history";
 
+/**
+ * Turns pasted or free-typed birth dates into YYYY-MM-DD for the date field and API.
+ * Accepts ISO dates, US-style M/D/YYYY (and variants), and a few copy-paste quirks.
+ */
+function normalizeDateOfBirthInput(raw: string): string | null {
+  const s = raw
+    .trim()
+    .replace(/^["'([{]+|["')\]}]+$/g, "")
+    .trim();
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split("-").map((x) => parseInt(x, 10));
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d) return s;
+    return null;
+  }
+
+  const us = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
+  if (us) {
+    const month = parseInt(us[1], 10);
+    const day = parseInt(us[2], 10);
+    let year = parseInt(us[3], 10);
+    if (us[3].length === 2) {
+      // Common pivot: 00–69 → 2000s, 70–99 → 1900s (works well for real birth years)
+      year += year >= 70 ? 1900 : 2000;
+    }
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const dt = new Date(year, month - 1, day);
+    if (dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return null;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  // Spreadsheet / API paste often includes a time; use the date part only (no timezone shift).
+  const isoHead = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoHead) {
+    return normalizeDateOfBirthInput(isoHead[1]);
+  }
+
+  const t = Date.parse(s);
+  if (!Number.isNaN(t)) {
+    const dt = new Date(t);
+    const y = dt.getFullYear();
+    const m = dt.getMonth() + 1;
+    const d = dt.getDate();
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
+  return null;
+}
+
 function statusBadgeClass(status: string): string {
   return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
 }
@@ -471,7 +522,19 @@ export function PatientDetailModal({
                         className={`${inputClass} max-w-xs`}
                         value={intakeForm.date_of_birth}
                         onChange={(e) => setIntakeForm((f) => ({ ...f, date_of_birth: e.target.value }))}
+                        onPaste={(e) => {
+                          const text = e.clipboardData.getData("text/plain");
+                          const normalized = normalizeDateOfBirthInput(text);
+                          if (normalized) {
+                            e.preventDefault();
+                            setIntakeForm((f) => ({ ...f, date_of_birth: normalized }));
+                          }
+                        }}
+                        title="Pick a date or paste one, e.g. 4/15/1985 or 1985-04-15"
                       />
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        You can paste a date in US form (like 4/15/1985) or ISO (1985-04-15); it will fill the field for you.
+                      </p>
                     </label>
                   </div>
                   {detailPath === "/admin/patient_detail" && (
