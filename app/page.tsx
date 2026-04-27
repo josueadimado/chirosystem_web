@@ -232,6 +232,36 @@ export default function BookingPage() {
 
   useEffect(() => { fetchOptions(); }, []);
 
+  /**
+   * If the cart was built before /booking-options/ finished, provider lists were empty and we may have
+   * providerSkipped true with no provider — wrong for "single provider" services. Re-assign when options arrive.
+   */
+  useEffect(() => {
+    if (!options) return;
+    setCart((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev.map((item) => {
+        const list = options.providers_by_service[item.service.id] ?? [];
+        if (item.provider != null) return item;
+        if (list.length === 1) {
+          changed = true;
+          return { ...item, provider: list[0], providerSkipped: true };
+        }
+        if (list.length === 0 && item.providerSkipped) {
+          changed = true;
+          return { ...item, provider: null, providerSkipped: false };
+        }
+        if (list.length > 1 && item.providerSkipped) {
+          changed = true;
+          return { ...item, provider: null, providerSkipped: false };
+        }
+        return item;
+      });
+      return changed ? next : prev;
+    });
+  }, [options]);
+
   /** Weekends are not bookable online — move to next Monday if we land on Sat/Sun (e.g. opened on a weekend). */
   useEffect(() => {
     if (step !== 3) return;
@@ -472,6 +502,10 @@ export default function BookingPage() {
   const anyProviderSkipped = cart.every((c) => c.providerSkipped);
 
   const addServiceToCart = (service: ServiceOption) => {
+    if (!options) {
+      toast.error("Still loading services and providers. Please wait a moment, then try again.");
+      return;
+    }
     if (
       chiroIntakeRule?.requiresIntake &&
       service.service_type === "chiropractic" &&
@@ -519,11 +553,23 @@ export default function BookingPage() {
 
   const needsProviderSelection = cart.some((c) => !c.provider && !c.providerSkipped);
 
+  /** If options reconciliation shows a provider must be picked (or none exist), step 3 cannot load times — send user to step 2. */
+  useEffect(() => {
+    if (bookingFlow !== "new" || step !== 3) return;
+    if (needsProviderSelection) {
+      setStep(2);
+    }
+  }, [bookingFlow, step, needsProviderSelection]);
+
   const proceedFromStep1 = () => {
     if (chiroGapBlocksCart) {
       toast.error(
         "Update your chiropractic visit to a new patient or reactivation type (see the notice above), then continue.",
       );
+      return;
+    }
+    if (optionsLoading || !options) {
+      toast.error("Still loading visit options. Please wait a second, then tap Continue again.");
       return;
     }
     if (needsProviderSelection) {
@@ -1464,10 +1510,21 @@ export default function BookingPage() {
                   if (slotsLoading) {
                     return null;
                   }
-                  if (bookingFlow === "new" && (!effectiveSlotService || !effectiveSlotProvider)) {
+                  if (bookingFlow === "new" && effectiveSlotService && !effectiveSlotProvider) {
+                    if (optionsLoading || !options) {
+                      return (
+                        <p className="text-sm text-slate-500">Loading provider info so we can show open times…</p>
+                      );
+                    }
+                    const plist = options.providers_by_service[effectiveSlotService.id] ?? [];
+                    if (plist.length === 1) {
+                      return (
+                        <p className="text-sm text-slate-500">Preparing your schedule…</p>
+                      );
+                    }
                     return (
-                      <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                        Go back one step and choose a provider so we can load open times for this visit.
+                      <p className="text-sm text-slate-500">
+                        Taking you back to finish provider selection…
                       </p>
                     );
                   }
