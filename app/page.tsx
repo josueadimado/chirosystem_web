@@ -83,6 +83,19 @@ function publicBookingDayEndMinutes(dateIso: string): number {
   return d.getDay() === 5 ? 16 * 60 : 18 * 60;
 }
 
+/** True if a slot start + visit length (minutes) ends by public closing (same rule as API: start + span <= dayEnd). */
+function slotChainFitsPublicDayEnd(dateIso: string, slot: string, spanMinutes: number): boolean {
+  const dayEnd = publicBookingDayEndMinutes(dateIso);
+  const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return true;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = m[3].toUpperCase();
+  if (ap === "PM" && h !== 12) h += 12;
+  if (ap === "AM" && h === 12) h = 0;
+  return h * 60 + min + spanMinutes <= dayEnd;
+}
+
 /**
  * Last-resort slots if the availability API errors — uses the same Fri 4 PM / Mon–Thu 6 PM rule as the server.
  * Step size matches the selected service duration (e.g. 15 vs 45 min chiropractic).
@@ -295,20 +308,10 @@ export default function BookingPage() {
     apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
         let slots = res.available_slots;
-        // Different provider per service: only the first visit is constrained server-side; rough end-of-day check for the chain.
-        if (bookingFlow === "new" && cart.length > 1 && !cartSameProviderChain) {
-          const dayEnd = publicBookingDayEndMinutes(selectedDate);
-          slots = slots.filter((slot) => {
-            const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-            if (!m) return true;
-            let h = parseInt(m[1], 10);
-            const min = parseInt(m[2], 10);
-            const ap = m[3].toUpperCase();
-            if (ap === "PM" && h !== 12) h += 12;
-            if (ap === "AM" && h === 12) h = 0;
-            return h * 60 + min + totalCartMinutes <= dayEnd;
-          });
-        }
+        // Always enforce public closing (Fri 4 PM / Mon–Thu 6 PM) client-side so bad or stale API data cannot show late slots.
+        const spanForDayEnd =
+          bookingFlow === "new" && cart.length > 1 ? totalCartMinutes : effectiveSlotService.duration_minutes;
+        slots = slots.filter((slot) => slotChainFitsPublicDayEnd(selectedDate, slot, spanForDayEnd));
         setAvailableSlots(slots);
         setSlotWarning("");
       })

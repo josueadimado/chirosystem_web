@@ -152,34 +152,44 @@ export default function AdminPatientsPage() {
   return (
     <div className="space-y-4">
       <div className="card">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-2xl font-bold">All Patients</h1>
-          <Button
-            type="button"
-            onClick={openAddModal}
-            className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
-          >
-            Add patient
-          </Button>
-        </div>
+        <h1 className="mb-4 text-2xl font-bold">All Patients</h1>
         {error && (
           <p className="mb-3 rounded-lg bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>
         )}
-        <div className="mb-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <input
             type="search"
             placeholder="Search by name, phone, or email"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full max-w-md rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="w-full min-w-0 max-w-md rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            aria-label="Search patients"
           />
+          <Button
+            type="button"
+            onClick={openAddModal}
+            className="h-10 w-full shrink-0 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d] sm:w-auto sm:min-w-[10.5rem]"
+          >
+            Add patient
+          </Button>
         </div>
         {loading ? (
           <Loader variant="page" label="Loading patients" sublabel="Gathering patient records…" />
         ) : filtered.length === 0 ? (
-          <p className="animate-fade-in py-8 text-slate-500">
-            {search ? "No patients match your search." : "No patients yet."}
-          </p>
+          <div className="animate-fade-in py-8 text-center">
+            <p className="text-slate-500">
+              {search ? "No patients match your search." : "No patients yet."}
+            </p>
+            {!search && (
+              <Button
+                type="button"
+                onClick={openAddModal}
+                className="mt-5 h-11 rounded-xl bg-[#16a349] px-6 text-sm font-semibold text-white hover:bg-[#13823d]"
+              >
+                Add your first patient
+              </Button>
+            )}
+          </div>
         ) : (
           <div className="animate-fade-in overflow-x-auto">
             <table className="w-full text-sm">
