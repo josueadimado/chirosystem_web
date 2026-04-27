@@ -123,20 +123,21 @@ function slotChainFitsPublicDayEnd(dateIso: string, slot: string, spanMinutes: n
 }
 
 /**
- * Last-resort slots if the availability API errors — uses the same Fri 4 PM / Mon–Thu 6 PM rule as the server.
- * Step size matches the selected service duration (e.g. 15 vs 45 min chiropractic).
+ * Last-resort slots if the availability API errors — same Fri 4 PM / Mon–Thu 6 PM rule as the server.
+ * Chiropractic: start times every 15 minutes; each visit still lasts durationMinutes (matches API grid merge).
  */
 function buildFallbackTimeSlots(
   dateIso: string,
-  slotStepMin: number,
   serviceType: "chiropractic" | "massage" | undefined,
+  durationMinutes: number,
 ): string[] {
   const openMin = serviceType === "massage" ? 9 * 60 : 8 * 60;
   const closeMin = publicBookingDayEndMinutes(dateIso);
-  const step = Math.max(5, slotStepMin);
+  const duration = Math.max(5, Number(durationMinutes) || 30);
+  const step = serviceType === "chiropractic" ? 15 : Math.max(duration, 15);
   if (openMin >= closeMin) return [];
   const out: string[] = [];
-  for (let t = openMin; t + step <= closeMin; t += step) {
+  for (let t = openMin; t + duration <= closeMin; t += step) {
     const h24 = Math.floor(t / 60);
     const m = t % 60;
     const suffix = h24 < 12 ? "AM" : "PM";
@@ -146,12 +147,12 @@ function buildFallbackTimeSlots(
   return out;
 }
 
-/** Minutes between two visits on the same provider: none for chiro→chiro; 15 when types differ (e.g. chiro→massage). */
+/** Minutes between two visits on the same provider: 15 only between two massages; no gap when chiropractic is involved. */
 function interVisitBufferMinutes(prev: ServiceOption, nextSvc: ServiceOption): number {
-  if (prev.service_type === "chiropractic" && nextSvc.service_type === "chiropractic") {
-    return 0;
+  if (prev.service_type === "massage" && nextSvc.service_type === "massage") {
+    return BETWEEN_SERVICE_BUFFER_MINUTES;
   }
-  return BETWEEN_SERVICE_BUFFER_MINUTES;
+  return 0;
 }
 
 function formatBookingPrice(p: string): string {
@@ -377,8 +378,8 @@ export default function BookingPage() {
         setAvailableSlots(
           buildFallbackTimeSlots(
             selectedDate,
-            Number(effectiveSlotService.duration_minutes) || 30,
             effectiveSlotService.service_type,
+            Number(effectiveSlotService.duration_minutes) || 30,
           ),
         );
       })
@@ -920,7 +921,7 @@ export default function BookingPage() {
     printWindow.document.close();
   };
 
-  // Schedule preview for cart items (includes 15-min break between services), or the single visit being rescheduled
+  // Schedule preview for cart items (15-min gap only between two massages), or the single visit being rescheduled
   const cartSchedule = useMemo(() => {
     if (bookingFlow === "reschedule" && reschedulePick && options) {
       const svc = options.services.find((s) => s.id === reschedulePick.service_id);
