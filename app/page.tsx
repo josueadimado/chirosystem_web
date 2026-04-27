@@ -85,6 +85,9 @@ function publicBookingDayEndMinutes(dateIso: string): number {
 
 /** True if a slot start + visit length (minutes) ends by public closing (same rule as API: start + span <= dayEnd). */
 function slotChainFitsPublicDayEnd(dateIso: string, slot: string, spanMinutes: number): boolean {
+  // Coerce: JSON or state can surface duration as a string; mixing string + number in JS can concatenate and break comparisons.
+  const span = Number(spanMinutes);
+  if (!Number.isFinite(span) || span < 0) return true;
   const dayEnd = publicBookingDayEndMinutes(dateIso);
   const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   if (!m) return true;
@@ -93,7 +96,7 @@ function slotChainFitsPublicDayEnd(dateIso: string, slot: string, spanMinutes: n
   const ap = m[3].toUpperCase();
   if (ap === "PM" && h !== 12) h += 12;
   if (ap === "AM" && h === 12) h = 0;
-  return h * 60 + min + spanMinutes <= dayEnd;
+  return h * 60 + min + span <= dayEnd;
 }
 
 /**
@@ -260,10 +263,10 @@ export default function BookingPage() {
   }, [bookingFlow, reschedulePick, firstProvider]);
 
   const totalCartMinutes = useMemo(() => {
-    if (cart.length <= 1) return cart[0]?.service.duration_minutes ?? 0;
+    if (cart.length <= 1) return Number(cart[0]?.service.duration_minutes) || 0;
     let sum = 0;
     for (let i = 0; i < cart.length; i++) {
-      sum += cart[i].service.duration_minutes;
+      sum += Number(cart[i].service.duration_minutes) || 0;
       if (i < cart.length - 1) {
         sum += interVisitBufferMinutes(cart[i].service, cart[i + 1].service);
       }
@@ -307,10 +310,11 @@ export default function BookingPage() {
     }
     apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
-        let slots = res.available_slots;
+        let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
         // Always enforce public closing (Fri 4 PM / Mon–Thu 6 PM) client-side so bad or stale API data cannot show late slots.
-        const spanForDayEnd =
+        const rawSpan =
           bookingFlow === "new" && cart.length > 1 ? totalCartMinutes : effectiveSlotService.duration_minutes;
+        const spanForDayEnd = Number(rawSpan);
         slots = slots.filter((slot) => slotChainFitsPublicDayEnd(selectedDate, slot, spanForDayEnd));
         setAvailableSlots(slots);
         setSlotWarning("");
@@ -323,7 +327,7 @@ export default function BookingPage() {
         setAvailableSlots(
           buildFallbackTimeSlots(
             selectedDate,
-            effectiveSlotService.duration_minutes,
+            Number(effectiveSlotService.duration_minutes) || 30,
             effectiveSlotService.service_type,
           ),
         );
@@ -339,6 +343,7 @@ export default function BookingPage() {
     bookingFlow,
     reschedulePick?.id,
     phone,
+    effectiveSlotService?.duration_minutes,
   ]);
 
   useEffect(() => {
@@ -1458,6 +1463,13 @@ export default function BookingPage() {
                 {(() => {
                   if (slotsLoading) {
                     return null;
+                  }
+                  if (bookingFlow === "new" && (!effectiveSlotService || !effectiveSlotProvider)) {
+                    return (
+                      <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                        Go back one step and choose a provider so we can load open times for this visit.
+                      </p>
+                    );
                   }
                   if (availableSlots === null) {
                     return (
