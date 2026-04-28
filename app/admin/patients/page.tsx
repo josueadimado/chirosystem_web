@@ -4,7 +4,7 @@ import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { Button } from "@/components/ui/button";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
 type Patient = {
@@ -62,6 +62,9 @@ function patientDirectoryName(p: Patient): { last: string; first: string } {
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
 
+/** Rows per page — keeps the list scannable instead of one endless page */
+const PATIENTS_PAGE_SIZE = 25;
+
 export default function AdminPatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,6 +78,7 @@ export default function AdminPatientsPage() {
   const [addEmail, setAddEmail] = useState("");
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [addError, setAddError] = useState("");
+  const [page, setPage] = useState(1);
 
   const loadPatients = useCallback(() => {
     return apiGetAuth<Patient[]>("/admin/patients/")
@@ -98,12 +102,35 @@ export default function AdminPatientsPage() {
     };
   }, [loadPatients]);
 
-  const filtered = patients.filter(
-    (p) =>
-      `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
-      p.phone.includes(search) ||
-      (p.email && p.email.toLowerCase().includes(search.toLowerCase()))
+  const filtered = useMemo(
+    () =>
+      patients.filter(
+        (p) =>
+          `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
+          p.phone.includes(search) ||
+          (p.email && p.email.toLowerCase().includes(search.toLowerCase())),
+      ),
+    [patients, search],
   );
+
+  const totalFiltered = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PATIENTS_PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), totalPages));
+  }, [totalPages]);
+
+  const pagePatients = useMemo(() => {
+    const start = (page - 1) * PATIENTS_PAGE_SIZE;
+    return filtered.slice(start, start + PATIENTS_PAGE_SIZE);
+  }, [filtered, page]);
+
+  const rangeStart = totalFiltered === 0 ? 0 : (page - 1) * PATIENTS_PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PATIENTS_PAGE_SIZE, totalFiltered);
 
   const resetAddForm = () => {
     setAddFirstName("");
@@ -191,67 +218,120 @@ export default function AdminPatientsPage() {
             )}
           </div>
         ) : (
-          <div className="animate-fade-in overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500">
-                  <th className="pb-3 font-semibold">Patient name</th>
-                  <th className="pb-3 font-semibold">Status</th>
-                  <th className="pb-3 font-semibold">Last Visit</th>
-                  <th className="pb-3 font-semibold">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => {
-                  const { last, first } = patientDirectoryName(p);
-                  const phoneLine = formatPhoneCompact(p.phone);
-                  return (
-                  <tr
-                    key={p.id}
-                    className="cursor-pointer border-t border-slate-200 transition hover:bg-slate-50"
-                    onClick={() => setDetailPatientId(p.id)}
-                    aria-label={`Open chart for ${last}, ${first}`}
-                  >
-                    <td className="py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] text-[11px] font-bold uppercase tracking-[0.08em] text-[#065f46] shadow-inner ring-1 ring-[#16a349]/15"
-                          aria-hidden
+          <div className="animate-fade-in space-y-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Showing{" "}
+              <span className="font-semibold tabular-nums text-slate-600">
+                {rangeStart}&ndash;{rangeEnd}
+              </span>{" "}
+              of <span className="tabular-nums text-slate-600">{totalFiltered}</span>{" "}
+              {search.trim() ? "matching patients" : "patients"}
+            </p>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
+              <div className="max-h-[min(520px,65vh)] overflow-y-auto overscroll-contain">
+                <table className="w-full min-w-[560px] border-collapse text-sm">
+                  <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
+                    <tr className="text-left text-slate-500">
+                      <th className="px-3 py-3 pl-4 text-left align-bottom font-semibold">Patient name</th>
+                      <th className="px-3 py-3 align-bottom font-semibold">Status</th>
+                      <th className="px-3 py-3 align-bottom font-semibold">Last Visit</th>
+                      <th className="py-3 pr-4 text-right align-bottom font-semibold">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagePatients.map((p) => {
+                      const { last, first } = patientDirectoryName(p);
+                      const phoneLine = formatPhoneCompact(p.phone);
+                      return (
+                        <tr
+                          key={p.id}
+                          className="cursor-pointer border-t border-slate-100 transition hover:bg-emerald-50/50"
+                          onClick={() => setDetailPatientId(p.id)}
+                          aria-label={`Open chart for ${last}, ${first}`}
                         >
-                          {patientInitials(p)}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[15px] leading-snug text-slate-900">
-                            <span className="font-semibold tracking-tight">{last}</span>
-                            <span className="font-normal text-slate-400">, </span>
-                            <span className="font-medium text-slate-700">{first}</span>
-                          </p>
-                          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
-                            <span className="font-mono tabular-nums text-slate-400">PT-{String(p.id).padStart(4, "0")}</span>
-                            {phoneLine ? (
-                              <>
-                                <span className="text-slate-300" aria-hidden>
-                                  ·
-                                </span>
-                                <span className="tabular-nums text-slate-500">{phoneLine}</span>
-                              </>
-                            ) : null}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3">
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                        Active
-                      </span>
-                    </td>
-                    <td className="py-3">{formatDate(p.last_visit)}</td>
-                    <td className="py-3 font-medium">{formatBalance(p.balance)}</td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <td className="px-3 py-3 pl-4 align-middle">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] text-[10px] font-bold uppercase tracking-[0.08em] text-[#065f46] shadow-inner ring-1 ring-[#16a349]/15 md:h-10 md:w-10 md:rounded-xl md:text-[11px]"
+                                aria-hidden
+                              >
+                                {patientInitials(p)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="leading-snug text-slate-900">
+                                  <span className="font-semibold tracking-tight">{last}</span>
+                                  <span className="font-normal text-slate-400">, </span>
+                                  <span className="font-medium text-slate-700">{first}</span>
+                                </p>
+                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+                                  <span className="font-mono tabular-nums text-slate-400">
+                                    PT-{String(p.id).padStart(4, "0")}
+                                  </span>
+                                  {phoneLine ? (
+                                    <>
+                                      <span className="text-slate-300" aria-hidden>
+                                        ·
+                                      </span>
+                                      <span className="tabular-nums text-slate-500">{phoneLine}</span>
+                                    </>
+                                  ) : null}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 align-middle">
+                            <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                              Active
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 align-middle tabular-nums text-slate-700">
+                            {formatDate(p.last_visit)}
+                          </td>
+                          <td className="py-3 pr-4 text-right align-middle font-medium tabular-nums text-slate-900">
+                            {formatBalance(p.balance)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-500">
+                  Page{" "}
+                  <span className="font-semibold tabular-nums text-slate-700">{page}</span> of{" "}
+                  <span className="tabular-nums">{totalPages}</span>
+                  <span className="mx-2 text-slate-300">·</span>
+                  <span className="text-slate-400">{PATIENTS_PAGE_SIZE} per page</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    aria-label="Previous page"
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    aria-label="Next page"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -285,7 +365,8 @@ export default function AdminPatientsPage() {
               Add patient
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Creates a chart record so they can be booked, checked in, and billed. Phone must be unique.
+              Creates a chart record so they can be booked, checked in, and billed. Family members may share a phone—
+              names must differ.
             </p>
             <div className="mt-4 space-y-3">
               <label className="block">
