@@ -57,6 +57,8 @@ type RescheduleAppointmentRow = {
   provider_name: string;
   duration_minutes: number;
   price: string;
+  /** Present when multiple patient profiles share the same phone number — who this visit is for. */
+  patient_name?: string;
 };
 
 type BookingFlowMode = "new" | "reschedule";
@@ -178,6 +180,42 @@ function interVisitBufferMinutes(prev: ServiceOption, nextSvc: ServiceOption): n
   return 0;
 }
 
+/** Maps public patient-lookup fields to the step-4 chiropractic intake banner state. */
+function chiroIntakeRuleFromLookupResponse(res: {
+  chiropractic_returning_gap_requires_intake?: boolean;
+  chiropractic_first_chiro_requires_intake?: boolean;
+  chiropractic_new_patient_requires_intake?: boolean;
+  chiropractic_intake_services?: Array<{ id: number; name: string }>;
+  chiropractic_gap_days?: number;
+  last_chiropractic_visit_date?: string | null;
+}): {
+  requiresIntake: boolean;
+  intakeServices: Array<{ id: number; name: string }>;
+  gapDays: number;
+  lastVisit: string | null;
+  reason: "gap" | "first_chiro" | "new_patient" | null;
+} | null {
+  const intakeServices = Array.isArray(res.chiropractic_intake_services) ? res.chiropractic_intake_services : [];
+  const gapDays = typeof res.chiropractic_gap_days === "number" ? res.chiropractic_gap_days : 730;
+  const lastVisit = res.last_chiropractic_visit_date ?? null;
+  let reason: "gap" | "first_chiro" | "new_patient" | null = null;
+  if (res.chiropractic_returning_gap_requires_intake === true) reason = "gap";
+  else if (res.chiropractic_first_chiro_requires_intake === true) reason = "first_chiro";
+  else if (res.chiropractic_new_patient_requires_intake === true) reason = "new_patient";
+  const needsIntake =
+    res.chiropractic_returning_gap_requires_intake === true ||
+    res.chiropractic_first_chiro_requires_intake === true ||
+    res.chiropractic_new_patient_requires_intake === true;
+  if (!needsIntake) return null;
+  return {
+    requiresIntake: true,
+    intakeServices,
+    gapDays,
+    lastVisit,
+    reason: (reason ?? "new_patient") as "gap" | "first_chiro" | "new_patient",
+  };
+}
+
 function formatBookingPrice(p: string): string {
   const n = parseFloat(p);
   if (Number.isNaN(n)) return `$${p}`;
@@ -249,11 +287,15 @@ export default function BookingPage() {
   const [bookingResults, setBookingResults] = useState<BookingResult[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
-  const [patientLookup, setPatientLookup] = useState<"idle" | "loading" | "returning" | "new">("idle");
+  const [patientLookup, setPatientLookup] = useState<"idle" | "loading" | "returning" | "new" | "ambiguous">("idle");
+  /** From patient-lookup when several people share one number — quick-fill name buttons */
+  const [householdPickList, setHouseholdPickList] = useState<Array<{ first_name: string; last_name: string }>>([]);
   const [bookingFlow, setBookingFlow] = useState<BookingFlowMode>("new");
   const [rescheduleList, setRescheduleList] = useState<RescheduleAppointmentRow[]>([]);
   const [rescheduleListLoading, setRescheduleListLoading] = useState(false);
   const [rescheduleListError, setRescheduleListError] = useState("");
+  /** True when several patient profiles share this phone — list may include visits for different family members. */
+  const [rescheduleSharedPhone, setRescheduleSharedPhone] = useState(false);
   const [reschedulePick, setReschedulePick] = useState<RescheduleAppointmentRow | null>(null);
   /** From patient-lookup API when returning patient has Square card on file */
   const [lookupSavedCard, setLookupSavedCard] = useState<{ card_brand: string; card_last4: string } | null>(null);
@@ -459,10 +501,12 @@ export default function BookingPage() {
   }, [availableSlots]);
 
   useEffect(() => {
+    // Phone-only lookup: run when reaching step 4 or when the cell number changes (do not send first/last name).
     if (step !== 4 || !phone || !isValidPhoneNumber(phone)) {
       if (step !== 4) {
         setPatientLookup("idle");
         setLookupSavedCard(null);
+        setHouseholdPickList([]);
       }
       return;
     }
@@ -470,6 +514,9 @@ export default function BookingPage() {
       setPatientLookup("loading");
       apiGet<{
         found: boolean;
+        ambiguous_phone?: boolean;
+        same_phone_different_person?: boolean;
+        household_members?: Array<{ first_name: string; last_name: string }>;
         first_name?: string;
         last_name?: string;
         email?: string;
@@ -484,31 +531,26 @@ export default function BookingPage() {
         last_chiropractic_visit_date?: string | null;
       }>(`/booking-options/patient-lookup/?phone=${encodeURIComponent(phone)}`)
         .then((res) => {
-          const intakeServices = Array.isArray(res.chiropractic_intake_services) ? res.chiropractic_intake_services : [];
-          const gapDays = typeof res.chiropractic_gap_days === "number" ? res.chiropractic_gap_days : 730;
-          const lastVisit = res.last_chiropractic_visit_date ?? null;
-          let reason: "gap" | "first_chiro" | "new_patient" | null = null;
-          if (res.chiropractic_returning_gap_requires_intake === true) reason = "gap";
-          else if (res.chiropractic_first_chiro_requires_intake === true) reason = "first_chiro";
-          else if (res.chiropractic_new_patient_requires_intake === true) reason = "new_patient";
-          const needsIntake =
-            res.chiropractic_returning_gap_requires_intake === true ||
-            res.chiropractic_first_chiro_requires_intake === true ||
-            res.chiropractic_new_patient_requires_intake === true;
-          const nextRule = needsIntake
-            ? {
-                requiresIntake: true as const,
-                intakeServices,
-                gapDays,
-                lastVisit,
-                reason: (reason ?? "new_patient") as "gap" | "first_chiro" | "new_patient",
-              }
-            : null;
+          const nextRule = chiroIntakeRuleFromLookupResponse(res);
+          setHouseholdPickList([]);
+
+          if (res.found && res.ambiguous_phone && Array.isArray(res.household_members) && res.household_members.length > 0) {
+            setHouseholdPickList(
+              res.household_members.map((m) => ({
+                first_name: m.first_name,
+                last_name: m.last_name,
+              })),
+            );
+            setPatientLookup("ambiguous");
+            setLookupSavedCard(null);
+            setChiroIntakeRule(nextRule);
+            return;
+          }
 
           if (res.found && res.first_name != null && res.last_name != null) {
-            setFirstName(res.first_name);
-            setLastName(res.last_name);
-            setEmail(res.email ?? "");
+            setFirstName((prev) => (prev.trim() ? prev : res.first_name ?? ""));
+            setLastName((prev) => (prev.trim() ? prev : res.last_name ?? ""));
+            setEmail((prev) => (prev.trim() ? prev : res.email ?? ""));
             setPatientLookup("returning");
             setLookupSavedCard(
               res.has_saved_card && res.card_last4
@@ -516,20 +558,103 @@ export default function BookingPage() {
                 : null,
             );
             setChiroIntakeRule(nextRule);
-          } else {
-            setPatientLookup("new");
-            setLookupSavedCard(null);
-            setChiroIntakeRule(nextRule);
+            return;
           }
+
+          setPatientLookup("new");
+          setLookupSavedCard(null);
+          setChiroIntakeRule(nextRule);
         })
         .catch(() => {
           setPatientLookup("new");
           setLookupSavedCard(null);
           setChiroIntakeRule(null);
+          setHouseholdPickList([]);
         });
     }, 500);
     return () => clearTimeout(t);
   }, [step, phone]);
+
+  useEffect(() => {
+    // Refined lookup with first + last name (household picks, booking a minor on a parent's number, etc.).
+    if (step !== 4 || !phone || !isValidPhoneNumber(phone)) return;
+    const fn = firstName.trim();
+    const ln = lastName.trim();
+    if (!fn || !ln) return;
+
+    const t = setTimeout(() => {
+      setPatientLookup("loading");
+      const sp = new URLSearchParams();
+      sp.set("phone", phone);
+      sp.set("first_name", fn);
+      sp.set("last_name", ln);
+      apiGet<{
+        found: boolean;
+        ambiguous_phone?: boolean;
+        same_phone_different_person?: boolean;
+        household_members?: Array<{ first_name: string; last_name: string }>;
+        first_name?: string;
+        last_name?: string;
+        email?: string;
+        has_saved_card?: boolean;
+        card_brand?: string;
+        card_last4?: string;
+        chiropractic_returning_gap_requires_intake?: boolean;
+        chiropractic_first_chiro_requires_intake?: boolean;
+        chiropractic_new_patient_requires_intake?: boolean;
+        chiropractic_intake_services?: Array<{ id: number; name: string }>;
+        chiropractic_gap_days?: number;
+        last_chiropractic_visit_date?: string | null;
+      }>(`/booking-options/patient-lookup/?${sp.toString()}`)
+        .then((res) => {
+          const nextRule = chiroIntakeRuleFromLookupResponse(res);
+          setHouseholdPickList([]);
+
+          if (res.same_phone_different_person === true && res.found === false) {
+            setPatientLookup("new");
+            setLookupSavedCard(null);
+            setChiroIntakeRule(nextRule);
+            return;
+          }
+
+          if (res.found && res.ambiguous_phone && Array.isArray(res.household_members) && res.household_members.length > 0) {
+            setHouseholdPickList(
+              res.household_members.map((m) => ({
+                first_name: m.first_name,
+                last_name: m.last_name,
+              })),
+            );
+            setPatientLookup("ambiguous");
+            setLookupSavedCard(null);
+            setChiroIntakeRule(nextRule);
+            return;
+          }
+
+          if (res.found && res.first_name != null && res.last_name != null) {
+            setPatientLookup("returning");
+            setEmail(res.email ?? "");
+            setLookupSavedCard(
+              res.has_saved_card && res.card_last4
+                ? { card_brand: res.card_brand ?? "", card_last4: res.card_last4 }
+                : null,
+            );
+            setChiroIntakeRule(nextRule);
+            return;
+          }
+
+          setPatientLookup("new");
+          setLookupSavedCard(null);
+          setChiroIntakeRule(nextRule);
+        })
+        .catch(() => {
+          setPatientLookup("new");
+          setLookupSavedCard(null);
+          setChiroIntakeRule(null);
+          setHouseholdPickList([]);
+        });
+    }, 450);
+    return () => clearTimeout(t);
+  }, [step, phone, firstName, lastName]);
 
   const chiroServices = useMemo(
     () => (options?.services ?? []).filter((s) => s.service_type === "chiropractic"),
@@ -684,6 +809,7 @@ export default function BookingPage() {
     setReschedulePick(null);
     setRescheduleList([]);
     setRescheduleListError("");
+    setRescheduleSharedPhone(false);
     setSmsConsent(false);
     setStep(1);
   };
@@ -696,6 +822,7 @@ export default function BookingPage() {
     setRescheduleListLoading(true);
     setRescheduleListError("");
     apiGet<{
+      ambiguous_phone?: boolean;
       first_name: string;
       last_name: string;
       email: string;
@@ -706,6 +833,7 @@ export default function BookingPage() {
         setFirstName(res.first_name ?? "");
         setLastName(res.last_name ?? "");
         setEmail(res.email ?? "");
+        setRescheduleSharedPhone(res.ambiguous_phone === true);
         if ((res.appointments ?? []).length === 0) {
           setRescheduleListError(
             "No upcoming visits found for this number that can be changed online. Call the clinic if you need help.",
@@ -714,6 +842,7 @@ export default function BookingPage() {
       })
       .catch((e) => {
         setRescheduleList([]);
+        setRescheduleSharedPhone(false);
         setRescheduleListError(e instanceof ApiError ? e.message : "Could not load your visits. Try again.");
       })
       .finally(() => setRescheduleListLoading(false));
@@ -1171,6 +1300,7 @@ export default function BookingPage() {
                         setRescheduleList([]);
                         setRescheduleListError("");
                         setReschedulePick(null);
+                        setRescheduleSharedPhone(false);
                       }}
                       placeholder="Cell number on your booking"
                       className="phone-field text-sm"
@@ -1186,6 +1316,12 @@ export default function BookingPage() {
                   </Button>
                   {rescheduleListError && (
                     <p className="text-sm text-amber-900">{rescheduleListError}</p>
+                  )}
+                  {rescheduleSharedPhone && rescheduleList.length > 0 && (
+                    <p className="text-sm leading-relaxed text-[#14532d]">
+                      This number is shared by more than one patient profile — we&apos;re showing everyone&apos;s upcoming visits
+                      under this line. Pick the visit you want to change or cancel.
+                    </p>
                   )}
                   {rescheduleList.length > 0 && (
                     <div className="space-y-2">
@@ -1207,6 +1343,9 @@ export default function BookingPage() {
                             className="min-w-0 flex-1 rounded-lg border border-transparent p-2 text-left transition-all hover:border-[#16a349]/40 hover:bg-[#f0fdf4]/50"
                           >
                             <p className="font-semibold text-slate-900">{row.service_name}</p>
+                            {row.patient_name ? (
+                              <p className="text-xs font-medium text-slate-500">Patient: {row.patient_name}</p>
+                            ) : null}
                             <p className="mt-1 text-sm text-slate-600">
                               {row.provider_name} ·{" "}
                               {new Date(row.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
@@ -1863,7 +2002,14 @@ export default function BookingPage() {
               <h2 className="text-lg font-semibold">Your details</h2>
               <p className="text-sm text-slate-600">
                 Cell number is required. Email is optional (used for confirmation if you have one). Enter your cell
-                number first—we&apos;ll look up your info if you&apos;ve visited before.
+                number first—we&apos;ll look up your info if you&apos;ve visited before. If you share a number with a
+                parent or guardian, use the <strong>patient who is coming in</strong> as the name below (we can keep
+                several people on the same phone).
+              </p>
+              <p className="rounded-xl border border-[#16a349]/20 bg-[#f0fdf4]/70 px-3 py-2.5 text-sm leading-relaxed text-[#14532d]">
+                Booking for a child or someone else? Use their <strong className="text-[#0d5c2e]">legal name</strong> in
+                the name fields; the number can be a parent&apos;s or family member&apos;s phone—we&apos;ll text that
+                line with appointment details.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="sm:col-span-2">
@@ -1880,6 +2026,7 @@ export default function BookingPage() {
                         setPatientLookup("idle");
                         setLookupSavedCard(null);
                         setChiroIntakeRule(null);
+                        setHouseholdPickList([]);
                       }}
                       placeholder="Enter cell number" className="phone-field text-sm"
                     />
@@ -1890,6 +2037,32 @@ export default function BookingPage() {
                     <p className="mt-2 rounded-lg bg-[#16a349]/10 px-3 py-2 text-sm font-medium text-[#166534]">
                       Welcome back, {firstName}! We&apos;ve filled in your details.
                     </p>
+                  )}
+                  {patientLookup === "ambiguous" && (
+                    <div className="mt-2 space-y-2 rounded-lg border border-[#166534]/25 bg-[#f0fdf4]/80 px-3 py-2 text-sm text-[#14532d]">
+                      <p className="font-medium">This number is linked to more than one person here.</p>
+                      <p className="text-[13px] leading-relaxed text-[#166534]/90">
+                        Enter the first and last name of the patient who is coming in, or tap a saved name below.
+                      </p>
+                      {householdPickList.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {householdPickList.map((m) => (
+                            <Button
+                              key={`${m.first_name}-${m.last_name}`}
+                              type="button"
+                              variant="outline"
+                              className="h-auto rounded-full border-[#16a349]/40 bg-white px-3 py-1.5 text-xs font-semibold text-[#14532d] hover:bg-[#f0fdf4]"
+                              onClick={() => {
+                                setFirstName(m.first_name);
+                                setLastName(m.last_name);
+                              }}
+                            >
+                              {m.first_name} {m.last_name}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                   {patientLookup === "new" && (
                     <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">First visit? Please fill in your details below.</p>
