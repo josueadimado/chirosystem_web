@@ -25,6 +25,8 @@ type Service = {
   /** In-room bill: massage therapists see this line when true. */
   visible_to_massage_staff?: boolean;
   service_type?: ServiceType;
+  /** Chiropractic-only: marks the service as new-patient intake (booking site / eligibility logic). */
+  is_new_client_intake?: boolean;
   /** If false: line appears on printed bill for insurance but does not add to patient invoice total. */
   charges_patient?: boolean;
 };
