@@ -1,5 +1,5 @@
 /**
- * Opens a print-friendly Patient Bill window (matches Relief Chiropractic statement layout).
+ * Patient Bill HTML (statement layout) — used by the portal modal and optional new-window print.
  */
 
 export type PatientBillLine = {
@@ -41,10 +41,8 @@ function esc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export function openPatientBillPrint(b: PatientBillPayload) {
-  const w = window.open("", "_blank", "width=900,height=900");
-  if (!w) return false;
-
+/** Full HTML document for the bill (no scripts). Safe for iframe srcDoc. */
+export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   const rows = b.lines
     .map((l) => {
       const pat = l.patient_due != null ? l.patient_due : l.line_total;
@@ -61,7 +59,7 @@ export function openPatientBillPrint(b: PatientBillPayload) {
     })
     .join("");
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
@@ -90,7 +88,7 @@ export function openPatientBillPrint(b: PatientBillPayload) {
   <h1>${esc(b.bill_title || "Patient Bill")}</h1>
   ${
     b.is_preview
-      ? `<div class="preview-banner"><strong>Preview only</strong>This is what the bill will look like before payment. After the invoice is marked paid, use &ldquo;Print patient bill&rdquo; for the official copy (this window does not auto-print). Use your browser&rsquo;s Print if you need a paper copy of the preview.</div>`
+      ? `<div class="preview-banner"><strong>Preview only</strong>This is what the bill will look like before payment. After the invoice is marked paid, use &ldquo;Print patient bill&rdquo; for the official copy. Use Print in the toolbar above or your browser&rsquo;s print dialog for a paper copy.</div>`
       : ""
   }
   <div class="clinic">
@@ -146,9 +144,21 @@ export function openPatientBillPrint(b: PatientBillPayload) {
     ${b.status ? ` Status: ${esc(b.status)}.` : ""}
     Generated ${esc(new Date().toLocaleString())}.
   </p>
-  ${b.is_preview ? "" : `<script>window.onload=function(){window.print();};</script>`}
 </body>
 </html>`;
+}
+
+/**
+ * Opens a new browser window with the bill (popup blockers may block this). Prefer {@link PatientBillPortalModal} in the app UI.
+ */
+export function openPatientBillPrint(b: PatientBillPayload) {
+  const w = window.open("", "_blank", "width=900,height=900");
+  if (!w) return false;
+
+  let html = getPatientBillDocumentHtml(b);
+  if (!b.is_preview) {
+    html = html.replace("</body>", `<script>window.onload=function(){window.print();};</script></body>`);
+  }
 
   w.document.open();
   w.document.write(html);

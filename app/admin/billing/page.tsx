@@ -7,7 +7,7 @@ import { Loader } from "@/components/loader";
 import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
-import { openPatientBillPrint } from "@/lib/patient-bill-print";
+import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { useCallback, useEffect, useState } from "react";
 
 type BillingInvoiceRow = {
@@ -57,12 +57,13 @@ export default function AdminBillingPage() {
   const [payBusy, setPayBusy] = useState(false);
   const [printBusy, setPrintBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
 
   const printBill = async (invoiceId: number) => {
     setPrintBusy(true);
     try {
       const bill = await apiGetAuth<PatientBillPayload>(`/admin/invoice_bill/?invoice_id=${invoiceId}`);
-      openPatientBillPrint(bill);
+      setPatientBillModal(bill);
       toast.success("Patient bill opened for printing.");
     } catch (e) {
       toast.error(
@@ -81,7 +82,7 @@ export default function AdminBillingPage() {
       const bill = await apiGetAuth<PatientBillPayload>(
         `/admin/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
       );
-      openPatientBillPrint(bill);
+      setPatientBillModal(bill);
       toast.success("Preview opened — use Print patient bill after payment is recorded.");
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
@@ -327,6 +328,7 @@ export default function AdminBillingPage() {
           )}
         </aside>
       </div>
+      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
     </div>
   );
 }

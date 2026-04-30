@@ -9,10 +9,11 @@ import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
-import { openPatientBillPrint } from "@/lib/patient-bill-print";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 type SquarePosConfig = {
   pos_callback_configured: boolean;
@@ -125,10 +126,26 @@ export default function DoctorDashboardPage() {
   const [billSearchLoading, setBillSearchLoading] = useState(false);
   /** When true, consultation form opens as a large centered panel over the schedule. */
   const [consultWorkspaceExpanded, setConsultWorkspaceExpanded] = useState(true);
+  const [consultPortalReady, setConsultPortalReady] = useState(false);
+
+  useEffect(() => {
+    setConsultPortalReady(true);
+  }, []);
 
   useEffect(() => {
     if (!activeAppt) setPaymentConfirmOpen(false);
   }, [activeAppt]);
+
+  /** Full-screen consult is portaled to document.body — lock page scroll while it is open. */
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (!activeAppt || !consultWorkspaceExpanded) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [activeAppt, consultWorkspaceExpanded]);
 
   useEffect(() => {
     setConsultWorkspaceExpanded(true);
@@ -515,6 +532,7 @@ export default function DoctorDashboardPage() {
 
   const [printingBill, setPrintingBill] = useState(false);
   const [previewingBill, setPreviewingBill] = useState(false);
+  const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
 
   /** Preview bill layout while invoice is still unpaid (?preview=1 on the API). */
   const openPatientBillPreview = async (invoiceId: number) => {
@@ -523,8 +541,8 @@ export default function DoctorDashboardPage() {
       const bill = await apiGetAuth<PatientBillPayload>(
         `/doctor/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
       );
-      openPatientBillPrint(bill);
-      toast.success("Preview opened in a new tab. Use official Print after payment.");
+      setPatientBillModal(bill);
+      toast.success("Preview opened — use Print above or Esc to close.");
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
     } finally {
@@ -542,7 +560,7 @@ export default function DoctorDashboardPage() {
           const st = await apiGetAuth<{ paid: boolean }>(`/doctor/invoice_payment_status/?invoice_id=${invoiceId}`);
           if (st.paid) {
             const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?invoice_id=${invoiceId}`);
-            openPatientBillPrint(bill);
+            setPatientBillModal(bill);
             if (!opts?.quiet) toast.success("Patient bill opened for printing.");
             return true;
           }
@@ -1423,26 +1441,30 @@ export default function DoctorDashboardPage() {
           </div>
         )}
       </section>
-      {activeAppt && consultWorkspaceExpanded && (
-        <div
-          className="fixed inset-0 z-[55] overflow-y-auto overscroll-y-contain bg-slate-950/55 backdrop-blur-[1px]"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="consult-workspace-title"
-        >
-          {/* min-h plus items-center = truly centered card; min-h uses dvh for mobile browser chrome / keyboard */}
-          <div className="flex min-h-[100dvh] w-full items-center justify-center px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-5 sm:py-6 sm:pb-6">
-            <div className="w-full max-w-5xl shrink-0 rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25">
-              <div className="max-h-[min(100dvh-2.5rem,56rem)] overflow-y-auto overscroll-y-contain px-5 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-5 sm:max-h-[min(92dvh,56rem)] sm:px-8 sm:pb-10 sm:pt-7">
-                <h2 id="consult-workspace-title" className="sr-only">
-                  Active visit workspace for {activeAppt.patient}
-                </h2>
-                <div className="space-y-5">{renderConsultationForm(true)}</div>
+      {activeAppt &&
+        consultWorkspaceExpanded &&
+        consultPortalReady &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[150] overflow-y-auto overscroll-y-contain bg-slate-950/55 backdrop-blur-[1px]"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="consult-workspace-title"
+          >
+            {/* Portal → body so stacking is above sticky doctor header (z-30); z-[150] below patient chart (z-200) */}
+            <div className="flex min-h-[100dvh] w-full items-center justify-center px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-5 sm:py-6 sm:pb-6">
+              <div className="w-full max-w-5xl shrink-0 rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25">
+                <div className="max-h-[min(100dvh-2.5rem,56rem)] overflow-y-auto overscroll-y-contain px-5 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-5 sm:max-h-[min(92dvh,56rem)] sm:px-8 sm:pb-10 sm:pt-7">
+                  <h2 id="consult-workspace-title" className="sr-only">
+                    Active visit workspace for {activeAppt.patient}
+                  </h2>
+                  <div className="space-y-5">{renderConsultationForm(true)}</div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
       <aside className="doctor-panel space-y-4 ring-1 ring-emerald-100/70">
         <DoctorSectionLabel help="When a visit is active, a large workspace opens so you can chart and bill comfortably. You can switch to the narrow side panel if you prefer.">
           Active visit
@@ -1478,7 +1500,7 @@ export default function DoctorDashboardPage() {
       </aside>
       {paymentConfirmOpen && activeAppt && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[170] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="payment-confirm-title"
@@ -1634,6 +1656,7 @@ export default function DoctorDashboardPage() {
           </div>
         </div>
       )}
+      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
       {patientDetailId && (
         <PatientDetailModal patientId={patientDetailId} onClose={() => setPatientDetailId(null)} />
       )}
