@@ -25,8 +25,8 @@ type Service = {
   /** In-room bill: massage therapists see this line when true. */
   visible_to_massage_staff?: boolean;
   service_type?: ServiceType;
-  /** Chiropractic: counts as new-patient / reactivation visit for long-gap booking rule. */
-  is_new_client_intake?: boolean;
+  /** If false: line appears on printed bill for insurance but does not add to patient invoice total. */
+  charges_patient?: boolean;
 };
 
 function formatPrice(p: string): string {
@@ -47,6 +47,7 @@ const emptyForm = {
   visible_to_massage_staff: true,
   service_type: "chiropractic" as ServiceType,
   is_new_client_intake: false,
+  charges_patient: true,
 };
 
 const fieldLabel =
@@ -75,6 +76,7 @@ export default function AdminServicesPage() {
           visible_to_chiropractic_staff: s.visible_to_chiropractic_staff !== false,
           visible_to_massage_staff: s.visible_to_massage_staff !== false,
           is_new_client_intake: s.is_new_client_intake === true,
+          charges_patient: s.charges_patient !== false,
         })),
       );
     } catch (e) {
@@ -123,6 +125,7 @@ export default function AdminServicesPage() {
       visible_to_massage_staff: s.visible_to_massage_staff !== false,
       service_type: s.service_type === "massage" ? "massage" : "chiropractic",
       is_new_client_intake: s.service_type === "massage" ? false : s.is_new_client_intake === true,
+      charges_patient: s.charges_patient !== false,
     });
     setError("");
   };
@@ -149,6 +152,7 @@ export default function AdminServicesPage() {
           visible_to_massage_staff: form.visible_to_massage_staff,
           service_type: form.service_type,
           is_new_client_intake: form.service_type === "chiropractic" && form.is_new_client_intake,
+          charges_patient: form.charges_patient,
         };
         if (editing) {
           await apiPatch(`/services/${editing.id}/`, payload);
@@ -195,7 +199,8 @@ export default function AdminServicesPage() {
       form.visible_to_chiropractic_staff !== (editing.visible_to_chiropractic_staff !== false) ||
       form.visible_to_massage_staff !== (editing.visible_to_massage_staff !== false) ||
       form.service_type !== (editing.service_type === "massage" ? "massage" : "chiropractic") ||
-      (form.service_type === "chiropractic" && form.is_new_client_intake !== (editing.is_new_client_intake === true)));
+      (form.service_type === "chiropractic" && form.is_new_client_intake !== (editing.is_new_client_intake === true)) ||
+      form.charges_patient !== (editing.charges_patient !== false));
 
   const isNew = editing === null;
 
@@ -334,6 +339,11 @@ export default function AdminServicesPage() {
                             {s.is_active && s.show_in_public_booking === false && (
                               <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900">
                                 Bill-only
+                              </span>
+                            )}
+                            {s.is_active && s.charges_patient === false && (
+                              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-900">
+                                Insurance / no patient charge
                               </span>
                             )}
                             {s.is_active && staffScope === "chiro" && (
@@ -502,6 +512,23 @@ export default function AdminServicesPage() {
                       />
                     </div>
                   </div>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-indigo-200/80 bg-indigo-50/40 p-3">
+                    <input
+                      type="checkbox"
+                      checked={form.charges_patient}
+                      onChange={(e) => setForm((f) => ({ ...f, charges_patient: e.target.checked }))}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-800">
+                        Count toward patient invoice (patient pays)
+                      </span>
+                      <span className="mt-1 block text-xs leading-relaxed text-slate-600">
+                        Uncheck for procedures that should appear on the printed bill with CPT/code for insurance reimbursement but{" "}
+                        <strong>should not</strong> increase what the patient owes in this system. Checked = normal billable visit or product.
+                      </span>
+                    </span>
+                  </label>
                   <div>
                     <label htmlFor="svc-type" className={fieldLabel}>
                       Visit kind

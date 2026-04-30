@@ -52,6 +52,8 @@ type ServiceOpt = {
   price: string;
   billing_code?: string;
   is_active: boolean;
+  /** When false, line is documentation / insurance only — excluded from invoice total. */
+  charges_patient?: boolean;
 };
 
 type BillLine = { service_id: number; quantity: string; unit_price: string };
@@ -92,7 +94,8 @@ export default function DoctorDashboardPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [patientDetailId, setPatientDetailId] = useState<number | null>(null);
-  const [chargeSavedCard, setChargeSavedCard] = useState(true);
+  /** After "Complete visit", doctor confirms amount with patient and picks payment path. */
+  const [paymentConfirmOpen, setPaymentConfirmOpen] = useState(false);
   const [paymentFollowUp, setPaymentFollowUp] = useState<PaymentFollowUp | null>(null);
   const [terminalBusy, setTerminalBusy] = useState(false);
   /** Square Terminal API checkout id — we poll until the physical device completes payment. */
@@ -109,7 +112,6 @@ export default function DoctorDashboardPage() {
   const [resDate, setResDate] = useState("");
   const [resTime, setResTime] = useState("09:00");
   const [savingDesk, setSavingDesk] = useState(false);
-  const [chargeConfirmAppt, setChargeConfirmAppt] = useState<Appointment | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [billSearchQuery, setBillSearchQuery] = useState("");
   const [billSearchResults, setBillSearchResults] = useState<Array<{
@@ -121,6 +123,16 @@ export default function DoctorDashboardPage() {
     status: string;
   }> | null>(null);
   const [billSearchLoading, setBillSearchLoading] = useState(false);
+  /** When true, consultation form opens as a large centered panel over the schedule. */
+  const [consultWorkspaceExpanded, setConsultWorkspaceExpanded] = useState(true);
+
+  useEffect(() => {
+    if (!activeAppt) setPaymentConfirmOpen(false);
+  }, [activeAppt]);
+
+  useEffect(() => {
+    setConsultWorkspaceExpanded(true);
+  }, [activeAppt?.id]);
 
   useEffect(() => {
     setDisplayName(localStorage.getItem("chiroflow_user_name") || "");
@@ -164,7 +176,7 @@ export default function DoctorDashboardPage() {
         label: "In consultation",
         value: list.filter((a) => a.status === "in_consultation").length,
         tone: "accent" as const,
-        help: "You started the visit; their chart and billing panel are open on the right until you complete.",
+        help: "You started the visit; a large chart-and-bill workspace opens automatically (you can dock it to the narrow side panel if you prefer).",
       },
       {
         label: "Finished today",
@@ -298,7 +310,10 @@ export default function DoctorDashboardPage() {
     setIsStarting(false);
   };
 
-  const doCompleteVisit = async (shouldChargeCard: boolean) => {
+  const doCompleteVisit = async (
+    shouldChargeSavedCard: boolean,
+    options?: { autoTerminal?: boolean },
+  ) => {
     if (!activeAppt) return;
     const rendered = billLines
       .filter((l) => l.service_id)
@@ -316,6 +331,7 @@ export default function DoctorDashboardPage() {
       return;
     }
     const apptId = activeAppt.id;
+    setPaymentConfirmOpen(false);
     setIsCompleting(true);
     setError("");
     await runWithFeedback(
@@ -329,7 +345,7 @@ export default function DoctorDashboardPage() {
           doctor_notes: doctorNotes,
           diagnosis,
           rendered_services: rendered,
-          charge_saved_card_if_present: shouldChargeCard,
+          charge_saved_card_if_present: shouldChargeSavedCard,
         });
         if (result.payment.charged) {
           await tryOpenPatientBill(result.invoice_id, { maxAttempts: 3 });
@@ -346,6 +362,17 @@ export default function DoctorDashboardPage() {
         setDiagnosis("");
         setBillLines([]);
         await load();
+        if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
+          try {
+            await createTerminalCheckout(result.invoice_id);
+          } catch (err) {
+            toast.error(
+              err instanceof ApiError
+                ? err.message
+                : "Invoice saved — use Square Terminal from the green payment banner.",
+            );
+          }
+        }
         return result;
       },
       {
@@ -366,11 +393,7 @@ export default function DoctorDashboardPage() {
       toast.error("Add at least one service line for this visit (adjust or add rows below).");
       return;
     }
-    if (chargeSavedCard && activeAppt.card_last4) {
-      setChargeConfirmAppt(activeAppt);
-      return;
-    }
-    await doCompleteVisit(false);
+    setPaymentConfirmOpen(true);
   };
 
   const checkInPatient = async (appt: Appointment) => {
@@ -410,16 +433,21 @@ export default function DoctorDashboardPage() {
     }
   };
 
+  const createTerminalCheckout = async (invoiceId: number) => {
+    const out = await apiPost<{ checkout_id: string; status: string }>("/doctor/terminal_checkout/", {
+      invoice_id: invoiceId,
+    });
+    setSquareCheckoutId(out.checkout_id);
+    return out.checkout_id;
+  };
+
   const prepareTerminalPayment = async () => {
     if (!paymentFollowUp) return;
     setTerminalBusy(true);
     setError("");
     await runWithFeedback(
       async () => {
-        const out = await apiPost<{ checkout_id: string; status: string }>("/doctor/terminal_checkout/", {
-          invoice_id: paymentFollowUp.invoice_id,
-        });
-        setSquareCheckoutId(out.checkout_id);
+        await createTerminalCheckout(paymentFollowUp.invoice_id);
       },
       {
         loadingMessage: "Preparing card reader…",
@@ -473,6 +501,7 @@ export default function DoctorDashboardPage() {
     for (const line of billLines) {
       const svc = services.find((s) => s.id === line.service_id);
       if (!svc) continue;
+      if (svc.charges_patient === false) continue;
       hasLine = true;
       const q = Math.max(1, parseInt(line.quantity, 10) || 1);
       const raw = line.unit_price.trim();
@@ -485,6 +514,23 @@ export default function DoctorDashboardPage() {
   }, [billLines, services]);
 
   const [printingBill, setPrintingBill] = useState(false);
+  const [previewingBill, setPreviewingBill] = useState(false);
+
+  /** Preview bill layout while invoice is still unpaid (?preview=1 on the API). */
+  const openPatientBillPreview = async (invoiceId: number) => {
+    setPreviewingBill(true);
+    try {
+      const bill = await apiGetAuth<PatientBillPayload>(
+        `/doctor/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
+      );
+      openPatientBillPrint(bill);
+      toast.success("Preview opened in a new tab. Use official Print after payment.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
+    } finally {
+      setPreviewingBill(false);
+    }
+  };
 
   /** Fetches print-ready bill only when the invoice is PAID (server enforces this). */
   const tryOpenPatientBill = async (invoiceId: number, opts?: { maxAttempts?: number; quiet?: boolean }) => {
@@ -626,6 +672,255 @@ export default function DoctorDashboardPage() {
     }
   };
 
+  /** Shared consultation UI — `spacious` uses larger fields and scroll area (full workspace overlay). */
+  const renderConsultationForm = (spacious: boolean) => {
+    if (!activeAppt) return null;
+    const handoffClass = spacious
+      ? "mb-2 min-h-[5.5rem] w-full rounded-lg border border-slate-200 bg-white p-3 text-base leading-relaxed"
+      : "mb-2 h-20 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm";
+    const diagnosisClass = spacious
+      ? "min-h-[7rem] w-full rounded-lg border border-slate-200 p-3 text-base leading-relaxed"
+      : "h-20 w-full rounded-lg border border-slate-200 p-2 text-sm";
+    const notesClass = spacious
+      ? "min-h-[10rem] w-full rounded-lg border border-slate-200 p-3 text-base leading-relaxed"
+      : "h-24 w-full rounded-lg border border-slate-200 p-2 text-sm";
+    const procScroller = spacious
+      ? "max-h-[min(520px,52vh)] space-y-1.5 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-3 sm:max-h-[min(600px,56vh)]"
+      : "max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2";
+
+    return (
+      <>
+        {spacious ? (
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#166534]">Active visit · full workspace</p>
+              <p className="truncate text-lg font-bold text-slate-900">{activeAppt.patient}</p>
+              <p className="text-sm text-slate-600">
+                {activeAppt.start_time} – {activeAppt.end_time}
+                {activeAppt.service ? ` · ${activeAppt.service}` : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setConsultWorkspaceExpanded(false)}
+              className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Use narrow side panel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConsultWorkspaceExpanded(true)}
+            className="mb-3 w-full rounded-xl border-2 border-[#16a349]/35 bg-[#ecfdf5] px-4 py-3 text-sm font-bold text-[#0d5c2e] shadow-sm shadow-emerald-900/5 hover:bg-[#d1fae5]"
+          >
+            Expand full workspace
+          </button>
+        )}
+        <div className={cn("flex items-center gap-3 rounded-xl border border-slate-100 bg-gradient-to-r from-slate-50 to-white", spacious ? "p-4" : "p-3")}>
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#16a349]/20 text-lg font-bold text-[#16a349]">
+            {activeAppt.patient.charAt(0)}
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900">{activeAppt.patient}</p>
+            <p className="text-xs text-slate-500">Patient #{activeAppt.patient_id}</p>
+          </div>
+        </div>
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-[#166534]">Booked for this visit</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-900">{activeAppt.service || "—"}</p>
+          <p className="mt-1 text-xs text-slate-600">
+            {activeAppt.start_time} – {activeAppt.end_time} · The procedure list below includes this visit type first, then your
+            role&apos;s billable codes for this calendar day.
+          </p>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for visit (chart)</p>
+          <p className="text-sm text-slate-700">
+            {activeAppt.reason_for_visit?.trim()
+              ? activeAppt.reason_for_visit
+              : "Not recorded yet — add details in Visit notes below or in the patient chart."}
+          </p>
+        </div>
+        <div className="rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
+          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Chart note for the team</p>
+            <HelpTip label="Handoff note" tone="emerald">
+              Stays on this appointment in the patient chart. Use it for follow-up reminders, preferences, or anything the next doctor
+              should know—even if they see the patient on a different day.
+            </HelpTip>
+          </div>
+          <textarea
+            className={handoffClass}
+            placeholder="e.g. Plan: recheck ROM next visit; prefers afternoons…"
+            value={handoffNotes}
+            onChange={(e) => setHandoffNotes(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={savingHandoff}
+            onClick={() => void saveHandoffNote()}
+            className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 shadow-sm hover:bg-sky-100 disabled:opacity-50"
+          >
+            {savingHandoff ? "Saving…" : "Save chart note"}
+          </button>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Diagnosis (for bill)</p>
+          <textarea
+            className={diagnosisClass}
+            placeholder="Clinical / billing diagnosis summary…"
+            value={diagnosis}
+            onChange={(e) => setDiagnosis(e.target.value)}
+          />
+        </div>
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Billable procedures (tap to add)</p>
+            <HelpTip label="Patient bill lines" tone="emerald">
+              You see active services allowed for your role (chiropractic vs massage), plus any visit types booked for you on this
+              calendar day so the patient&apos;s scheduled service is never missing. Check each line that applies. Units multiply the
+              clinic price; leave fee override blank unless you need a custom amount. Lines flagged as insurance-only (no patient charge)
+              still print on the bill for CPT but do not add to the amount due.
+            </HelpTip>
+          </div>
+          <p className="mb-2 text-xs text-slate-500">
+            The booked visit type is checked first. Add or remove lines for anything else you performed. If something is missing, ask
+            admin to mark the service visible to your role in Services &amp; codes.
+          </p>
+          <div className={procScroller}>
+            {sortedBillServices.map((s) => {
+              const on = isBillServiceChecked(s.id);
+              const line = billLineFor(s.id);
+              return (
+                <div
+                  key={s.id}
+                  className={cn(
+                    "rounded-lg border px-2 py-2 transition-colors",
+                    spacious ? "px-3 py-2.5" : "",
+                    on ? "border-[#16a349]/40 bg-white shadow-sm" : "border-transparent hover:bg-white/60",
+                  )}
+                >
+                  <label className="flex cursor-pointer items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggleBillService(s.id)}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]/40"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span className="font-mono text-[11px] font-semibold text-slate-500">
+                          {s.billing_code?.trim() || "—"}
+                        </span>
+                        <span className={cn("font-medium text-slate-900", spacious ? "text-base" : "text-sm")}>{s.name}</span>
+                        {s.charges_patient === false ? (
+                          <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-900">
+                            Insurance / no charge
+                          </span>
+                        ) : null}
+                        <span className="text-xs tabular-nums text-slate-500">${s.price}</span>
+                      </div>
+                    </div>
+                  </label>
+                  {on && line ? (
+                    <div className="mt-2 flex flex-wrap items-end gap-3 pl-7">
+                      <label className="text-xs text-slate-600">
+                        <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Units</span>
+                        <input
+                          type="number"
+                          min={1}
+                          className={cn(
+                            "w-16 rounded border border-slate-200 bg-white p-1.5",
+                            spacious ? "text-base" : "text-sm",
+                          )}
+                          value={line.quantity}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setBillLines((rows) =>
+                              rows.map((r) => (r.service_id === s.id ? { ...r, quantity: v } : r)),
+                            );
+                          }}
+                        />
+                      </label>
+                      <label className="min-w-[6rem] flex-1 text-xs text-slate-600">
+                        <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Fee override
+                        </span>
+                        <input
+                          className={cn(
+                            "w-full rounded border border-slate-200 bg-white p-1.5",
+                            spacious ? "text-base" : "text-sm",
+                          )}
+                          placeholder="Auto"
+                          value={line.unit_price}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setBillLines((rows) =>
+                              rows.map((r) => (r.service_id === s.id ? { ...r, unit_price: v } : r)),
+                            );
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          {consultationEstimatedTotal != null && (
+            <div className="mt-3 flex items-center justify-between rounded-xl border border-[#16a349]/30 bg-[#f0fdf4] px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-[#0d5c2e]">Estimated total (this visit)</span>
+                <HelpTip label="Estimated total" tone="emerald">
+                  Based on checked procedures, units, and fee overrides. Procedures marked insurance-only (no patient charge) are
+                  excluded. Tax may be added on the final invoice after you complete the visit.
+                </HelpTip>
+              </div>
+              <span className="text-lg font-bold tabular-nums text-slate-900">
+                {consultationEstimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+              </span>
+            </div>
+          )}
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Visit notes</p>
+          <textarea
+            className={notesClass}
+            placeholder="Clinical notes (not printed on patient bill)…"
+            value={doctorNotes}
+            onChange={(e) => setDoctorNotes(e.target.value)}
+          />
+        </div>
+        <p className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+          Next step: you&apos;ll <strong>confirm the amount with the patient</strong>, then choose whether to charge the card on file,
+          send payment to your <strong>Square Terminal</strong>, or use desk / POS options.
+        </p>
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            onClick={completeVisit}
+            disabled={isCompleting}
+            className={cn(
+              "min-w-0 flex-1 rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d] disabled:opacity-50",
+              spacious ? "py-3 text-base" : "text-sm",
+            )}
+          >
+            {isCompleting ? "Completing…" : "Complete visit & create invoice"}
+          </button>
+          <HelpTip label="Complete visit" align="center" tone="emerald">
+            Saves the visit and invoice, then you confirm payment with the patient. You can charge a saved card, use the Terminal, or
+            collect another way from the green banner.
+          </HelpTip>
+        </div>
+        <p className="text-xs text-slate-500">
+          The patient bill is not printed until the invoice is paid (card on file, reader, or desk checkout). Use{" "}
+          <strong>Print patient bill</strong> on the banner after payment.
+        </p>
+      </>
+    );
+  };
+
   return (
     <div className="space-y-8">
       <DoctorPageIntro
@@ -634,10 +929,12 @@ export default function DoctorDashboardPage() {
         description="While you add services for an active visit, you will see an estimated total. The printable patient bill opens only after payment is complete."
         pageHelp={
           <>
-            This page is your <strong>daily command center</strong>: pick a date, work down the list, and use the right column when
-            someone is in consultation. Checked procedures show a running <strong>estimated total</strong>. When you complete the visit,
-            collect payment first; the <strong>patient bill</strong> prints only after the invoice is marked paid (saved card, reader, or
-            desk checkout). If someone does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
+            This page is your <strong>daily command center</strong>: pick a date, work down the list. When you start a visit, a{" "}
+            <strong>large centered workspace</strong> opens for chart notes, diagnosis, procedures, and billing. You can switch to a narrow
+            side panel from there if you prefer. Checked procedures show a running <strong>estimated total</strong>. When you complete the
+            visit, you can <strong>Preview bill</strong> before payment to show the patient what will print; the official{" "}
+            <strong>Print patient bill</strong> runs only after the invoice is marked paid (saved card, reader, or desk checkout). If someone
+            does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
             <strong>Reschedule</strong> to move a visit.
           </>
         }
@@ -755,6 +1052,16 @@ export default function DoctorDashboardPage() {
               )}
             </div>
             <div className="flex flex-col items-end gap-2">
+              {!paymentFollowUp.payment.charged && (
+                <button
+                  type="button"
+                  disabled={previewingBill}
+                  onClick={() => void openPatientBillPreview(paymentFollowUp.invoice_id)}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {previewingBill ? "Loading…" : "Preview bill (before payment)"}
+                </button>
+              )}
               <button
                 type="button"
                 disabled={printingBill}
@@ -764,8 +1071,8 @@ export default function DoctorDashboardPage() {
                 {printingBill ? "Checking…" : "Print patient bill"}
               </button>
               <HelpTip label="Print patient bill" tone="emerald">
-                Opens the official patient bill only after the invoice is paid. If the patient just finished checkout or the reader, wait
-                a moment and tap again if the first try is early.
+                Preview shows the same layout before payment; official print opens only after the invoice is paid and auto-triggers the print
+                dialog. If the patient just finished checkout or the reader, wait a moment and tap again if the first try is early.
               </HelpTip>
               <button
                 type="button"
@@ -947,13 +1254,14 @@ export default function DoctorDashboardPage() {
                       tabIndex={appt.status === "in_consultation" ? 0 : undefined}
                       title={
                         appt.status === "in_consultation"
-                          ? "Open this visit in the Active visit panel (right column)"
+                          ? "Focus this visit — workspace opens in the center (or side panel if docked)"
                           : undefined
                       }
                       onClick={
                         appt.status === "in_consultation"
                           ? (e) => {
                               e.stopPropagation();
+                              setConsultWorkspaceExpanded(true);
                               setActiveAppt(appt);
                             }
                           : undefined
@@ -963,6 +1271,7 @@ export default function DoctorDashboardPage() {
                           ? (e) => {
                               if (e.key === "Enter") {
                                 e.stopPropagation();
+                                setConsultWorkspaceExpanded(true);
                                 setActiveAppt(appt);
                               }
                             }
@@ -1009,7 +1318,8 @@ export default function DoctorDashboardPage() {
                           Start visit
                         </button>
                         <HelpTip label="Start visit" align="center" tone="emerald">
-                          Opens this patient in the Active visit panel so you can document, set services, and complete the visit.
+                          Opens a large chart-and-bill workspace (you can dock it to the narrow side panel). Document the visit, then
+                          complete when finished.
                         </HelpTip>
                       </div>
                     )}
@@ -1113,218 +1423,49 @@ export default function DoctorDashboardPage() {
           </div>
         )}
       </section>
+      {activeAppt && consultWorkspaceExpanded && (
+        <div
+          className="fixed inset-0 z-[45] flex justify-center overflow-y-auto bg-slate-950/55 px-3 py-5 backdrop-blur-[1px] sm:px-5 sm:py-8"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="consult-workspace-title"
+        >
+          <div className="my-auto w-full max-w-5xl rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25">
+            <div className="max-h-[calc(100vh-2.5rem)] overflow-y-auto px-5 pb-8 pt-5 sm:px-8 sm:pb-10 sm:pt-7">
+              <h2 id="consult-workspace-title" className="sr-only">
+                Active visit workspace for {activeAppt.patient}
+              </h2>
+              <div className="space-y-5">{renderConsultationForm(true)}</div>
+            </div>
+          </div>
+        </div>
+      )}
       <aside className="doctor-panel space-y-4 ring-1 ring-emerald-100/70">
-        <DoctorSectionLabel help="Shows the patient currently in consultation with you. When empty, start someone from the list after check-in.">
+        <DoctorSectionLabel help="When a visit is active, a large workspace opens so you can chart and bill comfortably. You can switch to the narrow side panel if you prefer.">
           Active visit
         </DoctorSectionLabel>
         {activeAppt ? (
-          <>
-            <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-gradient-to-r from-slate-50 to-white p-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#16a349]/20 text-lg font-bold text-[#16a349]">
-                {activeAppt.patient.charAt(0)}
-              </div>
-              <div>
-                <p className="font-semibold text-slate-900">{activeAppt.patient}</p>
-                <p className="text-xs text-slate-500">Patient #{activeAppt.patient_id}</p>
-              </div>
-            </div>
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[#166534]">Booked for this visit</p>
-              <p className="mt-0.5 text-sm font-semibold text-slate-900">{activeAppt.service || "—"}</p>
-              <p className="mt-1 text-xs text-slate-600">
-                {activeAppt.start_time} – {activeAppt.end_time} · The procedure list below includes this visit type first, then your
-                role&apos;s billable codes for this calendar day.
+          consultWorkspaceExpanded ? (
+            <div className="rounded-xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/90 to-white p-4 text-sm shadow-sm">
+              <p className="font-bold text-[#0d5c2e]">Full workspace is open</p>
+              <p className="mt-1.5 leading-relaxed text-slate-600">
+                Use the large centered window to enter diagnosis, procedures, and notes. Your schedule stays visible in the background.
               </p>
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for visit (chart)</p>
-              <p className="text-sm text-slate-700">
-                {activeAppt.reason_for_visit?.trim()
-                  ? activeAppt.reason_for_visit
-                  : "Not recorded yet — add details in Visit notes below or in the patient chart."}
-              </p>
-            </div>
-            <div className="rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
-              <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Chart note for the team</p>
-                <HelpTip label="Handoff note" tone="emerald">
-                  Stays on this appointment in the patient chart. Use it for follow-up reminders, preferences, or anything the next
-                  doctor should know—even if they see the patient on a different day.
-                </HelpTip>
-              </div>
-              <textarea
-                className="mb-2 h-20 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"
-                placeholder="e.g. Plan: recheck ROM next visit; prefers afternoons…"
-                value={handoffNotes}
-                onChange={(e) => setHandoffNotes(e.target.value)}
-              />
               <button
                 type="button"
-                disabled={savingHandoff}
-                onClick={() => void saveHandoffNote()}
-                className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 shadow-sm hover:bg-sky-100 disabled:opacity-50"
+                onClick={() => setConsultWorkspaceExpanded(false)}
+                className="mt-4 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
               >
-                {savingHandoff ? "Saving…" : "Save chart note"}
+                Use narrow side panel instead
               </button>
             </div>
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Diagnosis (for bill)</p>
-              <textarea
-                className="h-20 w-full rounded-lg border border-slate-200 p-2 text-sm"
-                placeholder="Clinical / billing diagnosis summary…"
-                value={diagnosis}
-                onChange={(e) => setDiagnosis(e.target.value)}
-              />
-            </div>
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Billable procedures (tap to add)</p>
-                <HelpTip label="Patient bill lines" tone="emerald">
-                  You see active services allowed for your role (chiropractic vs massage), plus any visit types booked for you on this
-                  calendar day so the patient&apos;s scheduled service is never missing. Check each line that applies. Units multiply the
-                  clinic price; leave fee override blank unless you need a custom amount.
-                </HelpTip>
-              </div>
-              <p className="mb-2 text-xs text-slate-500">
-                The booked visit type is checked first. Add or remove lines for anything else you performed. If something is missing, ask
-                admin to mark the service visible to your role in Services &amp; codes.
-              </p>
-              <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2">
-                {sortedBillServices.map((s) => {
-                  const on = isBillServiceChecked(s.id);
-                  const line = billLineFor(s.id);
-                  return (
-                    <div
-                      key={s.id}
-                      className={cn(
-                        "rounded-lg border px-2 py-2 transition-colors",
-                        on ? "border-[#16a349]/40 bg-white shadow-sm" : "border-transparent hover:bg-white/60",
-                      )}
-                    >
-                      <label className="flex cursor-pointer items-start gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={() => toggleBillService(s.id)}
-                          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]/40"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                            <span className="font-mono text-[11px] font-semibold text-slate-500">
-                              {s.billing_code?.trim() || "—"}
-                            </span>
-                            <span className="text-sm font-medium text-slate-900">{s.name}</span>
-                            <span className="text-xs tabular-nums text-slate-500">${s.price}</span>
-                          </div>
-                        </div>
-                      </label>
-                      {on && line ? (
-                        <div className="mt-2 flex flex-wrap items-end gap-3 pl-7">
-                          <label className="text-xs text-slate-600">
-                            <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Units</span>
-                            <input
-                              type="number"
-                              min={1}
-                              className="w-16 rounded border border-slate-200 bg-white p-1.5 text-sm"
-                              value={line.quantity}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setBillLines((rows) =>
-                                  rows.map((r) => (r.service_id === s.id ? { ...r, quantity: v } : r)),
-                                );
-                              }}
-                            />
-                          </label>
-                          <label className="min-w-[6rem] flex-1 text-xs text-slate-600">
-                            <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                              Fee override
-                            </span>
-                            <input
-                              className="w-full rounded border border-slate-200 bg-white p-1.5 text-sm"
-                              placeholder="Auto"
-                              value={line.unit_price}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setBillLines((rows) =>
-                                  rows.map((r) => (r.service_id === s.id ? { ...r, unit_price: v } : r)),
-                                );
-                              }}
-                            />
-                          </label>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-              {consultationEstimatedTotal != null && (
-                <div className="mt-3 flex items-center justify-between rounded-xl border border-[#16a349]/30 bg-[#f0fdf4] px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-[#0d5c2e]">Estimated total (this visit)</span>
-                    <HelpTip label="Estimated total" tone="emerald">
-                      Based on checked procedures, units, and fee overrides. Tax may be added on the final invoice after you complete the
-                      visit. Use this as a quick check before you send them to pay.
-                    </HelpTip>
-                  </div>
-                  <span className="text-lg font-bold tabular-nums text-slate-900">
-                    {consultationEstimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
-                  </span>
-                </div>
-              )}
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Visit notes</p>
-              <textarea
-                className="h-24 w-full rounded-lg border border-slate-200 p-2 text-sm"
-                placeholder="Clinical notes (not printed on patient bill)…"
-                value={doctorNotes}
-                onChange={(e) => setDoctorNotes(e.target.value)}
-              />
-            </div>
-            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 text-sm">
-              <input
-                type="checkbox"
-                checked={chargeSavedCard}
-                onChange={(e) => setChargeSavedCard(e.target.checked)}
-                className="mt-0.5"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-semibold text-slate-800">Try saved card first (fast checkout)</span>
-                  <HelpTip label="Saved card" tone="emerald">
-                    When checked, the server attempts to charge the card they saved while booking. If that fails or they have no card,
-                    you will see other payment options after completing.
-                  </HelpTip>
-                </span>
-                <span className="block text-slate-600">
-                  If they added a card when booking, we charge it now so they can leave right away. Uncheck if you want
-                  to collect payment at the desk only (card reader or pay screen).
-                </span>
-              </span>
-            </label>
-            <div className="flex items-start gap-2">
-              <button
-                type="button"
-                onClick={completeVisit}
-                disabled={isCompleting}
-                className="min-w-0 flex-1 rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
-              >
-                {isCompleting ? "Completing…" : "Complete visit & create invoice"}
-              </button>
-              <HelpTip label="Complete visit" align="center" tone="emerald">
-                Builds the invoice from your checked services. If their saved card pays successfully, the patient bill opens right away.
-                Otherwise use the green banner to collect payment — the printable bill unlocks only after payment is complete.
-              </HelpTip>
-            </div>
-            <p className="text-xs text-slate-500">
-              The patient bill is not printed until the invoice is paid (card on file, reader, or desk checkout). Use{" "}
-              <strong>Print patient bill</strong> on the banner after payment.
-            </p>
-          </>
+          ) : (
+            <div className="space-y-4">{renderConsultationForm(false)}</div>
+          )
         ) : (
           <DoctorEmptyWell
             title="No active visit"
-            description="Tap Check-in on a patient’s row (or they can use the kiosk), then tap Start visit. Their chart, services, and notes will open here."
+            description="Tap Check-in on a patient’s row (or they can use the kiosk), then tap Start visit. A full workspace will open automatically for charting and billing."
           >
             <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
               <IconStethoscope className="h-6 w-6" />
@@ -1332,70 +1473,104 @@ export default function DoctorDashboardPage() {
           </DoctorEmptyWell>
         )}
       </aside>
-      {chargeConfirmAppt && (
+      {paymentConfirmOpen && activeAppt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="charge-confirm-title"
+          aria-labelledby="payment-confirm-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h2 id="charge-confirm-title" className="text-lg font-bold text-slate-900">
-              Confirm charge
+          <div className="max-h-[min(90vh,720px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h2 id="payment-confirm-title" className="text-lg font-bold text-slate-900">
+              Confirm with patient before payment
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Please confirm with <span className="font-semibold text-slate-900">{chargeConfirmAppt.patient}</span> before proceeding.
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              You are about to finish documentation and create the invoice for{" "}
+              <span className="font-semibold text-slate-900">{activeAppt.patient}</span>.{" "}
+              <strong>Verbally confirm the amount</strong> they owe and that they agree before you charge a card or send them to the
+              reader.
             </p>
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Card on file</span>
-                <span className="font-semibold text-slate-900">
-                  {chargeConfirmAppt.card_brand || "Card"} ending in {chargeConfirmAppt.card_last4}
+                <span className="text-slate-500">Estimated patient portion</span>
+                <span className="text-lg font-bold tabular-nums text-slate-900">
+                  {(consultationEstimatedTotal ?? 0).toLocaleString(undefined, { style: "currency", currency: "USD" })}
                 </span>
               </div>
-              {consultationEstimatedTotal != null && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Estimated charge</span>
-                  <span className="text-lg font-bold text-slate-900">
-                    {consultationEstimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+              <p className="mt-2 text-xs text-slate-500">Final invoice total comes from checked services; it should match unless prices differ.</p>
+              {activeAppt.card_last4 ? (
+                <div className="mt-3 flex items-center justify-between border-t border-slate-200/80 pt-3 text-sm">
+                  <span className="text-slate-500">Card on file</span>
+                  <span className="font-semibold text-slate-900">
+                    {activeAppt.card_brand || "Card"} · •••• {activeAppt.card_last4}
                   </span>
                 </div>
+              ) : (
+                <p className="mt-3 border-t border-slate-200/80 pt-3 text-xs text-slate-600">No card on file — use Terminal or desk checkout.</p>
               )}
             </div>
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
-              We will charge this card now. Please let the patient know before confirming. The exact amount
-              will be based on the final invoice.
+              Clinic policy: the patient should know what they are paying before you run the charge or hand them the Terminal.
             </p>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <div className="mt-5 flex flex-col gap-2">
+              {activeAppt.card_last4 ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={isCompleting}
+                    onClick={() => void doCompleteVisit(true)}
+                    className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                  >
+                    {isCompleting ? "Working…" : "Charge saved card now (card not present)"}
+                  </button>
+                  <p className="text-center text-[11px] leading-snug text-slate-600">
+                    Runs <strong>after</strong> you confirm with the patient. The server charges the <strong>saved card on file</strong>{" "}
+                    (shown above) for the invoice total — same flow as before, just gated on your confirmation.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={isCompleting}
+                    onClick={() => void doCompleteVisit(false, { autoTerminal: true })}
+                    className="w-full rounded-xl border-2 border-slate-800 bg-white px-4 py-3 text-sm font-bold text-slate-900 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Use Square Terminal — patient taps or inserts card
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCompleting}
+                    onClick={() => void doCompleteVisit(false)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Desk pay link, Square POS app, or decide in a moment
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={isCompleting}
+                    onClick={() => void doCompleteVisit(false, { autoTerminal: true })}
+                    className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    Start Square Terminal checkout now
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCompleting}
+                    onClick={() => void doCompleteVisit(false)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Show all payment options (desk link, POS, Terminal from banner)
+                  </button>
+                </>
+              )}
               <button
                 type="button"
-                onClick={() => setChargeConfirmAppt(null)}
+                onClick={() => setPaymentConfirmOpen(false)}
                 disabled={isCompleting}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="mt-1 w-full rounded-xl px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setChargeConfirmAppt(null);
-                  void doCompleteVisit(false);
-                }}
-                disabled={isCompleting}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Skip card — collect later
-              </button>
-              <button
-                type="button"
-                disabled={isCompleting}
-                onClick={() => {
-                  setChargeConfirmAppt(null);
-                  void doCompleteVisit(true);
-                }}
-                className="rounded-xl bg-[#16a349] px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-              >
-                {isCompleting ? "Charging…" : "Confirm & charge"}
+                Cancel — back to visit
               </button>
             </div>
           </div>

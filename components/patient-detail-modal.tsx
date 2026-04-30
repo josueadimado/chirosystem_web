@@ -17,6 +17,7 @@ type VisitHistoryLine = {
   quantity: number;
   unit_price: string;
   line_total: string;
+  charges_patient?: boolean;
 };
 
 type VisitHistory = {
@@ -711,6 +712,11 @@ export function PatientDetailModal({
                                               {line.billing_code || "—"}
                                             </span>
                                             <span>{line.service_name}</span>
+                                            {line.charges_patient === false ? (
+                                              <span className="text-[10px] font-semibold uppercase text-indigo-700">
+                                                (insurance line · no patient charge)
+                                              </span>
+                                            ) : null}
                                             <span className="text-slate-500">
                                               ×{line.quantity} · ${line.line_total}
                                             </span>

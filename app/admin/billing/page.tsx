@@ -56,6 +56,7 @@ export default function AdminBillingPage() {
   const [payRef, setPayRef] = useState("");
   const [payBusy, setPayBusy] = useState(false);
   const [printBusy, setPrintBusy] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
 
   const printBill = async (invoiceId: number) => {
     setPrintBusy(true);
@@ -71,6 +72,21 @@ export default function AdminBillingPage() {
       );
     } finally {
       setPrintBusy(false);
+    }
+  };
+
+  const previewBill = async (invoiceId: number) => {
+    setPreviewBusy(true);
+    try {
+      const bill = await apiGetAuth<PatientBillPayload>(
+        `/admin/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
+      );
+      openPatientBillPrint(bill);
+      toast.success("Preview opened — use Print patient bill after payment is recorded.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
+    } finally {
+      setPreviewBusy(false);
     }
   };
 
@@ -230,6 +246,17 @@ export default function AdminBillingPage() {
                   </div>
                 </dl>
               </div>
+
+              {(selected.status === "issued" || selected.status === "overdue") && (
+                <button
+                  type="button"
+                  disabled={previewBusy}
+                  onClick={() => void previewBill(selected.id)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {previewBusy ? "Loading…" : "Preview patient bill (before payment)"}
+                </button>
+              )}
 
               {selected.status === "paid" && (
                 <button

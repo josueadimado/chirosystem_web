@@ -9,11 +9,17 @@ export type PatientBillLine = {
   fees: string;
   units: string;
   pos: string;
+  /** Full line amount (for insurance / documentation). */
   line_total: string;
+  /** Amount included in patient balance for this line (0.00 when insurance-documentation-only). */
+  patient_due?: string;
+  charges_patient?: boolean;
 };
 
 export type PatientBillPayload = {
   bill_title?: string;
+  /** True when opened via ?preview=1 while invoice is unpaid — not the final paid bill. */
+  is_preview?: boolean;
   clinic_name: string;
   address_line1: string;
   city_state_zip: string;
@@ -40,8 +46,9 @@ export function openPatientBillPrint(b: PatientBillPayload) {
   if (!w) return false;
 
   const rows = b.lines
-    .map(
-      (l) => `
+    .map((l) => {
+      const pat = l.patient_due != null ? l.patient_due : l.line_total;
+      return `
     <tr>
       <td>${esc(l.cpt_code)}</td>
       <td>${esc(l.description)}</td>
@@ -49,8 +56,9 @@ export function openPatientBillPrint(b: PatientBillPayload) {
       <td class="num">${esc(l.units)}</td>
       <td class="num">${esc(l.pos)}</td>
       <td class="num">$${esc(l.line_total)}</td>
-    </tr>`
-    )
+      <td class="num">$${esc(pat)}</td>
+    </tr>`;
+    })
     .join("");
 
   const html = `<!DOCTYPE html>
@@ -74,10 +82,17 @@ export function openPatientBillPrint(b: PatientBillPayload) {
     .totals row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #ddd; }
     .grand { font-weight: 800; font-size: 13px; margin-top: 6px; }
     .foot { margin-top: 20px; font-size: 10px; color: #555; font-family: system-ui, sans-serif; }
+    .preview-banner { margin: 0 0 14px; padding: 10px 12px; background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; font-family: system-ui, sans-serif; font-size: 11px; color: #78350f; line-height: 1.45; }
+    .preview-banner strong { display: block; font-size: 12px; margin-bottom: 4px; }
   </style>
 </head>
 <body>
   <h1>${esc(b.bill_title || "Patient Bill")}</h1>
+  ${
+    b.is_preview
+      ? `<div class="preview-banner"><strong>Preview only</strong>This is what the bill will look like before payment. After the invoice is marked paid, use &ldquo;Print patient bill&rdquo; for the official copy (this window does not auto-print). Use your browser&rsquo;s Print if you need a paper copy of the preview.</div>`
+      : ""
+  }
   <div class="clinic">
     <strong>${esc(b.clinic_name)}</strong><br/>
     ${esc(b.address_line1)}<br/>
@@ -115,6 +130,7 @@ export function openPatientBillPrint(b: PatientBillPayload) {
         <th class="num">Units</th>
         <th class="num">POS</th>
         <th class="num">Line total</th>
+        <th class="num">Patient pays</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -125,11 +141,12 @@ export function openPatientBillPrint(b: PatientBillPayload) {
     <div class="grand" style="display:flex;justify-content:space-between;"><span>Amount due</span><span>$${esc(b.total_amount)}</span></div>
   </div>
   <p class="foot">
-    Amount bill charges — patient payment may be collected at time of service per clinic policy.
+    Line totals show documented fees; &ldquo;Patient pays&rdquo; is what was owed on the invoice. Rows marked for insurance
+    documentation may show $0.00 patient pays while still listing CPT for reimbursement. Patient payment per clinic policy.
     ${b.status ? ` Status: ${esc(b.status)}.` : ""}
     Generated ${esc(new Date().toLocaleString())}.
   </p>
-  <script>window.onload=function(){window.print();};</script>
+  ${b.is_preview ? "" : `<script>window.onload=function(){window.print();};</script>`}
 </body>
 </html>`;
 
