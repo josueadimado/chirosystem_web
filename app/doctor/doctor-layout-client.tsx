@@ -6,6 +6,7 @@ import { NotificationBell } from "@/components/notification-bell";
 import { Sidebar } from "@/components/sidebar";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 
 const items = [
   { label: "My Dashboard", href: "/doctor/dashboard", icon: <IconStethoscope className="w-5 h-5" /> },
@@ -87,12 +88,7 @@ function DoctorHeader({
     }
   };
 
-  const todayLine = new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const todayLine = formatWeekdayMonthDayYear(new Date().toISOString().slice(0, 10));
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/90 px-[max(1rem,env(safe-area-inset-left))] py-[max(0.75rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] shadow-sm shadow-black/[0.04] backdrop-blur-md sm:px-6 sm:py-3.5">

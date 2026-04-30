@@ -8,6 +8,7 @@ import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+import { formatInstantMonthDayYearTime } from "@/lib/format-date";
 import { useCallback, useEffect, useState } from "react";
 
 type BillingInvoiceRow = {
@@ -30,19 +31,7 @@ function formatMoney(amount: string): string {
 }
 
 function formatWhen(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
+  return formatInstantMonthDayYearTime(iso);
 }
 
 export default function AdminBillingPage() {

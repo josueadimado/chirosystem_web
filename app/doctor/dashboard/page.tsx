@@ -11,6 +11,7 @@ import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-check
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import { formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -126,11 +127,17 @@ export default function DoctorDashboardPage() {
   const [billSearchLoading, setBillSearchLoading] = useState(false);
   /** When true, consultation form opens as a large centered panel over the schedule. */
   const [consultWorkspaceExpanded, setConsultWorkspaceExpanded] = useState(true);
+  /** Awaiting-payment visits: doctor is editing billing lines (Edit billing). */
+  const [revisingBillingForAppointmentId, setRevisingBillingForAppointmentId] = useState<number | null>(null);
   const [consultPortalReady, setConsultPortalReady] = useState(false);
 
   useEffect(() => {
     setConsultPortalReady(true);
   }, []);
+
+  useEffect(() => {
+    setRevisingBillingForAppointmentId(null);
+  }, [selectedDate]);
 
   useEffect(() => {
     if (!activeAppt) setPaymentConfirmOpen(false);
@@ -215,6 +222,12 @@ export default function DoctorDashboardPage() {
           const focused = appts.find((a) => a.id === fid && a.status === "in_consultation");
           if (focused) return focused;
         }
+        if (revisingBillingForAppointmentId != null) {
+          const rev = appts.find(
+            (a) => a.id === revisingBillingForAppointmentId && a.status === "awaiting_payment",
+          );
+          if (rev) return rev;
+        }
         return appts.find((a) => a.status === "in_consultation") ?? null;
       };
       setActiveAppt(pickActive());
@@ -260,14 +273,22 @@ export default function DoctorDashboardPage() {
   }, [selectedDate]);
 
   useEffect(() => {
+    if (!activeAppt?.id) return;
+    if (revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment") {
+      return;
+    }
     setDoctorNotes("");
-  }, [activeAppt?.id]);
+  }, [activeAppt?.id, activeAppt?.status, revisingBillingForAppointmentId]);
 
   useEffect(() => {
     if (!activeAppt) {
       setBillLines([]);
       setDiagnosis("");
       setHandoffNotes("");
+      return;
+    }
+    if (revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment") {
+      setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
       return;
     }
     setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
@@ -278,7 +299,13 @@ export default function DoctorDashboardPage() {
     }
     setBillLines([{ service_id: activeAppt.booked_service_id, quantity: "1", unit_price: "" }]);
     setDiagnosis("");
-  }, [activeAppt?.id, activeAppt?.booked_service_id, activeAppt?.clinical_handoff_notes]);
+  }, [
+    activeAppt?.id,
+    activeAppt?.booked_service_id,
+    activeAppt?.clinical_handoff_notes,
+    activeAppt?.status,
+    revisingBillingForAppointmentId,
+  ]);
 
   useEffect(() => {
     if (!rescheduleAppt) return;
@@ -311,6 +338,7 @@ export default function DoctorDashboardPage() {
   };
 
   const startVisit = async (appt: Appointment) => {
+    setRevisingBillingForAppointmentId(null);
     setIsStarting(true);
     setError("");
     await runWithFeedback(
@@ -325,6 +353,51 @@ export default function DoctorDashboardPage() {
       },
     );
     setIsStarting(false);
+  };
+
+  const openBillingForEdit = async (appt: Appointment) => {
+    await runWithFeedback(
+      async () => {
+        const data = await apiGetAuth<{
+          doctor_notes: string;
+          diagnosis: string;
+          rendered_services: Array<{ service_id: number; quantity: number; unit_price: string }>;
+          invoice_id: number;
+          invoice_number: string;
+          total_amount: string;
+        }>(`/doctor/${appt.id}/billing_for_edit/`);
+        if (!data.rendered_services?.length) {
+          throw new Error("No billing lines on file — contact support if this looks wrong.");
+        }
+        setRevisingBillingForAppointmentId(appt.id);
+        setConsultWorkspaceExpanded(true);
+        setActiveAppt(appt);
+        setDoctorNotes(data.doctor_notes ?? "");
+        setDiagnosis(data.diagnosis ?? "");
+        setBillLines(
+          data.rendered_services.map((r) => ({
+            service_id: r.service_id,
+            quantity: String(r.quantity),
+            unit_price: r.unit_price?.trim() ? r.unit_price : "",
+          })),
+        );
+      },
+      {
+        loadingMessage: "Loading current billing…",
+        successMessage: "Adjust procedures below, then save to update the invoice.",
+        errorFallback: "Could not open billing for editing.",
+      },
+    );
+  };
+
+  const cancelBillingEdit = () => {
+    setRevisingBillingForAppointmentId(null);
+    setActiveAppt(null);
+    setConsultWorkspaceExpanded(true);
+    setDoctorNotes("");
+    setDiagnosis("");
+    setBillLines([]);
+    void load();
   };
 
   const doCompleteVisit = async (
@@ -348,17 +421,22 @@ export default function DoctorDashboardPage() {
       return;
     }
     const apptId = activeAppt.id;
+    const isRevisingAwaitingPayment =
+      revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment";
     setPaymentConfirmOpen(false);
     setIsCompleting(true);
     setError("");
     await runWithFeedback(
       async () => {
+        const endpoint = isRevisingAwaitingPayment
+          ? `/doctor/${apptId}/revise_visit_billing/`
+          : `/doctor/${apptId}/complete_visit/`;
         const result = await apiPost<{
           invoice_id: number;
           invoice_number: string;
           total_amount: string;
           payment: CompleteVisitPayment;
-        }>(`/doctor/${apptId}/complete_visit/`, {
+        }>(endpoint, {
           doctor_notes: doctorNotes,
           diagnosis,
           rendered_services: rendered,
@@ -374,6 +452,7 @@ export default function DoctorDashboardPage() {
           payment: result.payment,
         });
         setSquareCheckoutId(null);
+        setRevisingBillingForAppointmentId(null);
         setActiveAppt(null);
         setDoctorNotes("");
         setDiagnosis("");
@@ -393,12 +472,20 @@ export default function DoctorDashboardPage() {
         return result;
       },
       {
-        loadingMessage: "Completing visit and creating invoice…",
+        loadingMessage: isRevisingAwaitingPayment
+          ? "Updating invoice…"
+          : "Completing visit and creating invoice…",
         successMessage: (r) =>
-          r?.payment?.charged
-            ? "Visit completed — payment received; patient bill opened for printing."
-            : "Visit completed — collect payment, then tap Print patient bill.",
-        errorFallback: "Could not complete this visit.",
+          isRevisingAwaitingPayment
+            ? r?.payment?.charged
+              ? "Billing updated — payment received."
+              : "Billing updated — green banner shows the new amount and payment options."
+            : r?.payment?.charged
+              ? "Visit completed — payment received; patient bill opened for printing."
+              : "Visit completed — collect payment, then tap Print patient bill.",
+        errorFallback: isRevisingAwaitingPayment
+          ? "Could not update billing."
+          : "Could not complete this visit.",
       },
     );
     setIsCompleting(false);
@@ -693,6 +780,8 @@ export default function DoctorDashboardPage() {
   /** Shared consultation UI — `spacious` uses larger fields and scroll area (full workspace overlay). */
   const renderConsultationForm = (spacious: boolean) => {
     if (!activeAppt) return null;
+    const isRevisingBilling =
+      revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment";
     const handoffClass = spacious
       ? "mb-2 min-h-[5.5rem] w-full rounded-lg border border-slate-200 bg-white p-3 text-base leading-relaxed"
       : "mb-2 h-20 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm";
@@ -711,7 +800,9 @@ export default function DoctorDashboardPage() {
         {spacious ? (
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-[#166534]">Active visit · full workspace</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#166534]">
+                {isRevisingBilling ? "Editing billing — awaiting payment" : "Active visit · full workspace"}
+              </p>
               <p className="truncate text-lg font-bold text-slate-900">{activeAppt.patient}</p>
               <p className="text-sm text-slate-600">
                 {activeAppt.start_time} – {activeAppt.end_time}
@@ -734,6 +825,13 @@ export default function DoctorDashboardPage() {
           >
             Expand full workspace
           </button>
+        )}
+        {isRevisingBilling && (
+          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-sm leading-snug text-amber-950">
+            <strong>Editing the invoice</strong> — the visit is done; we&apos;re only waiting on payment.{" "}
+            <strong>Add or remove</strong> procedures below (check / uncheck), change units or prices — the estimated total updates live.
+            When you tap <strong>Update invoice</strong>, the server recalculates tax and the amount due on the same invoice.
+          </div>
         )}
         <div className={cn("flex items-center gap-3 rounded-xl border border-slate-100 bg-gradient-to-r from-slate-50 to-white", spacious ? "p-4" : "p-3")}>
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#16a349]/20 text-lg font-bold text-[#16a349]">
@@ -803,8 +901,18 @@ export default function DoctorDashboardPage() {
             </HelpTip>
           </div>
           <p className="mb-2 text-xs text-slate-500">
-            The booked visit type is checked first. Add or remove lines for anything else you performed. If something is missing, ask
-            admin to mark the service visible to your role in Services &amp; codes.
+            {isRevisingBilling ? (
+              <>
+                <strong>Extra services or corrections:</strong> uncheck anything you&apos;re removing from the bill; check anything new.
+                The green <strong>estimated total</strong> matches what will be saved (same rules as a new visit — insurance-only lines
+                don&apos;t add to the patient portion).
+              </>
+            ) : (
+              <>
+                The booked visit type is checked first. Add or remove lines for anything else you performed. If something is missing, ask
+                admin to mark the service visible to your role in Services &amp; codes.
+              </>
+            )}
           </p>
           <div className={procScroller}>
             {sortedBillServices.map((s) => {
@@ -892,7 +1000,7 @@ export default function DoctorDashboardPage() {
                 <span className="text-sm font-semibold text-[#0d5c2e]">Estimated total (this visit)</span>
                 <HelpTip label="Estimated total" tone="emerald">
                   Based on checked procedures, units, and fee overrides. Procedures marked insurance-only (no patient charge) are
-                  excluded. Tax may be added on the final invoice after you complete the visit.
+                  excluded. {isRevisingBilling ? "After you save, the invoice is rebuilt with the same math." : "Tax may be added on the final invoice after you complete the visit."}
                 </HelpTip>
               </div>
               <span className="text-lg font-bold tabular-nums text-slate-900">
@@ -911,25 +1019,68 @@ export default function DoctorDashboardPage() {
           />
         </div>
         <p className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
-          Next step: you&apos;ll <strong>confirm the amount with the patient</strong>, then choose whether to charge the card on file,
-          send payment to your <strong>Square Terminal</strong>, or use desk / POS options.
+          {isRevisingBilling ? (
+            <>
+              Next step: <strong>confirm the new amount</strong> with the patient (it may have changed), then save. Use{" "}
+              <strong>Collect payment</strong> or the green banner afterwards — if a desk link or reader session was started with the
+              old total, start a fresh checkout so it matches the updated invoice.
+            </>
+          ) : (
+            <>
+              Next step: you&apos;ll <strong>confirm the amount with the patient</strong>, then choose whether to charge the card on file,
+              send payment to your <strong>Square Terminal</strong>, or use desk / POS options.
+            </>
+          )}
         </p>
-        <div className="flex items-start gap-2">
-          <button
-            type="button"
-            onClick={completeVisit}
-            disabled={isCompleting}
-            className={cn(
-              "min-w-0 flex-1 rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d] disabled:opacity-50",
-              spacious ? "py-3 text-base" : "text-sm",
-            )}
-          >
-            {isCompleting ? "Completing…" : "Complete visit & create invoice"}
-          </button>
-          <HelpTip label="Complete visit" align="center" tone="emerald">
-            Saves the visit and invoice, then you confirm payment with the patient. You can charge a saved card, use the Terminal, or
-            collect another way from the green banner.
-          </HelpTip>
+        <div
+          className={cn(
+            "flex flex-col gap-2",
+            isRevisingBilling ? "sm:flex-row sm:flex-wrap sm:items-start" : "sm:flex-row sm:items-start",
+          )}
+        >
+          <div className={cn("flex min-w-0 items-start gap-2", !isRevisingBilling && "flex-1")}>
+            <button
+              type="button"
+              onClick={completeVisit}
+              disabled={isCompleting}
+              className={cn(
+                "min-w-0 rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d] disabled:opacity-50",
+                isRevisingBilling ? "flex-1 sm:flex-initial sm:min-w-[12rem]" : "flex-1",
+                spacious ? "py-3 text-base" : "text-sm",
+              )}
+            >
+              {isRevisingBilling
+                ? isCompleting
+                  ? "Saving…"
+                  : "Update invoice"
+                : isCompleting
+                  ? "Completing…"
+                  : "Complete visit & create invoice"}
+            </button>
+            <HelpTip label={isRevisingBilling ? "Update invoice" : "Complete visit"} align="center" tone="emerald">
+              {isRevisingBilling ? (
+                <>
+                  Rewrites the open invoice with the lines and notes below — visit status stays awaiting payment. Then collect using the
+                  banner or schedule row.
+                </>
+              ) : (
+                <>
+                  Saves the visit and invoice, then you confirm payment with the patient. You can charge a saved card, use the Terminal, or
+                  collect another way from the green banner.
+                </>
+              )}
+            </HelpTip>
+          </div>
+          {isRevisingBilling && (
+            <button
+              type="button"
+              onClick={cancelBillingEdit}
+              disabled={isCompleting}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel editing
+            </button>
+          )}
         </div>
         <p className="text-xs text-slate-500">
           The patient bill is not printed until the invoice is paid (card on file, reader, or desk checkout). Use{" "}
@@ -939,20 +1090,27 @@ export default function DoctorDashboardPage() {
     );
   };
 
+  const paymentConfirmIsRevise =
+    !!activeAppt &&
+    paymentConfirmOpen &&
+    revisingBillingForAppointmentId === activeAppt.id &&
+    activeAppt.status === "awaiting_payment";
+
   return (
     <div className="space-y-8">
       <DoctorPageIntro
         eyebrow="Clinical workspace"
         title={`${doctorGreeting()}, ${firstName}`}
-        description="While you add services for an active visit, you will see an estimated total. The printable patient bill opens only after payment is complete."
+        description="While you add services for an active visit, you will see an estimated total. The printable patient bill opens only after payment is complete. If payment is still pending, you can edit billing from the schedule row."
         pageHelp={
           <>
             This page is your <strong>daily command center</strong>: pick a date, work down the list. When you start a visit, a{" "}
             <strong>large centered workspace</strong> opens for chart notes, diagnosis, procedures, and billing. You can switch to a narrow
             side panel from there if you prefer. Checked procedures show a running <strong>estimated total</strong>. When you complete the
             visit, you can <strong>Preview bill</strong> before payment to show the patient what will print; the official{" "}
-            <strong>Print patient bill</strong> runs only after the invoice is marked paid (saved card, reader, or desk checkout). If someone
-            does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
+            <strong>Print patient bill</strong> runs only after the invoice is marked paid (saved card, reader, or desk checkout). For an
+            appointment <strong>awaiting payment</strong>, use <strong>Edit billing</strong> on that row if you need to add a service or fix
+            the invoice before collecting. If someone does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
             <strong>Reschedule</strong> to move a visit.
           </>
         }
@@ -1179,7 +1337,7 @@ export default function DoctorDashboardPage() {
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{inv.patient_name}</p>
                       <p className="text-xs text-slate-500">
-                        {inv.invoice_number} · {inv.date_of_service} · ${inv.total_amount}
+                        {inv.invoice_number} · {formatMonthDayYear(inv.date_of_service)} · ${inv.total_amount}
                         <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${
                           inv.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                         }`}>
@@ -1212,7 +1370,7 @@ export default function DoctorDashboardPage() {
         </DoctorSectionLabel>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-600">
-            Only your patients · {selectedDate === todayStr ? "Today" : selectedDate}
+            Only your patients · {selectedDate === todayStr ? "Today" : formatMonthDayYear(selectedDate)}
           </p>
           <div className="flex items-center gap-2">
             <input
@@ -1236,7 +1394,7 @@ export default function DoctorDashboardPage() {
             description={
               selectedDate === todayStr
                 ? "When patients book with you, they will show up here. You can change the date above to plan ahead."
-                : `Nothing scheduled for ${selectedDate}. Pick another date or enjoy the lighter day.`
+                : `Nothing scheduled for ${formatMonthDayYear(selectedDate)}. Pick another date or enjoy the lighter day.`
             }
           >
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100/80 text-[#16a349] shadow-inner">
@@ -1343,6 +1501,20 @@ export default function DoctorDashboardPage() {
                     )}
                     {appt.status === "awaiting_payment" && (
                       <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void openBillingForEdit(appt);
+                          }}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:border-[#16a349]/40 hover:bg-emerald-50/80"
+                        >
+                          Edit billing
+                        </button>
+                        <HelpTip label="Edit billing" align="center" tone="emerald">
+                          Opens the same chart and procedure workspace so you can add lines or adjust fees while we&apos;re still waiting
+                          on payment. Saving updates the open invoice — confirm the new total with the patient, then collect payment.
+                        </HelpTip>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1507,22 +1679,40 @@ export default function DoctorDashboardPage() {
         >
           <div className="max-h-[min(90vh,720px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h2 id="payment-confirm-title" className="text-lg font-bold text-slate-900">
-              Confirm with patient before payment
+              {paymentConfirmIsRevise ? "Confirm updated amount before saving" : "Confirm with patient before payment"}
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              You are about to finish documentation and create the invoice for{" "}
-              <span className="font-semibold text-slate-900">{activeAppt.patient}</span>.{" "}
-              <strong>Verbally confirm the amount</strong> they owe and that they agree before you charge a card or send them to the
-              reader.
+              {paymentConfirmIsRevise ? (
+                <>
+                  You are about to <strong>update the existing invoice</strong> for{" "}
+                  <span className="font-semibold text-slate-900">{activeAppt.patient}</span> with the lines you just reviewed.{" "}
+                  <strong>Confirm the new total</strong> out loud before charging a card or starting checkout — especially if it changed.
+                  If you already opened a pay link or Terminal session for the old amount, start a fresh one after saving so Square matches
+                  the invoice.
+                </>
+              ) : (
+                <>
+                  You are about to finish documentation and create the invoice for{" "}
+                  <span className="font-semibold text-slate-900">{activeAppt.patient}</span>.{" "}
+                  <strong>Verbally confirm the amount</strong> they owe and that they agree before you charge a card or send them to the
+                  reader.
+                </>
+              )}
             </p>
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Estimated patient portion</span>
+                <span className="text-slate-500">
+                  {paymentConfirmIsRevise ? "Estimated total after update" : "Estimated patient portion"}
+                </span>
                 <span className="text-lg font-bold tabular-nums text-slate-900">
                   {(consultationEstimatedTotal ?? 0).toLocaleString(undefined, { style: "currency", currency: "USD" })}
                 </span>
               </div>
-              <p className="mt-2 text-xs text-slate-500">Final invoice total comes from checked services; it should match unless prices differ.</p>
+              <p className="mt-2 text-xs text-slate-500">
+                {paymentConfirmIsRevise
+                  ? "Saving replaces line items and recalculates tax and balance due on the same invoice number."
+                  : "Final invoice total comes from checked services; it should match unless prices differ."}
+              </p>
               {activeAppt.card_last4 ? (
                 <div className="mt-3 flex items-center justify-between border-t border-slate-200/80 pt-3 text-sm">
                   <span className="text-slate-500">Card on file</span>

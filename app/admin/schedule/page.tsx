@@ -7,6 +7,7 @@ import { IconCalendar } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { StatusChipView, appointmentStatusStripeClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -61,21 +62,6 @@ function within24HoursBeforeStart(appointmentDate: string, startTime: string): b
   const start = new Date(`${appointmentDate}T${t}`);
   const ms = start.getTime() - Date.now();
   return ms > 0 && ms < 24 * 60 * 60 * 1000;
-}
-
-function formatVisitDate(isoDate: string): string {
-  if (!isoDate) return "";
-  try {
-    const d = new Date(isoDate + "T12:00:00");
-    return d.toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return isoDate;
-  }
 }
 
 function getWeekDates(weekStart: Date): Date[] {
@@ -389,26 +375,13 @@ function AdminSchedulePageContent() {
             {dates.map((d) => {
               const key = d.toISOString().slice(0, 10);
               const dayAppts = appointmentsByDate[key] || [];
-              const dayName = [
-                "Sun",
-                "Mon",
-                "Tue",
-                "Wed",
-                "Thu",
-                "Fri",
-                "Sat",
-              ][d.getDay()];
-              const dateLabel = d.toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-              });
               return (
                 <div
                   key={key}
                   className="rounded-lg border border-slate-200 p-2"
                 >
-                  <p className="font-semibold">
-                    {dayName} {dateLabel}
+                  <p className="font-semibold leading-tight">
+                    {formatWeekdayMonthDayYear(key)}
                   </p>
                   <div className="mt-2 space-y-2">
                     {dayAppts.length === 0 ? (
@@ -466,7 +439,7 @@ function AdminSchedulePageContent() {
                     <span className="mx-1.5 font-normal text-slate-400">–</span>
                     {selected.end_time_display || formatTime(selected.end_time)}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">{formatVisitDate(selected.appointment_date)}</p>
+                  <p className="mt-1 text-xs text-slate-500">{formatWeekdayMonthDayYear(selected.appointment_date)}</p>
                 </div>
               </div>
               <div className="border-t border-slate-200/80 bg-white/70 px-4 py-2.5">

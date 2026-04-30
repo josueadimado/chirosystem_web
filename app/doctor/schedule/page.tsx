@@ -8,6 +8,7 @@ import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { appointmentStatusPillClass, appointmentStatusStripeClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import { formatMonthDayYear } from "@/lib/format-date";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
@@ -278,8 +279,8 @@ function DoctorSchedulePageInner() {
               <IconChevronLeft className="h-5 w-5" />
             </button>
             <span className="min-w-[160px] text-center text-sm font-semibold text-slate-800">
-              {weekDates[0].toLocaleDateString("en-US", { month: "short" })} {weekDates[0].getDate()} –{" "}
-              {weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              {formatMonthDayYear(weekDates[0].toISOString().slice(0, 10))} –{" "}
+              {formatMonthDayYear(weekDates[6].toISOString().slice(0, 10))}
             </span>
             <button
               type="button"

@@ -6,6 +6,7 @@ import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { IconFilter, IconMoreVertical, IconSearch } from "@/components/icons";
 import { ApiError, apiGetAuth } from "@/lib/api";
+import { formatMonthDayYear } from "@/lib/format-date";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type PatientRow = {
@@ -39,14 +40,7 @@ const APPT_STATUS_LABEL: Record<string, string> = {
 };
 
 function formatDisplayDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso + "T12:00:00");
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatMonthDayYear(iso);
 }
 
 function parseNextApptSortKey(nextAppt: string | null): number {

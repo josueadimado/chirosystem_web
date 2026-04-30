@@ -5,6 +5,7 @@ import { HelpTip } from "@/components/help-tip";
 import { IconBot } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
+import { formatInstantMonthDayYearTime } from "@/lib/format-date";
 import { useEffect, useState } from "react";
 
 type VoiceAnalytics = {
@@ -177,12 +178,7 @@ export default function AdminAIPage() {
                     {calls.map((row) => (
                       <tr key={row.id} className="align-top hover:bg-slate-50/50">
                         <td className="whitespace-nowrap px-3 py-2 text-slate-600">
-                          {new Date(row.updated_at).toLocaleString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
+                          {formatInstantMonthDayYearTime(row.updated_at)}
                         </td>
                         <td className="px-3 py-2 font-mono text-xs text-slate-700">{row.from_number || "—"}</td>
                         <td className="px-3 py-2">

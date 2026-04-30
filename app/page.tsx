@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiGet, apiPostPublic } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { formatMonthDayYear, formatNowMonthDayYearTime, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { withMinimumDelay } from "@/lib/with-minimum-delay";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
@@ -1078,7 +1079,7 @@ export default function BookingPage() {
     }
     const esc = (s: string | number) =>
       String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const generated = esc(new Date().toLocaleString());
+    const generated = esc(formatNowMonthDayYearTime());
 
     const rowsHtml = bookingResults
       .map(
@@ -1088,7 +1089,7 @@ export default function BookingPage() {
         <tr><th scope="row">Patient</th><td>${esc(r.patient)}</td></tr>
         <tr><th scope="row">Service</th><td>${esc(r.service)}</td></tr>
         ${r.provider ? `<tr><th scope="row">Doctor</th><td>${esc(r.provider)}</td></tr>` : ""}
-        <tr><th scope="row">Date</th><td>${esc(r.appointment_date)}</td></tr>
+        <tr><th scope="row">Date</th><td>${esc(formatMonthDayYear(r.appointment_date))}</td></tr>
         <tr><th scope="row">Time</th><td>${esc(r.start_time)}</td></tr>
         <tr class="total-row"><th scope="row">Estimated amount at visit</th><td>$${esc(r.total_amount)}</td></tr>`,
       )
@@ -1359,13 +1360,7 @@ export default function BookingPage() {
                             ) : null}
                             <p className="mt-1 text-sm text-slate-600">
                               {row.provider_name} ·{" "}
-                              {new Date(row.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
-                                weekday: "short",
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })}{" "}
-                              at {row.start_time}
+                              {formatWeekdayMonthDayYear(row.appointment_date)} at {row.start_time}
                             </p>
                             <p className="mt-1 text-[11px] text-[#166534]">Tap to pick a new time →</p>
                           </button>
@@ -1573,12 +1568,7 @@ export default function BookingPage() {
                     <li>
                       <span className="text-slate-500">Currently scheduled: </span>
                       <span className="font-medium">
-                        {new Date(reschedulePick.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
-                          weekday: "long",
-                          month: "long",
-                          day: "numeric",
-                          year: "numeric",
-                        })}{" "}
+                        {formatWeekdayMonthDayYear(reschedulePick.appointment_date)}{" "}
                         at {reschedulePick.start_time}
                       </span>
                     </li>
@@ -1723,7 +1713,7 @@ export default function BookingPage() {
                           <IconChevronLeft className="h-4 w-4" />
                         </button>
                         <p className="min-w-0 flex-1 text-center text-sm font-semibold text-slate-900 sm:text-base">
-                          {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                          {formatMonthDayYear(monthStart.toISOString().slice(0, 10))}
                         </p>
                         <button
                           type="button"
@@ -1794,12 +1784,7 @@ export default function BookingPage() {
                 <p className="mt-3 text-sm text-slate-600">
                   Selected:{" "}
                   <strong className="text-[#166534]">
-                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
+                    {formatWeekdayMonthDayYear(selectedDate)}
                   </strong>
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
@@ -1944,24 +1929,12 @@ export default function BookingPage() {
                 <p>
                   <span className="text-slate-500">New time: </span>
                   <span className="font-semibold">
-                    {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
-                      weekday: "long",
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
-                    })}{" "}
-                    at {selectedTime}
+                    {formatWeekdayMonthDayYear(selectedDate)} at {selectedTime}
                   </span>
                 </p>
                 <p className="mt-2 text-xs text-slate-600">
                   Was:{" "}
-                  {new Date(reschedulePick.appointment_date + "T12:00:00").toLocaleDateString("en-US", {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}{" "}
-                  at {reschedulePick.start_time}
+                  {formatWeekdayMonthDayYear(reschedulePick.appointment_date)} at {reschedulePick.start_time}
                 </p>
               </div>
               <div className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
@@ -2180,7 +2153,7 @@ export default function BookingPage() {
                       <li>
                         <span className="text-slate-500">When: </span>
                         <span className="font-medium text-slate-900">
-                          {new Date(result.appointment_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })} at {result.start_time}
+                          {formatWeekdayMonthDayYear(result.appointment_date)} at {result.start_time}
                         </span>
                       </li>
                       <li>
@@ -2314,7 +2287,7 @@ export default function BookingPage() {
             <div className="mt-4 rounded-xl border border-border/80 bg-muted/40 p-3">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Appointment date & time</p>
               <p className="font-semibold text-foreground">
-                {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} at {selectedTime}
+                {formatWeekdayMonthDayYear(selectedDate)} at {selectedTime}
               </p>
             </div>
 

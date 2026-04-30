@@ -5,6 +5,7 @@ import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
+import { formatMonthDayYear } from "@/lib/format-date";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -613,7 +614,7 @@ export function PatientDetailModal({
                             <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3.5 marker:hidden [&::-webkit-details-marker]:hidden">
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                  <span className="font-bold tabular-nums text-slate-900">{a.appointment_date}</span>
+                                  <span className="font-bold tabular-nums text-slate-900">{formatMonthDayYear(a.appointment_date)}</span>
                                   <span className="text-slate-300">·</span>
                                   <span className="font-semibold text-[#0d5c2e]">{a.start_time}</span>
                                   {a.end_time ? (

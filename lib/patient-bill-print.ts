@@ -2,6 +2,8 @@
  * Patient Bill HTML (statement layout) — used by the portal modal and optional new-window print.
  */
 
+import { formatMonthDayYear, formatNowMonthDayYearTime } from "@/lib/format-date";
+
 export type PatientBillLine = {
   service_offered: string;
   cpt_code: string;
@@ -11,7 +13,7 @@ export type PatientBillLine = {
   pos: string;
   /** Full line amount (for insurance / documentation). */
   line_total: string;
-  /** Amount included in patient balance for this line (0.00 when insurance-documentation-only). */
+  /** Same as line total on the printed bill (full documented amount per row). Patient invoice totals exclude lines with charges_patient false. */
   patient_due?: string;
   charges_patient?: boolean;
 };
@@ -100,7 +102,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   <div class="grid">
     <div>
       <div class="label">Date of service</div>
-      <div class="box">${esc(b.date_of_service)}</div>
+      <div class="box">${esc(formatMonthDayYear(b.date_of_service))}</div>
     </div>
     <div>
       <div class="label">Bill / Invoice #</div>
@@ -128,7 +130,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
         <th class="num">Units</th>
         <th class="num">POS</th>
         <th class="num">Line total</th>
-        <th class="num">Patient pays</th>
+        <th class="num">Listed amount</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -139,10 +141,10 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
     <div class="grand" style="display:flex;justify-content:space-between;"><span>Amount due</span><span>$${esc(b.total_amount)}</span></div>
   </div>
   <p class="foot">
-    Line totals show documented fees; &ldquo;Patient pays&rdquo; is what was owed on the invoice. Rows marked for insurance
-    documentation may show $0.00 patient pays while still listing CPT for reimbursement. Patient payment per clinic policy.
+    Each line shows the documented fee for your records. Subtotal and amount due are the patient balance only
+    (lines marked for insurance or documentation are not added to that total). Patient payment per clinic policy.
     ${b.status ? ` Status: ${esc(b.status)}.` : ""}
-    Generated ${esc(new Date().toLocaleString())}.
+    Generated ${esc(formatNowMonthDayYearTime())}.
   </p>
 </body>
 </html>`;

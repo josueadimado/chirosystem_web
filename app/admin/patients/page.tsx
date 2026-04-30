@@ -4,6 +4,7 @@ import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { Button } from "@/components/ui/button";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import { formatMonthDayYear } from "@/lib/format-date";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
@@ -18,13 +19,7 @@ type Patient = {
 };
 
 function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "—";
-  try {
-    const d = new Date(dateStr + "T12:00:00");
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return dateStr;
-  }
+  return formatMonthDayYear(dateStr);
 }
 
 function formatBalance(balanceStr: string): string {
