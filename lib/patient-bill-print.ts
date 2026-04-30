@@ -34,6 +34,8 @@ export type PatientBillPayload = {
   diagnosis: string;
   lines: PatientBillLine[];
   subtotal: string;
+  /** Sum of chargeable lines only (matches invoice balance before tax); omitted on old API responses. */
+  patient_subtotal?: string;
   tax: string;
   total_amount: string;
   status?: string;
@@ -44,7 +46,14 @@ export function patientBillContentSignature(bill: PatientBillPayload): string {
   const lineSig = (bill.lines ?? [])
     .map((l) => `${l.cpt_code}:${l.units}:${l.fees}:${l.line_total}:${l.charges_patient ? 1 : 0}`)
     .join("|");
-  return [bill.subtotal, bill.tax, bill.total_amount, bill.diagnosis ?? "", lineSig].join("#");
+  return [
+    bill.subtotal,
+    bill.patient_subtotal ?? "",
+    bill.tax,
+    bill.total_amount,
+    bill.diagnosis ?? "",
+    lineSig,
+  ].join("#");
 }
 
 function esc(s: string) {
@@ -53,6 +62,8 @@ function esc(s: string) {
 
 /** Full HTML document for the bill (no scripts). Safe for iframe srcDoc. */
 export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
+  const showPatientPortionRow =
+    b.patient_subtotal != null && b.patient_subtotal !== b.subtotal;
   const rows = b.lines
     .map((l) => {
       const pat = l.patient_due != null ? l.patient_due : l.line_total;
@@ -138,19 +149,25 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
         <th class="num">Units</th>
         <th class="num">POS</th>
         <th class="num">Line total</th>
-        <th class="num">Listed amount</th>
+        <th class="num">Patient pays</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
   <div class="totals">
-    <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Subtotal</span><span>$${esc(b.subtotal)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Subtotal (all procedures)</span><span>$${esc(b.subtotal)}</span></div>
+    ${
+      showPatientPortionRow
+        ? `<div style="display:flex;justify-content:space-between;padding:4px 0;color:#374151;"><span>Patient responsibility (billable services)</span><span>$${esc(b.patient_subtotal!)}</span></div>`
+        : ""
+    }
     <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Sales tax</span><span>$${esc(b.tax)}</span></div>
-    <div class="grand" style="display:flex;justify-content:space-between;"><span>Amount due</span><span>$${esc(b.total_amount)}</span></div>
+    <div class="grand" style="display:flex;justify-content:space-between;"><span>Amount due (patient)</span><span>$${esc(b.total_amount)}</span></div>
   </div>
   <p class="foot">
-    Each line shows the documented fee for your records. Subtotal and amount due are the patient balance only
-    (lines marked for insurance or documentation are not added to that total). Patient payment per clinic policy.
+    Line totals document every service on this visit. <strong>Subtotal</strong> is the full documented amount.
+    <strong>Amount due</strong> is what the patient pays — insurance-only / documentation lines are not added to that balance.
+    Patient payment per clinic policy.
     ${b.status ? ` Status: ${esc(b.status)}.` : ""}
     Generated ${esc(formatNowMonthDayYearTime())}.
   </p>

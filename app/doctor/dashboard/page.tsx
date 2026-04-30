@@ -13,7 +13,7 @@ import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type SquarePosConfig = {
@@ -59,6 +59,16 @@ type ServiceOpt = {
 };
 
 type BillLine = { service_id: number; quantity: string; unit_price: string };
+
+/** Detects edits after a successful billing save so we can show "Update invoice" again. */
+function billingFormFingerprint(lines: BillLine[], notes: string, diagnosis: string): string {
+  const rows = lines
+    .filter((l) => l.service_id)
+    .map((l) => `${l.service_id}:${l.quantity}:${l.unit_price.trim()}`)
+    .sort()
+    .join("|");
+  return `${rows}#${notes}#${diagnosis}`;
+}
 
 function doctorApptWithin24Hours(appt: Appointment): boolean {
   const start = new Date(`${appt.appointment_date}T${appt.start_time_iso}`);
@@ -129,6 +139,9 @@ export default function DoctorDashboardPage() {
   const [consultWorkspaceExpanded, setConsultWorkspaceExpanded] = useState(true);
   /** Awaiting-payment visits: doctor is editing billing lines (Edit billing). */
   const [revisingBillingForAppointmentId, setRevisingBillingForAppointmentId] = useState<number | null>(null);
+  /** After "Update invoice" succeeds — stay open until doctor taps Close (or edits again for another save). */
+  const [billingEditJustSaved, setBillingEditJustSaved] = useState(false);
+  const billingEditSavedFingerprintRef = useRef<string | null>(null);
   const [consultPortalReady, setConsultPortalReady] = useState(false);
 
   useEffect(() => {
@@ -137,7 +150,20 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     setRevisingBillingForAppointmentId(null);
+    setBillingEditJustSaved(false);
+    billingEditSavedFingerprintRef.current = null;
   }, [selectedDate]);
+
+  useEffect(() => {
+    if (!billingEditJustSaved) return;
+    const saved = billingEditSavedFingerprintRef.current;
+    if (saved === null) return;
+    const cur = billingFormFingerprint(billLines, doctorNotes, diagnosis);
+    if (cur !== saved) {
+      setBillingEditJustSaved(false);
+      billingEditSavedFingerprintRef.current = null;
+    }
+  }, [billingEditJustSaved, billLines, doctorNotes, diagnosis]);
 
   useEffect(() => {
     if (!activeAppt) setPaymentConfirmOpen(false);
@@ -338,6 +364,8 @@ export default function DoctorDashboardPage() {
 
   const startVisit = async (appt: Appointment) => {
     setRevisingBillingForAppointmentId(null);
+    setBillingEditJustSaved(false);
+    billingEditSavedFingerprintRef.current = null;
     setIsStarting(true);
     setError("");
     await runWithFeedback(
@@ -368,6 +396,8 @@ export default function DoctorDashboardPage() {
         if (!data.rendered_services?.length) {
           throw new Error("No billing lines on file — contact support if this looks wrong.");
         }
+        setBillingEditJustSaved(false);
+        billingEditSavedFingerprintRef.current = null;
         setRevisingBillingForAppointmentId(appt.id);
         setConsultWorkspaceExpanded(true);
         setActiveAppt(appt);
@@ -391,6 +421,8 @@ export default function DoctorDashboardPage() {
 
   const cancelBillingEdit = () => {
     setRevisingBillingForAppointmentId(null);
+    setBillingEditJustSaved(false);
+    billingEditSavedFingerprintRef.current = null;
     setActiveAppt(null);
     setConsultWorkspaceExpanded(false);
     setDoctorNotes("");
@@ -451,7 +483,28 @@ export default function DoctorDashboardPage() {
           payment: result.payment,
         });
         setSquareCheckoutId(null);
+
+        if (isRevisingAwaitingPayment) {
+          billingEditSavedFingerprintRef.current = billingFormFingerprint(billLines, doctorNotes, diagnosis);
+          setBillingEditJustSaved(true);
+          await load();
+          if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
+            try {
+              await createTerminalCheckout(result.invoice_id);
+            } catch (err) {
+              toast.error(
+                err instanceof ApiError
+                  ? err.message
+                  : "Invoice saved — use Square Terminal from the green payment banner.",
+              );
+            }
+          }
+          return result;
+        }
+
         setRevisingBillingForAppointmentId(null);
+        setBillingEditJustSaved(false);
+        billingEditSavedFingerprintRef.current = null;
         setActiveAppt(null);
         setConsultWorkspaceExpanded(false);
         setDoctorNotes("");
@@ -493,6 +546,7 @@ export default function DoctorDashboardPage() {
 
   const completeVisit = async () => {
     if (!activeAppt) return;
+    if (billingEditJustSaved) return;
     if (billLines.filter((l) => l.service_id).length === 0) {
       toast.error("Add at least one service line for this visit (adjust or add rows below).");
       return;
@@ -783,6 +837,7 @@ export default function DoctorDashboardPage() {
     if (!activeAppt) return null;
     const isRevisingBilling =
       revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment";
+    const billingEditShowCloseOnly = isRevisingBilling && billingEditJustSaved;
     const handoffClass = spacious
       ? "mb-2 min-h-[5.5rem] w-full rounded-lg border border-slate-200 bg-white p-3 text-base leading-relaxed"
       : "mb-2 h-20 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm";
@@ -802,7 +857,11 @@ export default function DoctorDashboardPage() {
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div className="min-w-0">
               <p className="text-[11px] font-bold uppercase tracking-wide text-[#166534]">
-                {isRevisingBilling ? "Editing billing — awaiting payment" : "Active visit · full workspace"}
+                {isRevisingBilling
+                  ? billingEditShowCloseOnly
+                    ? "Invoice updated — awaiting payment"
+                    : "Editing billing — awaiting payment"
+                  : "Active visit · full workspace"}
               </p>
               <p className="truncate text-lg font-bold text-slate-900">{activeAppt.patient}</p>
               <p className="text-sm text-slate-600">
@@ -815,7 +874,11 @@ export default function DoctorDashboardPage() {
                 <button
                   type="button"
                   onClick={() => cancelBillingEdit()}
-                  title="Return to schedule without saving changes"
+                  title={
+                    billingEditShowCloseOnly
+                      ? "Invoice saved — return to schedule"
+                      : "Return to schedule without saving changes"
+                  }
                   className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
                 >
                   Close
@@ -846,11 +909,17 @@ export default function DoctorDashboardPage() {
               onClick={() => cancelBillingEdit()}
               className="text-xs font-semibold text-slate-600 underline decoration-slate-400 underline-offset-2 hover:text-slate-900"
             >
-              Close billing editor
+              {billingEditShowCloseOnly ? "Close" : "Close billing editor"}
             </button>
           </div>
         )}
-        {isRevisingBilling && (
+        {billingEditShowCloseOnly && (
+          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm leading-snug text-emerald-950">
+            <strong>Invoice updated.</strong> Check the green <strong>Collect payment</strong> banner for the new amount and preview.
+            Tap <strong>Close</strong> below (or at the top) when you&apos;re done — or change a line above to save again.
+          </div>
+        )}
+        {isRevisingBilling && !billingEditShowCloseOnly && (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-sm leading-snug text-amber-950">
             <strong>Editing the invoice</strong> — the visit is done; we&apos;re only waiting on payment.{" "}
             <strong>Add or remove</strong> procedures below (check / uncheck), change units or prices — the estimated total updates live.
@@ -1043,7 +1112,12 @@ export default function DoctorDashboardPage() {
           />
         </div>
         <p className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
-          {isRevisingBilling ? (
+          {billingEditShowCloseOnly ? (
+            <>
+              Your changes are saved. Use <strong>Collect payment</strong> or the banner when you&apos;re ready. Leave this screen with{" "}
+              <strong>Close</strong> whenever you want — nothing else is required here.
+            </>
+          ) : isRevisingBilling ? (
             <>
               Next step: <strong>confirm the new amount</strong> with the patient (it may have changed), then save. Use{" "}
               <strong>Collect payment</strong> or the green banner afterwards — if a desk link or reader session was started with the
@@ -1062,48 +1136,68 @@ export default function DoctorDashboardPage() {
             isRevisingBilling ? "sm:flex-row sm:flex-wrap sm:items-start" : "sm:flex-row sm:items-start",
           )}
         >
-          <div className={cn("flex min-w-0 items-start gap-2", !isRevisingBilling && "flex-1")}>
-            <button
-              type="button"
-              onClick={completeVisit}
-              disabled={isCompleting}
-              className={cn(
-                "min-w-0 rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d] disabled:opacity-50",
-                isRevisingBilling ? "flex-1 sm:flex-initial sm:min-w-[12rem]" : "flex-1",
-                spacious ? "py-3 text-base" : "text-sm",
+          {billingEditShowCloseOnly ? (
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start">
+              <button
+                type="button"
+                onClick={() => cancelBillingEdit()}
+                className={cn(
+                  "rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d]",
+                  spacious ? "py-3 text-base" : "text-sm",
+                )}
+              >
+                Close
+              </button>
+              <HelpTip label="Close billing editor" align="center" tone="emerald">
+                Returns to your schedule. The invoice is already updated — use the payment banner or schedule row to collect.
+              </HelpTip>
+            </div>
+          ) : (
+            <>
+              <div className={cn("flex min-w-0 items-start gap-2", !isRevisingBilling && "flex-1")}>
+                <button
+                  type="button"
+                  onClick={completeVisit}
+                  disabled={isCompleting}
+                  className={cn(
+                    "min-w-0 rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d] disabled:opacity-50",
+                    isRevisingBilling ? "flex-1 sm:flex-initial sm:min-w-[12rem]" : "flex-1",
+                    spacious ? "py-3 text-base" : "text-sm",
+                  )}
+                >
+                  {isRevisingBilling
+                    ? isCompleting
+                      ? "Saving…"
+                      : "Update invoice"
+                    : isCompleting
+                      ? "Completing…"
+                      : "Complete visit & create invoice"}
+                </button>
+                <HelpTip label={isRevisingBilling ? "Update invoice" : "Complete visit"} align="center" tone="emerald">
+                  {isRevisingBilling ? (
+                    <>
+                      Rewrites the open invoice with the lines and notes below — visit status stays awaiting payment. Then collect using the
+                      banner or schedule row.
+                    </>
+                  ) : (
+                    <>
+                      Saves the visit and invoice, then you confirm payment with the patient. You can charge a saved card, use the Terminal, or
+                      collect another way from the green banner.
+                    </>
+                  )}
+                </HelpTip>
+              </div>
+              {isRevisingBilling && (
+                <button
+                  type="button"
+                  onClick={cancelBillingEdit}
+                  disabled={isCompleting}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel editing
+                </button>
               )}
-            >
-              {isRevisingBilling
-                ? isCompleting
-                  ? "Saving…"
-                  : "Update invoice"
-                : isCompleting
-                  ? "Completing…"
-                  : "Complete visit & create invoice"}
-            </button>
-            <HelpTip label={isRevisingBilling ? "Update invoice" : "Complete visit"} align="center" tone="emerald">
-              {isRevisingBilling ? (
-                <>
-                  Rewrites the open invoice with the lines and notes below — visit status stays awaiting payment. Then collect using the
-                  banner or schedule row.
-                </>
-              ) : (
-                <>
-                  Saves the visit and invoice, then you confirm payment with the patient. You can charge a saved card, use the Terminal, or
-                  collect another way from the green banner.
-                </>
-              )}
-            </HelpTip>
-          </div>
-          {isRevisingBilling && (
-            <button
-              type="button"
-              onClick={cancelBillingEdit}
-              disabled={isCompleting}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-            >
-              Cancel editing
-            </button>
+            </>
           )}
         </div>
         <p className="text-xs text-slate-500">
