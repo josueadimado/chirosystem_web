@@ -1172,9 +1172,20 @@ export default function BookingPage() {
               </span>
             </h1>
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
-              {bookingFlow === "reschedule"
-                ? "Move a visit you already booked to another open time. We’ll verify your cell number and only show times that work for your doctor."
-                : "Pick a service category, choose your visit, then select your time. You can book multiple services at once."}
+              {bookingFlow === "reschedule" ? (
+                "Move a visit you already booked to another open time. We’ll verify your cell number and only show times that work for your doctor."
+              ) : (
+                <>
+                  Pick a service category, choose your visit, then select your time—you can book multiple services at once right here. Prefer to call? Book by phone at{" "}
+                  <a
+                    href="tel:+18557784282"
+                    className="font-medium text-[#0d5c2e] underline-offset-4 hover:underline"
+                  >
+                    +1 (855) 778-4282
+                  </a>
+                  .
+                </>
+              )}
             </p>
             <div className="mt-4 flex max-w-lg flex-wrap gap-2">
               <button
