@@ -1425,17 +1425,20 @@ export default function DoctorDashboardPage() {
       </section>
       {activeAppt && consultWorkspaceExpanded && (
         <div
-          className="fixed inset-0 z-[45] flex justify-center overflow-y-auto bg-slate-950/55 px-3 py-5 backdrop-blur-[1px] sm:px-5 sm:py-8"
+          className="fixed inset-0 z-[55] overflow-y-auto overscroll-y-contain bg-slate-950/55 backdrop-blur-[1px]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="consult-workspace-title"
         >
-          <div className="my-auto w-full max-w-5xl rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25">
-            <div className="max-h-[calc(100vh-2.5rem)] overflow-y-auto px-5 pb-8 pt-5 sm:px-8 sm:pb-10 sm:pt-7">
-              <h2 id="consult-workspace-title" className="sr-only">
-                Active visit workspace for {activeAppt.patient}
-              </h2>
-              <div className="space-y-5">{renderConsultationForm(true)}</div>
+          {/* min-h plus items-center = truly centered card; min-h uses dvh for mobile browser chrome / keyboard */}
+          <div className="flex min-h-[100dvh] w-full items-center justify-center px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-5 sm:py-6 sm:pb-6">
+            <div className="w-full max-w-5xl shrink-0 rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25">
+              <div className="max-h-[min(100dvh-2.5rem,56rem)] overflow-y-auto overscroll-y-contain px-5 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-5 sm:max-h-[min(92dvh,56rem)] sm:px-8 sm:pb-10 sm:pt-7">
+                <h2 id="consult-workspace-title" className="sr-only">
+                  Active visit workspace for {activeAppt.patient}
+                </h2>
+                <div className="space-y-5">{renderConsultationForm(true)}</div>
+              </div>
             </div>
           </div>
         </div>
