@@ -191,9 +191,9 @@ export async function apiPostPublic<T>(path: string, payload: object): Promise<T
   return handleResponse<T>(res);
 }
 
-/** Authenticated GET. */
-export async function apiGetAuth<T>(path: string): Promise<T> {
-  const res = await fetchWithAuth(`${getApiBase()}${path}`, { method: "GET" });
+/** Authenticated GET. Pass `cache: "no-store"` when the response must always reflect the latest server data (e.g. bill preview). */
+export async function apiGetAuth<T>(path: string, init?: Pick<RequestInit, "cache">): Promise<T> {
+  const res = await fetchWithAuth(`${getApiBase()}${path}`, { method: "GET", ...init });
   return handleResponse<T>(res);
 }
 

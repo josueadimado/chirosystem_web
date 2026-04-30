@@ -39,6 +39,14 @@ export type PatientBillPayload = {
   status?: string;
 };
 
+/** For React keys — changes when lines, totals, or diagnosis change (e.g. after billing edit). */
+export function patientBillContentSignature(bill: PatientBillPayload): string {
+  const lineSig = (bill.lines ?? [])
+    .map((l) => `${l.cpt_code}:${l.units}:${l.fees}:${l.line_total}:${l.charges_patient ? 1 : 0}`)
+    .join("|");
+  return [bill.subtotal, bill.tax, bill.total_amount, bill.diagnosis ?? "", lineSig].join("#");
+}
+
 function esc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

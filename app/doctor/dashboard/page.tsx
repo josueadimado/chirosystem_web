@@ -210,7 +210,7 @@ export default function DoctorDashboardPage() {
     ];
   }, [appointments]);
 
-  const load = async (opts?: { focusAppointmentId?: number }) => {
+  const load = async (opts?: { focusAppointmentId?: number; skipReconnectBillingEdit?: boolean }) => {
     setLoading(true);
     setError("");
     try {
@@ -222,10 +222,9 @@ export default function DoctorDashboardPage() {
           const focused = appts.find((a) => a.id === fid && a.status === "in_consultation");
           if (focused) return focused;
         }
-        if (revisingBillingForAppointmentId != null) {
-          const rev = appts.find(
-            (a) => a.id === revisingBillingForAppointmentId && a.status === "awaiting_payment",
-          );
+        const revisingId = opts?.skipReconnectBillingEdit ? null : revisingBillingForAppointmentId;
+        if (revisingId != null) {
+          const rev = appts.find((a) => a.id === revisingId && a.status === "awaiting_payment");
           if (rev) return rev;
         }
         return appts.find((a) => a.status === "in_consultation") ?? null;
@@ -393,11 +392,11 @@ export default function DoctorDashboardPage() {
   const cancelBillingEdit = () => {
     setRevisingBillingForAppointmentId(null);
     setActiveAppt(null);
-    setConsultWorkspaceExpanded(true);
+    setConsultWorkspaceExpanded(false);
     setDoctorNotes("");
     setDiagnosis("");
     setBillLines([]);
-    void load();
+    void load({ skipReconnectBillingEdit: true });
   };
 
   const doCompleteVisit = async (
@@ -454,10 +453,11 @@ export default function DoctorDashboardPage() {
         setSquareCheckoutId(null);
         setRevisingBillingForAppointmentId(null);
         setActiveAppt(null);
+        setConsultWorkspaceExpanded(false);
         setDoctorNotes("");
         setDiagnosis("");
         setBillLines([]);
-        await load();
+        await load({ skipReconnectBillingEdit: true });
         if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
           try {
             await createTerminalCheckout(result.invoice_id);
@@ -627,6 +627,7 @@ export default function DoctorDashboardPage() {
     try {
       const bill = await apiGetAuth<PatientBillPayload>(
         `/doctor/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
+        { cache: "no-store" },
       );
       setPatientBillModal(bill);
       toast.success("Preview opened — use Print above or Esc to close.");
@@ -809,13 +810,25 @@ export default function DoctorDashboardPage() {
                 {activeAppt.service ? ` · ${activeAppt.service}` : ""}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setConsultWorkspaceExpanded(false)}
-              className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
-            >
-              Use narrow side panel
-            </button>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {isRevisingBilling && (
+                <button
+                  type="button"
+                  onClick={() => cancelBillingEdit()}
+                  title="Return to schedule without saving changes"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setConsultWorkspaceExpanded(false)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+              >
+                Use narrow side panel
+              </button>
+            </div>
           </div>
         ) : (
           <button
@@ -825,6 +838,17 @@ export default function DoctorDashboardPage() {
           >
             Expand full workspace
           </button>
+        )}
+        {isRevisingBilling && !spacious && (
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => cancelBillingEdit()}
+              className="text-xs font-semibold text-slate-600 underline decoration-slate-400 underline-offset-2 hover:text-slate-900"
+            >
+              Close billing editor
+            </button>
+          </div>
         )}
         {isRevisingBilling && (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-sm leading-snug text-amber-950">
@@ -1247,8 +1271,9 @@ export default function DoctorDashboardPage() {
                 {printingBill ? "Checking…" : "Print patient bill"}
               </button>
               <HelpTip label="Print patient bill" tone="emerald">
-                Preview shows the same layout before payment; official print opens only after the invoice is paid and auto-triggers the print
-                dialog. If the patient just finished checkout or the reader, wait a moment and tap again if the first try is early.
+                Preview loads the <strong>latest saved</strong> invoice from the server (including after you edit billing and tap Update invoice).
+                Official print opens only after the invoice is paid and auto-triggers the print dialog. If the patient just finished checkout
+                or the reader, wait a moment and tap again if the first try is early.
               </HelpTip>
               <button
                 type="button"

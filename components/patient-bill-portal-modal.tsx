@@ -1,6 +1,6 @@
 "use client";
 
-import { getPatientBillDocumentHtml, type PatientBillPayload } from "@/lib/patient-bill-print";
+import { getPatientBillDocumentHtml, patientBillContentSignature, type PatientBillPayload } from "@/lib/patient-bill-print";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -33,7 +33,7 @@ export function PatientBillPortalModal({ bill, onClose }: PatientBillPortalModal
 
   useEffect(() => {
     autoPrintDoneRef.current = false;
-  }, [bill?.invoice_number, bill?.status, bill?.is_preview]);
+  }, [bill]);
 
   const triggerPrint = useCallback(() => {
     try {
@@ -63,7 +63,7 @@ export function PatientBillPortalModal({ bill, onClose }: PatientBillPortalModal
   if (bill == null || !portalReady) return null;
 
   const docHtml = getPatientBillDocumentHtml(bill);
-  const modalKey = `${bill.invoice_number}-${bill.status ?? ""}-${bill.is_preview ? "p" : "f"}`;
+  const modalKey = `${bill.invoice_number}-${bill.status ?? ""}-${bill.is_preview ? "p" : "f"}-${patientBillContentSignature(bill)}`;
 
   return createPortal(
     <div
