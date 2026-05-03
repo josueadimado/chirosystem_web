@@ -7,6 +7,7 @@ import { Loader } from "@/components/loader";
 import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { formatInstantMonthDayYearTime } from "@/lib/format-date";
 import { useCallback, useEffect, useState } from "react";
@@ -17,6 +18,12 @@ type BillingInvoiceRow = {
   patient_id: number;
   patient_name: string;
   status: string;
+  /** visit | no_show_fee | late_cancel_fee — only visit invoices support line-item edit before payment */
+  kind: string;
+  appointment_id: number;
+  appointment_status: string;
+  appointment_date: string | null;
+  booked_service_id: number | null;
   total_amount: string;
   subtotal: string;
   tax: string;
@@ -47,6 +54,7 @@ export default function AdminBillingPage() {
   const [printBusy, setPrintBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+  const [billingEditAppointmentId, setBillingEditAppointmentId] = useState<number | null>(null);
 
   const printBill = async (invoiceId: number) => {
     setPrintBusy(true);
@@ -70,6 +78,7 @@ export default function AdminBillingPage() {
     try {
       const bill = await apiGetAuth<PatientBillPayload>(
         `/admin/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
+        { cache: "no-store" },
       );
       setPatientBillModal(bill);
       toast.success("Preview opened — use Print patient bill after payment is recorded.");
@@ -111,6 +120,13 @@ export default function AdminBillingPage() {
     selected &&
     (selected.status === "issued" || selected.status === "overdue" || selected.status === "draft");
 
+  /** Same rules as /admin/revise_visit_billing/ — visit invoices while appointment awaits payment */
+  const canEditVisitBilling =
+    selected &&
+    canRecordPayment &&
+    selected.kind === "visit" &&
+    selected.appointment_status === "awaiting_payment";
+
   const submitPayment = async () => {
     if (!selected || !canRecordPayment) return;
     const amt = parseFloat(payAmount);
@@ -138,6 +154,11 @@ export default function AdminBillingPage() {
     );
     setPayBusy(false);
   };
+
+  const billingEditRow =
+    billingEditAppointmentId != null
+      ? invoices.find((i) => i.appointment_id === billingEditAppointmentId) ?? null
+      : null;
 
   return (
     <div className="space-y-6">
@@ -237,15 +258,26 @@ export default function AdminBillingPage() {
                 </dl>
               </div>
 
-              {(selected.status === "issued" || selected.status === "overdue") && (
-                <button
-                  type="button"
-                  disabled={previewBusy}
-                  onClick={() => void previewBill(selected.id)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {previewBusy ? "Loading…" : "Preview patient bill (before payment)"}
-                </button>
+              {(selected.status === "issued" || selected.status === "overdue" || selected.status === "draft") && (
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={previewBusy}
+                    onClick={() => void previewBill(selected.id)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {previewBusy ? "Loading…" : "Preview patient bill (before payment)"}
+                  </button>
+                  {canEditVisitBilling && (
+                    <button
+                      type="button"
+                      onClick={() => setBillingEditAppointmentId(selected.appointment_id)}
+                      className="w-full rounded-xl border border-[#16a349]/40 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-[#d1fae5]"
+                    >
+                      Edit billing (lines &amp; diagnosis)
+                    </button>
+                  )}
+                </div>
               )}
 
               {selected.status === "paid" && (
@@ -318,6 +350,20 @@ export default function AdminBillingPage() {
         </aside>
       </div>
       <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
+      {billingEditRow ? (
+        <AdminVisitBillingModal
+          open
+          appointmentId={billingEditRow.appointment_id}
+          appointmentDate={billingEditRow.appointment_date ?? ""}
+          bookedServiceId={billingEditRow.booked_service_id}
+          patientLabel={billingEditRow.patient_name}
+          onClose={() => setBillingEditAppointmentId(null)}
+          onSaved={() => {
+            void load();
+            setBillingEditAppointmentId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

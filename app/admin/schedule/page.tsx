@@ -1,15 +1,41 @@
 "use client";
 
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { IconCalendar } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { StatusChipView, appointmentStatusStripeClass } from "@/components/status-chip";
+import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+
+type VisitSnapshot = {
+  appointment_id: number;
+  appointment_status: string;
+  patient_name: string;
+  patient_id: number;
+  clinical_handoff_notes: string;
+  visit_id: number | null;
+  visit_status: string | null;
+  reason_for_visit: string;
+  doctor_notes: string;
+  diagnosis: string;
+  rendered_services: Array<{
+    service_id: number;
+    service_name: string;
+    billing_code: string;
+    quantity: number;
+    unit_price: string;
+    line_total: string;
+    charges_patient: boolean;
+  }>;
+  invoice: { id: number; invoice_number: string; total_amount: string; status: string } | null;
+};
 
 type Appointment = {
   id: number;
@@ -73,7 +99,7 @@ function getWeekDates(weekStart: Date): Date[] {
 }
 
 function AdminSchedulePageContent() {
-  const { runWithFeedback } = useAppFeedback();
+  const { runWithFeedback, toast } = useAppFeedback();
   const searchParams = useSearchParams();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -96,6 +122,60 @@ function AdminSchedulePageContent() {
   const [resDate, setResDate] = useState("");
   const [resTime, setResTime] = useState("09:00");
   const [resProviderId, setResProviderId] = useState("");
+
+  const [visitSnapshot, setVisitSnapshot] = useState<VisitSnapshot | null>(null);
+  const [visitSnapshotLoading, setVisitSnapshotLoading] = useState(false);
+  const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+  const [previewingBill, setPreviewingBill] = useState(false);
+  const [billingEditForAppointment, setBillingEditForAppointment] = useState<Appointment | null>(null);
+  /** Invoice id for preview — matches snapshot when present; otherwise loaded from visit_billing_for_edit. */
+  const [billingInvoiceIdHint, setBillingInvoiceIdHint] = useState<number | null>(null);
+  const [billingHintLoading, setBillingHintLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selected) {
+      setVisitSnapshot(null);
+      return;
+    }
+    let cancelled = false;
+    setVisitSnapshotLoading(true);
+    void apiGetAuth<VisitSnapshot>(`/admin/visit_snapshot/?appointment_id=${selected.id}`)
+      .then((snap) => {
+        if (!cancelled) setVisitSnapshot(snap);
+      })
+      .catch(() => {
+        if (!cancelled) setVisitSnapshot(null);
+      })
+      .finally(() => {
+        if (!cancelled) setVisitSnapshotLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected || selected.status !== "awaiting_payment") {
+      setBillingInvoiceIdHint(null);
+      setBillingHintLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBillingHintLoading(true);
+    void apiGetAuth<{ invoice_id: number }>(`/admin/visit_billing_for_edit/?appointment_id=${selected.id}`)
+      .then((b) => {
+        if (!cancelled) setBillingInvoiceIdHint(b.invoice_id);
+      })
+      .catch(() => {
+        if (!cancelled) setBillingInvoiceIdHint(null);
+      })
+      .finally(() => {
+        if (!cancelled) setBillingHintLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, selected?.status]);
 
   const loadProviders = async () => {
     try {
@@ -243,7 +323,23 @@ function AdminSchedulePageContent() {
   };
 
   const dates = view === "week" ? getWeekDates(weekStart) : [selectedDate];
-  const todayStr = new Date().toISOString().slice(0, 10);
+
+  /** Fresh patient-facing bill while the invoice is still unpaid (admin can open from schedule). */
+  const openPatientBillPreview = async (invoiceId: number) => {
+    setPreviewingBill(true);
+    try {
+      const bill = await apiGetAuth<PatientBillPayload>(
+        `/admin/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
+        { cache: "no-store" },
+      );
+      setPatientBillModal(bill);
+      toast.success("Bill preview opened — press Esc to close.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
+    } finally {
+      setPreviewingBill(false);
+    }
+  };
 
   const appointmentsByDate = dates.reduce(
     (acc, d) => {
@@ -253,6 +349,8 @@ function AdminSchedulePageContent() {
     },
     {} as Record<string, Appointment[]>
   );
+
+  const billInvoiceId = visitSnapshot?.invoice?.id ?? billingInvoiceIdHint ?? null;
 
   return (
     <div className="space-y-6">
@@ -467,6 +565,113 @@ function AdminSchedulePageContent() {
               </div>
             </dl>
 
+            {selected.status === "awaiting_payment" && (
+              <div className="rounded-xl border border-[#16a349]/30 bg-gradient-to-br from-[#ecfdf5] to-white p-4 shadow-sm ring-1 ring-[#16a349]/10">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0d5c2e]">Billing</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Preview the patient bill or adjust line items while this visit is awaiting payment.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {billInvoiceId != null ? (
+                    <button
+                      type="button"
+                      disabled={previewingBill}
+                      onClick={() => void openPatientBillPreview(billInvoiceId)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {previewingBill ? "Opening…" : "Preview bill"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={billingHintLoading || visitSnapshotLoading}
+                      className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-500 shadow-sm disabled:cursor-not-allowed"
+                    >
+                      {billingHintLoading || visitSnapshotLoading ? "Loading…" : "Preview bill"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setBillingEditForAppointment(selected)}
+                    className="rounded-xl border border-[#16a349]/50 bg-[#16a349] px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#13823d]"
+                  >
+                    Edit billing
+                  </button>
+                </div>
+                {billInvoiceId == null && !billingHintLoading && !visitSnapshotLoading && (
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Preview needs an invoice. If the doctor hasn&apos;t finished the visit yet, complete it first or use{" "}
+                    <span className="font-medium text-slate-700">Invoices &amp; Billing</span> in the sidebar.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-3 rounded-xl border border-slate-200/90 bg-slate-50/40 p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Visit snapshot</p>
+                <HelpTip label="Visit snapshot" tone="emerald">
+                  Handoff, notes, diagnosis, and line items for this appointment. When status is <strong>awaiting payment</strong>, use the
+                  green <strong>Billing</strong> box above for <strong>Preview bill</strong> and <strong>Edit billing</strong>.
+                </HelpTip>
+              </div>
+              {visitSnapshotLoading && (
+                <p className="text-xs text-slate-500">Loading visit details…</p>
+              )}
+              {!visitSnapshotLoading && visitSnapshot && (
+                <>
+                  {visitSnapshot.visit_id != null && visitSnapshot.visit_status && (
+                    <p className="text-xs text-slate-600">
+                      <span className="font-semibold text-slate-500">Visit record:</span>{" "}
+                      <span className="capitalize">{visitSnapshot.visit_status.replace(/_/g, " ")}</span>
+                    </p>
+                  )}
+                  <SnapshotField label="Clinical handoff" value={visitSnapshot.clinical_handoff_notes} />
+                  <SnapshotField label="Reason for visit" value={visitSnapshot.reason_for_visit} />
+                  <SnapshotField label="Doctor notes" value={visitSnapshot.doctor_notes} />
+                  <SnapshotField label="Diagnosis" value={visitSnapshot.diagnosis} />
+                  {visitSnapshot.rendered_services.length > 0 ? (
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white text-xs">
+                      <table className="min-w-full border-collapse text-left">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-slate-50/90">
+                            <th className="px-2 py-2 font-semibold text-slate-600">Service</th>
+                            <th className="px-2 py-2 font-semibold text-slate-600">Code</th>
+                            <th className="px-2 py-2 text-right font-semibold text-slate-600">Qty</th>
+                            <th className="px-2 py-2 text-right font-semibold text-slate-600">Line</th>
+                            <th className="px-2 py-2 text-center font-semibold text-slate-600">Pt</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visitSnapshot.rendered_services.map((row) => (
+                            <tr key={row.service_id} className="border-b border-slate-100 last:border-0">
+                              <td className="px-2 py-1.5 text-slate-800">{row.service_name}</td>
+                              <td className="px-2 py-1.5 font-mono text-slate-600">{row.billing_code || "—"}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{row.quantity}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-800">{row.line_total}</td>
+                              <td className="px-2 py-1.5 text-center text-slate-600">{row.charges_patient ? "Y" : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">No line items on this visit yet.</p>
+                  )}
+                  {visitSnapshot.invoice && (
+                    <p className="text-xs text-slate-700">
+                      <span className="font-semibold text-slate-500">Invoice:</span>{" "}
+                      {visitSnapshot.invoice.invoice_number} · ${visitSnapshot.invoice.total_amount}{" "}
+                      <span className="text-slate-500">({visitSnapshot.invoice.status})</span>
+                    </p>
+                  )}
+                </>
+              )}
+              {!visitSnapshotLoading && !visitSnapshot && (
+                <p className="text-xs text-slate-500">Could not load visit details for this appointment.</p>
+              )}
+            </div>
+
             <div className="mt-auto flex flex-col gap-2.5 border-t border-slate-200/90 pt-4">
               {canRescheduleStaff(selected.status) && (
                 <div className="space-y-2">
@@ -658,6 +863,40 @@ function AdminSchedulePageContent() {
         )}
       </aside>
       </div>
+
+      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
+      {billingEditForAppointment && (
+        <AdminVisitBillingModal
+          open
+          appointmentId={billingEditForAppointment.id}
+          appointmentDate={billingEditForAppointment.appointment_date}
+          bookedServiceId={billingEditForAppointment.booked_service}
+          patientLabel={billingEditForAppointment.patient_name}
+          onClose={() => setBillingEditForAppointment(null)}
+          onSaved={() => {
+            const id = billingEditForAppointment.id;
+            void loadAppointments().then(async () => {
+              try {
+                const snap = await apiGetAuth<VisitSnapshot>(`/admin/visit_snapshot/?appointment_id=${id}`);
+                setVisitSnapshot(snap);
+              } catch {
+                /* keep prior snapshot */
+              }
+            });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SnapshotField({ label, value }: { label: string; value: string }) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800">{trimmed}</p>
     </div>
   );
 }

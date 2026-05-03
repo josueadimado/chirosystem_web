@@ -299,7 +299,7 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     if (!activeAppt?.id) return;
-    if (revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment") {
+    if (revisingBillingForAppointmentId === activeAppt.id) {
       return;
     }
     setDoctorNotes("");
@@ -312,7 +312,7 @@ export default function DoctorDashboardPage() {
       setHandoffNotes("");
       return;
     }
-    if (revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment") {
+    if (revisingBillingForAppointmentId === activeAppt.id) {
       setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
       return;
     }
@@ -452,8 +452,9 @@ export default function DoctorDashboardPage() {
       return;
     }
     const apptId = activeAppt.id;
+    /** Explicit "Edit billing" session — always call revise endpoint so we never hit complete_visit by mistake. */
     const isRevisingAwaitingPayment =
-      revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment";
+      revisingBillingForAppointmentId != null && revisingBillingForAppointmentId === apptId;
     setPaymentConfirmOpen(false);
     setIsCompleting(true);
     setError("");
@@ -546,7 +547,10 @@ export default function DoctorDashboardPage() {
 
   const completeVisit = async () => {
     if (!activeAppt) return;
-    if (billingEditJustSaved) return;
+    if (billingEditJustSaved) {
+      toast.info("This invoice is already saved. Tap Close below to return to the schedule, or change a line to update again.");
+      return;
+    }
     if (billLines.filter((l) => l.service_id).length === 0) {
       toast.error("Add at least one service line for this visit (adjust or add rows below).");
       return;
@@ -701,7 +705,9 @@ export default function DoctorDashboardPage() {
         try {
           const st = await apiGetAuth<{ paid: boolean }>(`/doctor/invoice_payment_status/?invoice_id=${invoiceId}`);
           if (st.paid) {
-            const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?invoice_id=${invoiceId}`);
+            const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?invoice_id=${invoiceId}`, {
+              cache: "no-store",
+            });
             setPatientBillModal(bill);
             if (!opts?.quiet) toast.success("Patient bill opened for printing.");
             return true;
@@ -836,7 +842,7 @@ export default function DoctorDashboardPage() {
   const renderConsultationForm = (spacious: boolean) => {
     if (!activeAppt) return null;
     const isRevisingBilling =
-      revisingBillingForAppointmentId === activeAppt.id && activeAppt.status === "awaiting_payment";
+      revisingBillingForAppointmentId != null && revisingBillingForAppointmentId === activeAppt.id;
     const billingEditShowCloseOnly = isRevisingBilling && billingEditJustSaved;
     const handoffClass = spacious
       ? "mb-2 min-h-[5.5rem] w-full rounded-lg border border-slate-200 bg-white p-3 text-base leading-relaxed"
@@ -870,20 +876,6 @@ export default function DoctorDashboardPage() {
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              {isRevisingBilling && (
-                <button
-                  type="button"
-                  onClick={() => cancelBillingEdit()}
-                  title={
-                    billingEditShowCloseOnly
-                      ? "Invoice saved — return to schedule"
-                      : "Return to schedule without saving changes"
-                  }
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
-                >
-                  Close
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => setConsultWorkspaceExpanded(false)}
@@ -902,21 +894,11 @@ export default function DoctorDashboardPage() {
             Expand full workspace
           </button>
         )}
-        {isRevisingBilling && !spacious && (
-          <div className="mb-2 flex justify-end">
-            <button
-              type="button"
-              onClick={() => cancelBillingEdit()}
-              className="text-xs font-semibold text-slate-600 underline decoration-slate-400 underline-offset-2 hover:text-slate-900"
-            >
-              {billingEditShowCloseOnly ? "Close" : "Close billing editor"}
-            </button>
-          </div>
-        )}
         {billingEditShowCloseOnly && (
           <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm leading-snug text-emerald-950">
-            <strong>Invoice updated.</strong> Check the green <strong>Collect payment</strong> banner for the new amount and preview.
-            Tap <strong>Close</strong> below (or at the top) when you&apos;re done — or change a line above to save again.
+            <strong>Invoice updated.</strong> Check the green <strong>Collect payment</strong> banner for the new amount.
+            <strong> Preview bill</strong> and <strong>Print patient bill</strong> both use this saved version (lines, fees, totals). Tap{" "}
+            <strong>Close</strong> at the bottom when you&apos;re done — or change a line above to save again.
           </div>
         )}
         {isRevisingBilling && !billingEditShowCloseOnly && (
@@ -1142,7 +1124,7 @@ export default function DoctorDashboardPage() {
                 type="button"
                 onClick={() => cancelBillingEdit()}
                 className={cn(
-                  "rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d]",
+                  "w-full rounded-lg bg-[#16a349] px-4 py-2.5 font-semibold text-white hover:bg-[#13823d] sm:w-auto",
                   spacious ? "py-3 text-base" : "text-sm",
                 )}
               >
@@ -1211,8 +1193,8 @@ export default function DoctorDashboardPage() {
   const paymentConfirmIsRevise =
     !!activeAppt &&
     paymentConfirmOpen &&
-    revisingBillingForAppointmentId === activeAppt.id &&
-    activeAppt.status === "awaiting_payment";
+    revisingBillingForAppointmentId != null &&
+    revisingBillingForAppointmentId === activeAppt.id;
 
   return (
     <div className="space-y-8">
@@ -1365,9 +1347,9 @@ export default function DoctorDashboardPage() {
                 {printingBill ? "Checking…" : "Print patient bill"}
               </button>
               <HelpTip label="Print patient bill" tone="emerald">
-                Preview loads the <strong>latest saved</strong> invoice from the server (including after you edit billing and tap Update invoice).
-                Official print opens only after the invoice is paid and auto-triggers the print dialog. If the patient just finished checkout
-                or the reader, wait a moment and tap again if the first try is early.
+                Preview and print always load the <strong>current saved</strong> bill from the server — same line items, diagnosis, and totals
+                as after you tap <strong>Update invoice</strong>. Official print opens only after payment and may trigger the print dialog. If
+                checkout just finished, wait a moment and tap again if the first try is early.
               </HelpTip>
               <button
                 type="button"
