@@ -16,10 +16,13 @@ type StatusResponse = {
  */
 export function SquareTerminalCheckoutPoller({
   checkoutId,
+  /** API path for GET status poll (default: doctor dashboard). Admin tests use `/admin/terminal_checkout_status/`. */
+  statusPath = "/doctor/terminal_checkout_status/",
   onComplete,
   onTerminalError,
 }: {
   checkoutId: string;
+  statusPath?: string;
   onComplete: () => void;
   onTerminalError: (msg: string) => void;
 }) {
@@ -40,7 +43,8 @@ export function SquareTerminalCheckoutPoller({
       }
       try {
         const q = new URLSearchParams({ checkout_id: checkoutId });
-        const res = await apiGetAuth<StatusResponse>(`/doctor/terminal_checkout_status/?${q.toString()}`);
+        const base = statusPath.endsWith("/") ? statusPath : `${statusPath}/`;
+        const res = await apiGetAuth<StatusResponse>(`${base}?${q.toString()}`);
         const st = (res.status || "").toUpperCase();
         if (st === "COMPLETED") {
           setLog("Payment completed.");
@@ -66,7 +70,7 @@ export function SquareTerminalCheckoutPoller({
     return () => {
       stopped.current = true;
     };
-  }, [checkoutId, onComplete, onTerminalError]);
+  }, [checkoutId, statusPath, onComplete, onTerminalError]);
 
   return (
     <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{log}</p>

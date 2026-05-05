@@ -22,6 +22,13 @@ type SquarePosConfig = {
   has_application_id: boolean;
 };
 
+/** Square Terminal API (hardware) — needs SQUARE_DEVICE_ID on the server. */
+type SquareTerminalConfig = {
+  location_id: string | null;
+  has_location: boolean;
+  device_id_configured: boolean;
+};
+
 type Appointment = {
   id: number;
   patient: string;
@@ -114,6 +121,7 @@ export default function DoctorDashboardPage() {
   const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
   /** Square Point of Sale app (Stand + reader) — separate from Square Terminal API. */
   const [squarePosConfig, setSquarePosConfig] = useState<SquarePosConfig | null>(null);
+  const [squareTerminalConfig, setSquareTerminalConfig] = useState<SquareTerminalConfig | null>(null);
   const [posLaunchBusy, setPosLaunchBusy] = useState(false);
   const [displayName, setDisplayName] = useState("");
   /** Saved on the appointment row for handoff / next doctor (separate from visit-only notes). */
@@ -191,16 +199,27 @@ export default function DoctorDashboardPage() {
   useEffect(() => {
     if (!paymentFollowUp?.invoice_id) {
       setSquarePosConfig(null);
+      setSquareTerminalConfig(null);
       return;
     }
     let cancelled = false;
-    void apiGetAuth<SquarePosConfig>("/doctor/square_pos_config/")
-      .then((c) => {
-        if (!cancelled) setSquarePosConfig(c);
-      })
-      .catch(() => {
-        if (!cancelled) setSquarePosConfig({ pos_callback_configured: false, has_location: false, has_application_id: false });
-      });
+    void Promise.all([
+      apiGetAuth<SquarePosConfig>("/doctor/square_pos_config/").catch(() => ({
+        pos_callback_configured: false,
+        has_location: false,
+        has_application_id: false,
+      })),
+      apiGetAuth<SquareTerminalConfig>("/doctor/square_terminal_config/").catch(() => ({
+        location_id: null,
+        has_location: false,
+        device_id_configured: false,
+      })),
+    ]).then(([pos, term]) => {
+      if (!cancelled) {
+        setSquarePosConfig(pos);
+        setSquareTerminalConfig(term);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -627,6 +646,17 @@ export default function DoctorDashboardPage() {
     setError("");
     await runWithFeedback(
       async () => {
+        const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+        const isLikelyTabletPos =
+          /iPad|iPhone|iPod|Android/i.test(ua) ||
+          (typeof navigator !== "undefined" &&
+            navigator.platform === "MacIntel" &&
+            (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints > 1);
+        if (!isLikelyTabletPos) {
+          toast.info(
+            "Square POS is meant for iPad/Android with the Square Point of Sale app. On a desktop browser it often does nothing. For the desk card reader, use “Square Terminal device” instead.",
+          );
+        }
         const out = await apiGetAuth<{ ios_url: string; android_intent_url: string }>(
           `/doctor/square_pos_launch/?invoice_id=${paymentFollowUp.invoice_id}`,
         );
@@ -1255,6 +1285,20 @@ export default function DoctorDashboardPage() {
                 </p>
               )}
               {!paymentFollowUp.payment.charged && (
+                <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                  <strong className="text-slate-900">Desk Square Terminal (black reader):</strong> only starts after you tap{" "}
+                  <strong>Square Terminal device</strong> below — finishing the visit with “desk link” or “show options” does{" "}
+                  <em>not</em> send anything to that reader. <strong>iPad “POS” button:</strong> opens the Square POS app on the tablet,
+                  not the standalone Terminal.
+                </p>
+              )}
+              {squareTerminalConfig && !squareTerminalConfig.device_id_configured && (
+                <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+                  <strong>Terminal API not configured:</strong> set <code className="rounded bg-white px-1">SQUARE_DEVICE_ID</code> in the
+                  server environment (Square Dashboard → Devices) so the dark button can wake the physical reader.
+                </p>
+              )}
+              {!paymentFollowUp.payment.charged && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {squarePosConfig?.pos_callback_configured && (
                     <button
@@ -1269,10 +1313,17 @@ export default function DoctorDashboardPage() {
                   <button
                     type="button"
                     onClick={prepareTerminalPayment}
-                    disabled={terminalBusy}
-                    className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                    disabled={
+                      terminalBusy || (squareTerminalConfig != null && !squareTerminalConfig.device_id_configured)
+                    }
+                    title={
+                      squareTerminalConfig && !squareTerminalConfig.device_id_configured
+                        ? "Configure SQUARE_DEVICE_ID on the API server"
+                        : undefined
+                    }
+                    className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {terminalBusy ? "Creating…" : "Square Terminal device (if you have one)"}
+                    {terminalBusy ? "Creating…" : "Square Terminal device (desk reader)"}
                   </button>
                 </div>
               )}
@@ -1859,6 +1910,10 @@ export default function DoctorDashboardPage() {
                   >
                     Desk pay link, Square POS app, or decide in a moment
                   </button>
+                  <p className="text-center text-[11px] leading-snug text-slate-500">
+                    Does not wake the physical Square Terminal — use the green banner after and tap{" "}
+                    <strong className="font-semibold text-slate-700">Square Terminal device</strong>.
+                  </p>
                 </>
               ) : (
                 <>
@@ -1878,6 +1933,9 @@ export default function DoctorDashboardPage() {
                   >
                     Show all payment options (desk link, POS, Terminal from banner)
                   </button>
+                  <p className="text-center text-[11px] leading-snug text-slate-500">
+                    Terminal reader starts only from that banner — not automatically here.
+                  </p>
                 </>
               )}
               <button

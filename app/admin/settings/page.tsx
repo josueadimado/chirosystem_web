@@ -5,7 +5,8 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { Button } from "@/components/ui/button";
-import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
+import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
+import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { getRoleCookie } from "@/lib/auth";
 import { useCallback, useEffect, useState } from "react";
 
@@ -52,7 +53,7 @@ function emptyProfile(): ClinicProfile {
 }
 
 export default function AdminSettingsPage() {
-  const { runWithFeedback } = useAppFeedback();
+  const { runWithFeedback, toast } = useAppFeedback();
   const [draft, setDraft] = useState<ClinicProfile>(emptyProfile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -61,6 +62,9 @@ export default function AdminSettingsPage() {
   const [payStatus, setPayStatus] = useState<PaymentConnectionStatus | null>(null);
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState("");
+  /** Admin Terminal test: amount field + active Square checkout id for polling. */
+  const [terminalTestAmount, setTerminalTestAmount] = useState("1.00");
+  const [terminalTestCheckoutId, setTerminalTestCheckoutId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -129,6 +133,27 @@ export default function AdminSettingsPage() {
       next[index] = row;
       return { ...d, business_hours: next };
     });
+  };
+
+  const launchTerminalTest = async () => {
+    const n = Number.parseFloat(terminalTestAmount.trim());
+    if (Number.isNaN(n) || n < 1) {
+      toast.error("Enter an amount of at least $1.00.");
+      return;
+    }
+    setTerminalTestCheckoutId(null);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ checkout_id: string }>("/admin/terminal_checkout_test/", {
+          amount: terminalTestAmount.trim(),
+        });
+        setTerminalTestCheckoutId(out.checkout_id);
+      },
+      {
+        loadingMessage: "Sending test amount to Square…",
+        errorFallback: "Could not reach the Terminal. Check SQUARE_DEVICE_ID and Square Dashboard.",
+      },
+    );
   };
 
   const handleSave = async () => {
@@ -385,6 +410,63 @@ export default function AdminSettingsPage() {
                   >
                     {payLoading ? "Re-checking…" : "Re-check connection"}
                   </Button>
+
+                  <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-white/70 px-3 py-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">Test the desk Terminal</p>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Sends a real card-present charge for the amount you enter so you can confirm the reader wakes up.
+                        This does <strong>not</strong> create or pay a clinic invoice — only Square processes the card (you can
+                        void in Square if needed).
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex min-w-[8rem] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Amount (USD)
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="admin-input rounded-lg py-2 font-mono text-sm normal-case"
+                          value={terminalTestAmount}
+                          onChange={(e) => setTerminalTestAmount(e.target.value)}
+                          disabled={!payStatus.terminal_reader_ready}
+                          aria-label="Test Terminal amount in US dollars"
+                        />
+                      </label>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="mt-5 h-auto rounded-lg px-3 py-2 text-xs font-semibold"
+                        onClick={() => void launchTerminalTest()}
+                        disabled={!payStatus.terminal_reader_ready}
+                      >
+                        Send to Terminal
+                      </Button>
+                    </div>
+                    {!payStatus.terminal_reader_ready ? (
+                      <p className="text-xs text-amber-800">
+                        Fix <span className="font-mono">SQUARE_DEVICE_ID</span> (and related Square env) until “Card reader”
+                        shows ready above — then you can run this test.
+                      </p>
+                    ) : null}
+                    {terminalTestCheckoutId ? (
+                      <SquareTerminalCheckoutPoller
+                        checkoutId={terminalTestCheckoutId}
+                        statusPath="/admin/terminal_checkout_status/"
+                        onComplete={() => {
+                          toast.success(
+                            "The Terminal finished this test. No clinic invoice was updated — check Square for the payment.",
+                          );
+                          setTerminalTestCheckoutId(null);
+                        }}
+                        onTerminalError={(msg) => {
+                          toast.error(msg);
+                          setTerminalTestCheckoutId(null);
+                        }}
+                      />
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
             </section>
