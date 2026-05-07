@@ -6,6 +6,7 @@ import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -143,6 +144,7 @@ export function PatientDetailModal({
   /** When set (e.g. admin chart), shows delete patient — server allows owner_admin and staff only. */
   onPatientDeleted?: () => void;
 }) {
+  const router = useRouter();
   const [detail, setDetail] = useState<PatientDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -234,6 +236,12 @@ export function PatientDetailModal({
     detailPath === "/admin/patient_detail" ? "/admin/appointment_handoff/" : "/doctor/appointment_handoff/";
   const canSaveIntake =
     detailPath === "/doctor/patient_detail" || detailPath === "/admin/patient_detail";
+  const fullHistoryHref =
+    patientId && detailPath === "/admin/patient_detail"
+      ? `/admin/patients/${patientId}/history`
+      : patientId
+        ? `/doctor/patients/${patientId}/history`
+        : null;
 
   const saveAppointmentHandoff = async (appointmentId: number) => {
     setSavingHandoffId(appointmentId);
@@ -703,7 +711,21 @@ export function PatientDetailModal({
 
               {tab === "history" && (
                 <div className="animate-fade-in space-y-4">
-                  <DoctorSectionLabel>Patient record history</DoctorSectionLabel>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <DoctorSectionLabel>Patient record history</DoctorSectionLabel>
+                    {fullHistoryHref ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          router.push(fullHistoryHref);
+                        }}
+                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                      >
+                        Open full-page history
+                      </button>
+                    ) : null}
+                  </div>
                   <p className="text-sm leading-relaxed text-slate-600">
                     Select an appointment on the left to read everything in one clear panel. This keeps notes, diagnosis,
                     procedures, and billing visible without opening and closing multiple cards.

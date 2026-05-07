@@ -72,6 +72,13 @@ type CreditTopUpResponse = {
   household_members?: Array<{ first_name: string; last_name: string }>;
   detail?: string;
 };
+type CreditTopUpLookupResponse = {
+  found: boolean;
+  ambiguous_phone?: boolean;
+  first_name?: string;
+  last_name?: string;
+  household_members?: Array<{ first_name: string; last_name: string }>;
+};
 
 type CartItem = {
   service: ServiceOption;
@@ -325,6 +332,10 @@ export default function BookingPage() {
   const [creditTopUpAmount, setCreditTopUpAmount] = useState("100");
   const [creditTopUpMembers, setCreditTopUpMembers] = useState<Array<{ first_name: string; last_name: string }>>([]);
   const [creditTopUpBusy, setCreditTopUpBusy] = useState(false);
+  const [creditTopUpLookupStatus, setCreditTopUpLookupStatus] = useState<
+    "idle" | "checking" | "found" | "missing" | "ambiguous" | "invalid"
+  >("idle");
+  const [creditTopUpLookupMessage, setCreditTopUpLookupMessage] = useState("");
 
   /** Latest calendar day patients may book online (today + 6 months in local time). */
   const maxBookDateIso = useMemo(() => {
@@ -1061,6 +1072,17 @@ export default function BookingPage() {
       toast.error("Enter a valid cell number for credit top-up.");
       return;
     }
+    if (creditTopUpLookupStatus === "missing") {
+      toast.error("No patient profile was found for this number. Ask front desk to create your profile first.");
+      return;
+    }
+    if (
+      creditTopUpLookupStatus === "ambiguous" &&
+      (!creditTopUpFirstName.trim() || !creditTopUpLastName.trim())
+    ) {
+      toast.info("This number has multiple profiles. Pick your name below or enter first and last name.");
+      return;
+    }
     const amt = parseFloat(creditTopUpAmount);
     if (Number.isNaN(amt) || amt < 1) {
       toast.error("Enter a valid top-up amount ($1 minimum).");
@@ -1095,6 +1117,61 @@ export default function BookingPage() {
       setCreditTopUpBusy(false);
     }
   };
+
+  useEffect(() => {
+    const phone = (creditTopUpPhone || "").trim();
+    if (!phone) {
+      setCreditTopUpLookupStatus("idle");
+      setCreditTopUpLookupMessage("");
+      setCreditTopUpMembers([]);
+      return;
+    }
+    if (!isValidPhoneNumber(phone)) {
+      setCreditTopUpLookupStatus("invalid");
+      setCreditTopUpLookupMessage("Enter a valid cell number to check your profile.");
+      setCreditTopUpMembers([]);
+      return;
+    }
+
+    let isActive = true;
+    const timer = window.setTimeout(async () => {
+      setCreditTopUpLookupStatus("checking");
+      setCreditTopUpLookupMessage("Checking this number...");
+      try {
+        const res = await apiGet<CreditTopUpLookupResponse>(
+          `/booking-options/patient-lookup/?phone=${encodeURIComponent(phone)}`,
+        );
+        if (!isActive) return;
+        if (!res.found) {
+          setCreditTopUpLookupStatus("missing");
+          setCreditTopUpLookupMessage("No patient profile found for this number yet.");
+          setCreditTopUpMembers([]);
+          return;
+        }
+        if (res.ambiguous_phone && res.household_members?.length) {
+          setCreditTopUpLookupStatus("ambiguous");
+          setCreditTopUpLookupMessage("Multiple profiles found on this number. Choose your name below.");
+          setCreditTopUpMembers(res.household_members);
+          return;
+        }
+        setCreditTopUpLookupStatus("found");
+        setCreditTopUpLookupMessage(
+          `Profile found${res.first_name || res.last_name ? `: ${[res.first_name || "", res.last_name || ""].filter(Boolean).join(" ")}` : ""}.`,
+        );
+        setCreditTopUpMembers([]);
+      } catch {
+        if (!isActive) return;
+        setCreditTopUpLookupStatus("idle");
+        setCreditTopUpLookupMessage("");
+        setCreditTopUpMembers([]);
+      }
+    }, 450);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timer);
+    };
+  }, [creditTopUpPhone]);
 
   const downloadCalendar = () => {
     if (bookingResults.length === 0) return;
@@ -1303,6 +1380,20 @@ export default function BookingPage() {
                       className="phone-field text-sm"
                     />
                   </div>
+                  {creditTopUpLookupMessage ? (
+                    <p
+                      className={cn(
+                        "mt-1 text-xs",
+                        creditTopUpLookupStatus === "found" && "text-emerald-700",
+                        creditTopUpLookupStatus === "ambiguous" && "text-amber-700",
+                        creditTopUpLookupStatus === "missing" && "text-rose-700",
+                        creditTopUpLookupStatus === "invalid" && "text-slate-500",
+                        creditTopUpLookupStatus === "checking" && "text-slate-500",
+                      )}
+                    >
+                      {creditTopUpLookupMessage}
+                    </p>
+                  ) : null}
                 </div>
                 <input
                   className="rounded-lg border border-slate-200 bg-white p-2 text-sm"
