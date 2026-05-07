@@ -1629,17 +1629,6 @@ export default function BookingPage() {
                   </div>
                 );
               })}
-              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                <label className="block text-sm font-semibold text-slate-800">
-                  Please let us know what concern you would like your provider to address during the visit (optional)
-                </label>
-                <textarea
-                  className="mt-2 min-h-[96px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
-                  placeholder="Example: neck pain, lower back tightness, headache, shoulder discomfort..."
-                  value={reasonForVisit}
-                  onChange={(e) => setReasonForVisit(e.target.value)}
-                />
-              </div>
               {!needsProviderSelection && (
                 <Button
                   type="button"
@@ -1660,6 +1649,19 @@ export default function BookingPage() {
               <h2 className="text-lg font-semibold">
                 {bookingFlow === "reschedule" ? "Pick your new date & time" : "Select date & time"}
               </h2>
+              {bookingFlow === "new" && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                  <label className="block text-sm font-semibold text-slate-800">
+                    Please let us know what concern you would like your provider to address during the visit (optional)
+                  </label>
+                  <textarea
+                    className="mt-2 min-h-[96px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                    placeholder="Example: neck pain, lower back tightness, headache, shoulder discomfort..."
+                    value={reasonForVisit}
+                    onChange={(e) => setReasonForVisit(e.target.value)}
+                  />
+                </div>
+              )}
 
               {/* Help visitors who already booked and only need check-in (kiosk) */}
               <div className="flex flex-col gap-3 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.07] to-card px-4 py-4 ring-1 ring-primary/10 sm:flex-row sm:items-center sm:justify-between sm:px-5">
