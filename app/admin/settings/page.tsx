@@ -413,11 +413,19 @@ export default function AdminSettingsPage() {
 
                   <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-white/70 px-3 py-3">
                     <div>
-                      <p className="font-semibold text-slate-900">Test the desk Terminal</p>
+                      <p className="font-semibold text-slate-900">Test Square Terminal (hardware)</p>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">
                         Sends a real card-present charge for the amount you enter so you can confirm the reader wakes up.
                         This does <strong>not</strong> create or pay a clinic invoice — only Square processes the card (you can
                         void in Square if needed).
+                      </p>
+                      <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50/90 px-2.5 py-2 text-xs leading-relaxed text-sky-950">
+                        <strong className="font-semibold">Device type matters:</strong> this API only works with a{" "}
+                        <strong>Square Terminal</strong> — the standalone unit with its own screen (sometimes called countertop
+                        Terminal). It does <strong>not</strong> use the <strong>Square Stand</strong> (iPad mount), the small{" "}
+                        <strong>contactless and chip Reader</strong>, or an <strong>iPad running Square Point of Sale</strong>.
+                        Those use the Square POS app or payment links instead — use <strong>Square POS app</strong> or{" "}
+                        <strong>desk pay link</strong> on the doctor dashboard for those.
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -429,7 +437,6 @@ export default function AdminSettingsPage() {
                           className="admin-input rounded-lg py-2 font-mono text-sm normal-case"
                           value={terminalTestAmount}
                           onChange={(e) => setTerminalTestAmount(e.target.value)}
-                          disabled={!payStatus.terminal_reader_ready}
                           aria-label="Test Terminal amount in US dollars"
                         />
                       </label>
@@ -446,8 +453,9 @@ export default function AdminSettingsPage() {
                     </div>
                     {!payStatus.terminal_reader_ready ? (
                       <p className="text-xs text-amber-800">
-                        Fix <span className="font-mono">SQUARE_DEVICE_ID</span> (and related Square env) until “Card reader”
-                        shows ready above — then you can run this test.
+                        You can enter an amount anytime. <strong>Send to Terminal</strong> stays off until{" "}
+                        <span className="font-mono">SQUARE_DEVICE_ID</span> (and related Square env) is set and “Card reader”
+                        shows ready above.
                       </p>
                     ) : null}
                     {terminalTestCheckoutId ? (

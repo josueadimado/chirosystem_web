@@ -43,7 +43,15 @@ type AppointmentHistoryRow = {
   clinical_handoff_notes: string;
   can_edit_handoff_notes: boolean;
   visit: VisitHistory | null;
-  invoice: { invoice_number: string; total_amount: string; status: string } | null;
+  invoice: {
+    invoice_number: string;
+    subtotal: string;
+    discount: string;
+    credit_applied_total: string;
+    professional_discount_reason: string;
+    total_amount: string;
+    status: string;
+  } | null;
 };
 
 type PatientDetail = {
@@ -158,8 +166,10 @@ export function PatientDetailModal({
   const [handoffEdits, setHandoffEdits] = useState<Record<number, string>>({});
   const [savingHandoffId, setSavingHandoffId] = useState<number | null>(null);
   const [handoffMsg, setHandoffMsg] = useState("");
+  const [activeHistoryAppointmentId, setActiveHistoryAppointmentId] = useState<number | null>(null);
   /** Admin-only: allow regular chiro online without a completed chiro visit on file */
   const [onlineChiroIntakeWaived, setOnlineChiroIntakeWaived] = useState(false);
+  const [activeIntakeSection, setActiveIntakeSection] = useState<"address" | "emergency" | "dob">("address");
 
   useEffect(() => {
     setPortalReady(true);
@@ -172,6 +182,11 @@ export function PatientDetailModal({
       m[a.id] = a.clinical_handoff_notes ?? "";
     }
     setHandoffEdits(m);
+    setActiveHistoryAppointmentId((prev) => {
+      if (!detail.appointments.length) return null;
+      if (prev && detail.appointments.some((a) => a.id === prev)) return prev;
+      return detail.appointments[0].id;
+    });
   }, [detail]);
 
   useEffect(() => {
@@ -293,6 +308,24 @@ export function PatientDetailModal({
 
   if (patientId === null) return null;
   if (!portalReady) return null;
+
+  const intakeDirty =
+    detail !== null &&
+    (intakeForm.address_line1 !== (detail.address_line1 || "") ||
+      intakeForm.address_line2 !== (detail.address_line2 || "") ||
+      intakeForm.city_state_zip !== (detail.city_state_zip || "") ||
+      intakeForm.emergency_contact_name !== (detail.emergency_contact_name || "") ||
+      intakeForm.emergency_contact_phone !== (detail.emergency_contact_phone || "") ||
+      intakeForm.date_of_birth !== (detail.date_of_birth || "") ||
+      (detailPath === "/admin/patient_detail" &&
+        onlineChiroIntakeWaived !== (detail.online_chiro_intake_waived === true)));
+
+  const intakeSectionButtonClass = (isActive: boolean) =>
+    `rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+      isActive
+        ? "bg-emerald-100 text-[#0d5c2e] ring-1 ring-emerald-200"
+        : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
+    }`;
 
   const tabs: { id: Tab; label: string; hint: string }[] = [
     { id: "overview", label: "Overview", hint: "Summary & demographics" },
@@ -460,84 +493,148 @@ export function PatientDetailModal({
               {tab === "intake" && (
                 <div className="animate-fade-in space-y-5">
                   <div className="rounded-2xl border border-emerald-100/80 bg-emerald-50/40 px-4 py-3 text-sm leading-relaxed text-slate-700 ring-1 ring-emerald-100/50">
-                    Update demographics and emergency contacts to match the clinic intake form. Changes save to the
-                    patient record.
+                    Update demographics and emergency contacts to match the clinic intake form. Use the quick sections
+                    below, then save when done.
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="sm:col-span-2">
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Street address
-                      </span>
-                      <input
-                        className={inputClass}
-                        value={intakeForm.address_line1}
-                        onChange={(e) => setIntakeForm((f) => ({ ...f, address_line1: e.target.value }))}
-                      />
-                    </label>
-                    <label className="sm:col-span-2">
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Apt / suite
-                      </span>
-                      <input
-                        className={inputClass}
-                        value={intakeForm.address_line2}
-                        onChange={(e) => setIntakeForm((f) => ({ ...f, address_line2: e.target.value }))}
-                      />
-                    </label>
-                    <label className="sm:col-span-2">
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        City, state, ZIP
-                      </span>
-                      <input
-                        className={inputClass}
-                        placeholder="St Joseph, MI 49085"
-                        value={intakeForm.city_state_zip}
-                        onChange={(e) => setIntakeForm((f) => ({ ...f, city_state_zip: e.target.value }))}
-                      />
-                    </label>
-                    <label>
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Emergency name
-                      </span>
-                      <input
-                        className={inputClass}
-                        value={intakeForm.emergency_contact_name}
-                        onChange={(e) => setIntakeForm((f) => ({ ...f, emergency_contact_name: e.target.value }))}
-                      />
-                    </label>
-                    <label>
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Emergency phone
-                      </span>
-                      <input
-                        className={inputClass}
-                        value={intakeForm.emergency_contact_phone}
-                        onChange={(e) => setIntakeForm((f) => ({ ...f, emergency_contact_phone: e.target.value }))}
-                      />
-                    </label>
-                    <label className="sm:col-span-2">
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Date of birth
-                      </span>
-                      <input
-                        type="date"
-                        className={`${inputClass} max-w-xs`}
-                        value={intakeForm.date_of_birth}
-                        onChange={(e) => setIntakeForm((f) => ({ ...f, date_of_birth: e.target.value }))}
-                        onPaste={(e) => {
-                          const text = e.clipboardData.getData("text/plain");
-                          const normalized = normalizeDateOfBirthInput(text);
-                          if (normalized) {
-                            e.preventDefault();
-                            setIntakeForm((f) => ({ ...f, date_of_birth: normalized }));
-                          }
-                        }}
-                        title="Pick a date or paste one, e.g. 4/15/1985 or 1985-04-15"
-                      />
-                      <p className="mt-1.5 text-xs text-slate-500">
-                        You can paste a date in US form (like 4/15/1985) or ISO (1985-04-15); it will fill the field for you.
-                      </p>
-                    </label>
+
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setActiveIntakeSection("address")}
+                      className={intakeSectionButtonClass(activeIntakeSection === "address")}
+                    >
+                      Address
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveIntakeSection("emergency")}
+                      className={intakeSectionButtonClass(activeIntakeSection === "emergency")}
+                    >
+                      Emergency contact
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveIntakeSection("dob")}
+                      className={intakeSectionButtonClass(activeIntakeSection === "dob")}
+                    >
+                      Date of birth
+                    </button>
+                  </div>
+
+                  <div className="grid gap-4">
+                    <section
+                      className={`rounded-2xl border p-4 transition ${
+                        activeIntakeSection === "address"
+                          ? "border-emerald-200 bg-emerald-50/30 ring-1 ring-emerald-100"
+                          : "border-slate-200/80 bg-white"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Address</p>
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                        <label className="sm:col-span-2">
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Street address
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.address_line1}
+                            onFocus={() => setActiveIntakeSection("address")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, address_line1: e.target.value }))}
+                          />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Apt / suite
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.address_line2}
+                            onFocus={() => setActiveIntakeSection("address")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, address_line2: e.target.value }))}
+                          />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            City, state, ZIP
+                          </span>
+                          <input
+                            className={inputClass}
+                            placeholder="St Joseph, MI 49085"
+                            value={intakeForm.city_state_zip}
+                            onFocus={() => setActiveIntakeSection("address")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, city_state_zip: e.target.value }))}
+                          />
+                        </label>
+                      </div>
+                    </section>
+
+                    <section
+                      className={`rounded-2xl border p-4 transition ${
+                        activeIntakeSection === "emergency"
+                          ? "border-emerald-200 bg-emerald-50/30 ring-1 ring-emerald-100"
+                          : "border-slate-200/80 bg-white"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Emergency contact</p>
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Emergency name
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.emergency_contact_name}
+                            onFocus={() => setActiveIntakeSection("emergency")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, emergency_contact_name: e.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Emergency phone
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.emergency_contact_phone}
+                            onFocus={() => setActiveIntakeSection("emergency")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, emergency_contact_phone: e.target.value }))}
+                          />
+                        </label>
+                      </div>
+                    </section>
+
+                    <section
+                      className={`rounded-2xl border p-4 transition ${
+                        activeIntakeSection === "dob"
+                          ? "border-emerald-200 bg-emerald-50/30 ring-1 ring-emerald-100"
+                          : "border-slate-200/80 bg-white"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date of birth</p>
+                      <label className="mt-3 block">
+                        <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Date of birth
+                        </span>
+                        <input
+                          type="date"
+                          className={`${inputClass} max-w-xs`}
+                          value={intakeForm.date_of_birth}
+                          onFocus={() => setActiveIntakeSection("dob")}
+                          onChange={(e) => setIntakeForm((f) => ({ ...f, date_of_birth: e.target.value }))}
+                          onPaste={(e) => {
+                            const text = e.clipboardData.getData("text/plain");
+                            const normalized = normalizeDateOfBirthInput(text);
+                            if (normalized) {
+                              e.preventDefault();
+                              setIntakeForm((f) => ({ ...f, date_of_birth: normalized }));
+                            }
+                          }}
+                          title="Pick a date or paste one, e.g. 4/15/1985 or 1985-04-15"
+                        />
+                        <p className="mt-1.5 text-xs text-slate-500">
+                          You can paste a date in US form (like 4/15/1985) or ISO (1985-04-15); it will fill the field for you.
+                        </p>
+                      </label>
+                    </section>
                   </div>
                   {detailPath === "/admin/patient_detail" && (
                     <div className="flex gap-3 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
@@ -558,22 +655,47 @@ export function PatientDetailModal({
                     </div>
                   )}
                   {canSaveIntake && (
-                    <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
-                      <button
-                        type="button"
-                        onClick={saveIntake}
-                        disabled={savingIntake}
-                        className="rounded-xl bg-[#16a349] px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50"
-                      >
-                        {savingIntake ? "Saving…" : "Save intake"}
-                      </button>
-                      {intakeMsg ? (
-                        <span
-                          className={`text-sm font-medium ${intakeMsg === "Saved." ? "text-[#166534]" : "text-slate-600"}`}
-                        >
-                          {intakeMsg}
-                        </span>
-                      ) : null}
+                    <div className="sticky bottom-0 z-10 -mx-5 border-t border-slate-200/80 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs font-medium text-slate-600">
+                          {intakeDirty ? "You have unsaved changes." : "All changes saved."}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              detail &&
+                              setIntakeForm({
+                                address_line1: detail.address_line1 || "",
+                                address_line2: detail.address_line2 || "",
+                                city_state_zip: detail.city_state_zip || "",
+                                emergency_contact_name: detail.emergency_contact_name || "",
+                                emergency_contact_phone: detail.emergency_contact_phone || "",
+                                date_of_birth: detail.date_of_birth || "",
+                              })
+                            }
+                            disabled={!intakeDirty || savingIntake}
+                            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:opacity-50"
+                          >
+                            Reset changes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={saveIntake}
+                            disabled={savingIntake || !intakeDirty}
+                            className="rounded-xl bg-[#16a349] px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50"
+                          >
+                            {savingIntake ? "Saving…" : "Save intake"}
+                          </button>
+                          {intakeMsg ? (
+                            <span
+                              className={`text-sm font-medium ${intakeMsg === "Saved." ? "text-[#166534]" : "text-slate-600"}`}
+                            >
+                              {intakeMsg}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -583,9 +705,8 @@ export function PatientDetailModal({
                 <div className="animate-fade-in space-y-4">
                   <DoctorSectionLabel>Patient record history</DoctorSectionLabel>
                   <p className="text-sm leading-relaxed text-slate-600">
-                    Each visit is expandable. <strong>Chart note for the team</strong> stays on that appointment so another
-                    doctor can read it tomorrow. Visit notes and diagnosis come from completed encounters; procedures show what
-                    was billed.
+                    Select an appointment on the left to read everything in one clear panel. This keeps notes, diagnosis,
+                    procedures, and billing visible without opening and closing multiple cards.
                   </p>
                   {handoffMsg ? (
                     <p
@@ -604,153 +725,191 @@ export function PatientDetailModal({
                       </p>
                     </div>
                   ) : (
-                    <ul className="space-y-3">
-                      {detail.appointments.map((a) => (
-                        <li
-                          key={a.id}
-                          className="overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 text-sm shadow-sm ring-1 ring-slate-100/80"
-                        >
-                          <details className="group">
-                            <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3.5 marker:hidden [&::-webkit-details-marker]:hidden">
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                  <span className="font-bold tabular-nums text-slate-900">{formatMonthDayYear(a.appointment_date)}</span>
-                                  <span className="text-slate-300">·</span>
-                                  <span className="font-semibold text-[#0d5c2e]">{a.start_time}</span>
-                                  {a.end_time ? (
-                                    <>
-                                      <span className="text-slate-300">–</span>
-                                      <span className="text-slate-600">{a.end_time}</span>
-                                    </>
-                                  ) : null}
-                                </div>
-                                {a.provider ? (
-                                  <p className="mt-1 text-xs font-medium text-slate-600">
-                                    Provider: <span className="text-[#16a349]">{a.provider}</span>
+                    <div className="grid gap-4 lg:grid-cols-[16rem,1fr]">
+                      <aside className="space-y-2 rounded-2xl border border-slate-200/90 bg-slate-50/70 p-2">
+                        {detail.appointments.map((a) => {
+                          const selected = a.id === activeHistoryAppointmentId;
+                          return (
+                            <button
+                              key={a.id}
+                              type="button"
+                              onClick={() => setActiveHistoryAppointmentId(a.id)}
+                              className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                                selected
+                                  ? "border-emerald-300 bg-white shadow-sm ring-1 ring-emerald-200"
+                                  : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white/80"
+                              }`}
+                            >
+                              <p className="text-sm font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</p>
+                              <p className="mt-0.5 text-xs font-medium text-[#0d5c2e]">
+                                {a.start_time}
+                                {a.end_time ? ` - ${a.end_time}` : ""}
+                              </p>
+                              {a.provider ? <p className="mt-1 text-xs text-slate-600">{a.provider}</p> : null}
+                              <span
+                                className={`mt-2 inline-block rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
+                              >
+                                {a.status.replace(/_/g, " ")}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </aside>
+
+                      {(() => {
+                        const active =
+                          detail.appointments.find((a) => a.id === activeHistoryAppointmentId) || detail.appointments[0];
+                        if (!active) return null;
+                        return (
+                          <section className="space-y-4 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                              <div>
+                                <p className="text-lg font-bold tracking-tight text-slate-900">
+                                  {formatMonthDayYear(active.appointment_date)} at {active.start_time}
+                                  {active.end_time ? ` - ${active.end_time}` : ""}
+                                </p>
+                                {active.service ? <p className="mt-1 text-sm text-slate-600">{active.service}</p> : null}
+                                {active.provider ? (
+                                  <p className="mt-1 text-sm text-slate-600">
+                                    Provider: <span className="font-semibold text-[#0d5c2e]">{active.provider}</span>
                                   </p>
                                 ) : null}
-                                {a.service ? <p className="mt-0.5 text-slate-500">{a.service}</p> : null}
                               </div>
-                              <div className="flex shrink-0 items-center gap-2">
-                                <span
-                                  className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
-                                >
-                                  {a.status.replace(/_/g, " ")}
-                                </span>
-                                <span className="text-xs font-semibold text-slate-400 group-open:hidden">Expand</span>
-                                <span className="hidden text-xs font-semibold text-slate-400 group-open:inline">Hide</span>
-                              </div>
-                            </summary>
-                            <div className="space-y-4 border-t border-slate-200/80 bg-white/80 px-4 py-4">
-                              <div>
-                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                  Chart note for the team (handoff)
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {a.can_edit_handoff_notes
-                                    ? "Visible on this patient’s chart to every provider. Saved on this appointment only."
-                                    : "Only the assigned provider or admin can edit this note. You can still read it for continuity of care."}
-                                </p>
-                                {a.can_edit_handoff_notes ? (
-                                  <div className="mt-2 space-y-2">
-                                    <textarea
-                                      className={`${inputClass} min-h-[88px] resize-y`}
-                                      value={handoffEdits[a.id] ?? ""}
-                                      onChange={(e) =>
-                                        setHandoffEdits((prev) => ({ ...prev, [a.id]: e.target.value }))
-                                      }
-                                      placeholder="e.g. Follow-up on L4 tenderness; patient prefers morning slots; coordinate with massage…"
-                                      aria-label={`Chart handoff note for appointment ${a.id}`}
-                                    />
-                                    <button
-                                      type="button"
-                                      disabled={savingHandoffId === a.id}
-                                      onClick={() => void saveAppointmentHandoff(a.id)}
-                                      className="rounded-xl bg-[#16a349] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-                                    >
-                                      {savingHandoffId === a.id ? "Saving…" : "Save chart note"}
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <p className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-slate-800">
-                                    {a.clinical_handoff_notes?.trim() ? a.clinical_handoff_notes : "—"}
-                                  </p>
-                                )}
-                              </div>
+                              <span
+                                className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(active.status)}`}
+                              >
+                                {active.status.replace(/_/g, " ")}
+                              </span>
+                            </div>
 
-                              {a.visit ? (
-                                <div className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-3">
-                                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                    Completed visit record
-                                  </p>
-                                  {a.visit.reason_for_visit?.trim() ? (
-                                    <p className="mt-2 text-xs">
-                                      <span className="font-semibold text-slate-600">Reason: </span>
-                                      <span className="text-slate-800">{a.visit.reason_for_visit}</span>
-                                    </p>
-                                  ) : null}
-                                  {a.visit.diagnosis?.trim() ? (
-                                    <p className="mt-2 text-xs">
-                                      <span className="font-semibold text-slate-600">Diagnosis (bill): </span>
-                                      <span className="text-slate-800">{a.visit.diagnosis}</span>
-                                    </p>
-                                  ) : null}
-                                  {a.visit.doctor_notes?.trim() ? (
-                                    <p className="mt-2 text-xs">
-                                      <span className="font-semibold text-slate-600">Visit notes: </span>
-                                      <span className="whitespace-pre-wrap text-slate-800">{a.visit.doctor_notes}</span>
-                                    </p>
-                                  ) : null}
-                                  {a.visit.rendered_services.length > 0 ? (
-                                    <div className="mt-3">
-                                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                                        Procedures billed
-                                      </p>
-                                      <ul className="mt-1.5 space-y-1 text-xs text-slate-700">
-                                        {a.visit.rendered_services.map((line, idx) => (
-                                          <li key={idx} className="flex flex-wrap gap-x-2 border-b border-slate-200/60 py-1 last:border-0">
-                                            <span className="font-mono text-[11px] text-slate-500">
-                                              {line.billing_code || "—"}
-                                            </span>
-                                            <span>{line.service_name}</span>
-                                            {line.charges_patient === false ? (
-                                              <span className="text-[10px] font-semibold uppercase text-indigo-700">
-                                                (insurance line · no patient charge)
-                                              </span>
-                                            ) : null}
-                                            <span className="text-slate-500">
-                                              ×{line.quantity} · ${line.line_total}
-                                            </span>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  ) : null}
-                                  {a.visit.completed_at ? (
-                                    <p className="mt-2 text-[10px] text-slate-400">
-                                      Completed {a.visit.completed_at}
-                                    </p>
-                                  ) : null}
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                Chart note for the team (handoff)
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {active.can_edit_handoff_notes
+                                  ? "Visible on this patient chart to every provider. Saved on this appointment only."
+                                  : "Only assigned provider or admin can edit this note. You can still read it for continuity of care."}
+                              </p>
+                              {active.can_edit_handoff_notes ? (
+                                <div className="mt-2 space-y-2">
+                                  <textarea
+                                    className={`${inputClass} min-h-[220px] resize-y leading-relaxed`}
+                                    value={handoffEdits[active.id] ?? ""}
+                                    onChange={(e) =>
+                                      setHandoffEdits((prev) => ({ ...prev, [active.id]: e.target.value }))
+                                    }
+                                    placeholder="e.g. Follow-up on L4 tenderness; patient prefers morning slots; coordinate with massage…"
+                                    aria-label={`Chart handoff note for appointment ${active.id}`}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={savingHandoffId === active.id}
+                                    onClick={() => void saveAppointmentHandoff(active.id)}
+                                    className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                                  >
+                                    {savingHandoffId === active.id ? "Saving…" : "Save chart note"}
+                                  </button>
                                 </div>
                               ) : (
-                                <p className="text-xs text-slate-500">No completed visit documentation on file yet for this slot.</p>
-                              )}
-
-                              {a.invoice ? (
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                                  <span className="font-semibold text-slate-700">Invoice</span>
-                                  <span className="font-mono">{a.invoice.invoice_number}</span>
-                                  <span>·</span>
-                                  <span>${a.invoice.total_amount}</span>
-                                  <span>·</span>
-                                  <span className="uppercase">{a.invoice.status}</span>
+                                <div className="mt-2 max-h-[320px] overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-relaxed text-slate-800">
+                                  {active.clinical_handoff_notes?.trim() ? active.clinical_handoff_notes : "No handoff note."}
                                 </div>
-                              ) : null}
+                              )}
                             </div>
-                          </details>
-                        </li>
-                      ))}
-                    </ul>
+
+                            {active.visit ? (
+                              <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4">
+                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                  Completed visit record
+                                </p>
+                                {active.visit.reason_for_visit?.trim() ? (
+                                  <p className="mt-3 text-sm">
+                                    <span className="font-semibold text-slate-600">Reason: </span>
+                                    <span className="text-slate-800">{active.visit.reason_for_visit}</span>
+                                  </p>
+                                ) : null}
+                                {active.visit.diagnosis?.trim() ? (
+                                  <p className="mt-2 text-sm">
+                                    <span className="font-semibold text-slate-600">Diagnosis (bill): </span>
+                                    <span className="text-slate-800">{active.visit.diagnosis}</span>
+                                  </p>
+                                ) : null}
+                                {active.visit.doctor_notes?.trim() ? (
+                                  <div className="mt-2 text-sm">
+                                    <span className="font-semibold text-slate-600">Visit notes: </span>
+                                    <div className="mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white px-3 py-2 leading-relaxed text-slate-800">
+                                      {active.visit.doctor_notes}
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {active.visit.rendered_services.length > 0 ? (
+                                  <div className="mt-3">
+                                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                      Procedures billed
+                                    </p>
+                                    <ul className="mt-1.5 space-y-1 text-xs text-slate-700">
+                                      {active.visit.rendered_services.map((line, idx) => (
+                                        <li key={idx} className="flex flex-wrap gap-x-2 border-b border-slate-200/60 py-1.5 last:border-0">
+                                          <span className="font-mono text-[11px] text-slate-500">{line.billing_code || "—"}</span>
+                                          <span>{line.service_name}</span>
+                                          {line.charges_patient === false ? (
+                                            <span className="text-[10px] font-semibold uppercase text-indigo-700">
+                                              (insurance line · no patient charge)
+                                            </span>
+                                          ) : null}
+                                          <span className="text-slate-500">
+                                            ×{line.quantity} · ${line.line_total}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+                                {active.visit.completed_at ? (
+                                  <p className="mt-2 text-[10px] text-slate-400">Completed {active.visit.completed_at}</p>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500">
+                                No completed visit documentation on file yet for this appointment.
+                              </p>
+                            )}
+
+                            {active.invoice ? (
+                              <div className="space-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-slate-700">Invoice</span>
+                                  <span className="font-mono">{active.invoice.invoice_number}</span>
+                                  <span>·</span>
+                                  <span>${active.invoice.total_amount}</span>
+                                  <span>·</span>
+                                  <span className="uppercase">{active.invoice.status}</span>
+                                </div>
+                                {parseFloat(active.invoice.discount || "0") > 0 ? (
+                                  <div className="space-y-0.5 text-emerald-700">
+                                    <p>
+                                      Professional discount (internal): ${active.invoice.discount} (
+                                      {active.invoice.subtotal} before discount)
+                                    </p>
+                                    {active.invoice.professional_discount_reason?.trim() ? (
+                                      <p className="text-slate-600">
+                                        Reason: {active.invoice.professional_discount_reason}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                                {parseFloat(active.invoice.credit_applied_total || "0") > 0 ? (
+                                  <p className="text-emerald-700">
+                                    Credit used from wallet (internal): ${active.invoice.credit_applied_total}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </section>
+                        );
+                      })()}
+                    </div>
                   )}
                 </div>
               )}

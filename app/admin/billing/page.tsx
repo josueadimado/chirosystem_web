@@ -4,6 +4,7 @@ import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
 import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
+import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
@@ -17,6 +18,7 @@ type BillingInvoiceRow = {
   invoice_number: string;
   patient_id: number;
   patient_name: string;
+  patient_credit_balance: string;
   status: string;
   /** visit | no_show_fee | late_cancel_fee — only visit invoices support line-item edit before payment */
   kind: string;
@@ -26,6 +28,9 @@ type BillingInvoiceRow = {
   booked_service_id: number | null;
   total_amount: string;
   subtotal: string;
+  discount: string;
+  credit_applied_total: string;
+  professional_discount_reason: string;
   tax: string;
   issued_at: string | null;
   paid_at: string | null;
@@ -51,6 +56,9 @@ export default function AdminBillingPage() {
   const [payMethod, setPayMethod] = useState<"cash" | "card" | "online" | "manual">("cash");
   const [payRef, setPayRef] = useState("");
   const [payBusy, setPayBusy] = useState(false);
+  const [creditBusy, setCreditBusy] = useState(false);
+  const [creditTopUpAmount, setCreditTopUpAmount] = useState("0");
+  const [creditTerminalCheckoutId, setCreditTerminalCheckoutId] = useState<string | null>(null);
   const [printBusy, setPrintBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
@@ -112,7 +120,9 @@ export default function AdminBillingPage() {
   useEffect(() => {
     if (selected) {
       setPayAmount(selected.total_amount);
+      setCreditTopUpAmount("0");
       setPayRef("");
+      setCreditTerminalCheckoutId(null);
     }
   }, [selected?.id, selected?.total_amount]);
 
@@ -153,6 +163,75 @@ export default function AdminBillingPage() {
       },
     );
     setPayBusy(false);
+  };
+
+  const applyInvoiceCredit = async () => {
+    if (!selected || !canRecordPayment) return;
+    setCreditBusy(true);
+    await runWithFeedback(
+      async () => {
+        await apiPost(`/invoices/${selected.id}/apply_credit/`, {});
+        await load();
+        setSelectedId(selected.id);
+      },
+      {
+        loadingMessage: "Applying patient credit…",
+        successMessage: "Patient credit applied.",
+        errorFallback: "Could not apply credit.",
+      },
+    );
+    setCreditBusy(false);
+  };
+
+  const topUpPatientCredit = async () => {
+    if (!selected) return;
+    const amt = parseFloat(creditTopUpAmount);
+    if (Number.isNaN(amt) || amt <= 0) {
+      toast.error("Enter a valid top-up amount.");
+      return;
+    }
+    setCreditBusy(true);
+    await runWithFeedback(
+      async () => {
+        await apiPost("/admin/patient_credit_topup/", {
+          patient_id: selected.patient_id,
+          amount: creditTopUpAmount,
+        });
+        await load();
+        setSelectedId(selected.id);
+      },
+      {
+        loadingMessage: "Adding patient credit…",
+        successMessage: "Credit added to patient wallet.",
+        errorFallback: "Could not add credit.",
+      },
+    );
+    setCreditBusy(false);
+  };
+
+  const topUpPatientCreditByTerminal = async () => {
+    if (!selected) return;
+    const amt = parseFloat(creditTopUpAmount);
+    if (Number.isNaN(amt) || amt <= 0) {
+      toast.error("Enter a valid top-up amount.");
+      return;
+    }
+    setCreditBusy(true);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ checkout_id: string }>("/admin/patient_credit_topup_terminal/", {
+          patient_id: selected.patient_id,
+          amount: creditTopUpAmount,
+        });
+        setCreditTerminalCheckoutId(out.checkout_id);
+      },
+      {
+        loadingMessage: "Sending payment to terminal…",
+        successMessage: "Terminal is ready — complete payment on device.",
+        errorFallback: "Could not start terminal top-up.",
+      },
+    );
+    setCreditBusy(false);
   };
 
   const billingEditRow =
@@ -244,8 +323,20 @@ export default function AdminBillingPage() {
                 )}
                 <dl className="mt-3 space-y-1 border-t border-slate-200/80 pt-3 text-sm">
                   <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Patient credit balance</dt>
+                    <dd className="font-medium tabular-nums text-emerald-700">{formatMoney(selected.patient_credit_balance)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
                     <dt className="text-slate-500">Subtotal</dt>
                     <dd className="font-medium tabular-nums">{formatMoney(selected.subtotal)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Professional discount (internal)</dt>
+                    <dd className="font-medium tabular-nums text-emerald-700">-{formatMoney(selected.discount)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Credit applied (wallet)</dt>
+                    <dd className="font-medium tabular-nums text-emerald-700">-{formatMoney(selected.credit_applied_total)}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt className="text-slate-500">Tax</dt>
@@ -256,10 +347,78 @@ export default function AdminBillingPage() {
                     <dd className="tabular-nums">{formatMoney(selected.total_amount)}</dd>
                   </div>
                 </dl>
+                {parseFloat(selected.discount || "0") > 0 ? (
+                  <div className="mt-2 space-y-1 text-[11px] leading-relaxed text-slate-500">
+                    <p>
+                      Internal adjustment only. This discount is tracked for clinic records and workflow history, but it is
+                      not shown as a separate line on the patient-facing printed bill.
+                    </p>
+                    {selected.professional_discount_reason?.trim() ? (
+                      <p>
+                        Reason: <span className="font-medium text-slate-700">{selected.professional_discount_reason}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               {(selected.status === "issued" || selected.status === "overdue" || selected.status === "draft") && (
                 <div className="flex flex-col gap-2">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900">Patient credit wallet</p>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="admin-input"
+                        placeholder="Top-up amount"
+                        value={creditTopUpAmount}
+                        onChange={(e) => setCreditTopUpAmount(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        disabled={creditBusy}
+                        onClick={() => void topUpPatientCredit()}
+                        className="rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        Top up
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={creditBusy}
+                      onClick={() => void topUpPatientCreditByTerminal()}
+                      className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      Top up via Square Terminal
+                    </button>
+                    <button
+                      type="button"
+                      disabled={creditBusy}
+                      onClick={() => void applyInvoiceCredit()}
+                      className="mt-2 w-full rounded-xl border border-emerald-400 bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      Apply available credit to this invoice
+                    </button>
+                    {creditTerminalCheckoutId && (
+                      <div className="mt-2">
+                        <SquareTerminalCheckoutPoller
+                          checkoutId={creditTerminalCheckoutId}
+                          statusPath="/admin/terminal_checkout_status/"
+                          onComplete={() => {
+                            setCreditTerminalCheckoutId(null);
+                            toast.success("Terminal top-up completed — patient credit was added.");
+                            void load();
+                            if (selected) setSelectedId(selected.id);
+                          }}
+                          onTerminalError={(msg) => {
+                            setCreditTerminalCheckoutId(null);
+                            toast.error(msg);
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     disabled={previewBusy}

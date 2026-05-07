@@ -68,13 +68,19 @@ type ServiceOpt = {
 type BillLine = { service_id: number; quantity: string; unit_price: string };
 
 /** Detects edits after a successful billing save so we can show "Update invoice" again. */
-function billingFormFingerprint(lines: BillLine[], notes: string, diagnosis: string): string {
+function billingFormFingerprint(
+  lines: BillLine[],
+  notes: string,
+  diagnosis: string,
+  professionalDiscount: string,
+  professionalDiscountReason: string,
+): string {
   const rows = lines
     .filter((l) => l.service_id)
     .map((l) => `${l.service_id}:${l.quantity}:${l.unit_price.trim()}`)
     .sort()
     .join("|");
-  return `${rows}#${notes}#${diagnosis}`;
+  return `${rows}#${notes}#${diagnosis}#${professionalDiscount.trim()}#${professionalDiscountReason.trim()}`;
 }
 
 function doctorApptWithin24Hours(appt: Appointment): boolean {
@@ -95,6 +101,7 @@ type PaymentFollowUp = {
   invoice_id: number;
   invoice_number?: string;
   total_amount?: string;
+  patient_credit_balance?: string;
   payment: CompleteVisitPayment;
 };
 
@@ -109,6 +116,8 @@ export default function DoctorDashboardPage() {
   const [activeAppt, setActiveAppt] = useState<Appointment | null>(null);
   const [doctorNotes, setDoctorNotes] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
+  const [professionalDiscount, setProfessionalDiscount] = useState("");
+  const [professionalDiscountReason, setProfessionalDiscountReason] = useState("");
   const [billLines, setBillLines] = useState<BillLine[]>([]);
   const [isStarting, setIsStarting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -117,6 +126,7 @@ export default function DoctorDashboardPage() {
   const [paymentConfirmOpen, setPaymentConfirmOpen] = useState(false);
   const [paymentFollowUp, setPaymentFollowUp] = useState<PaymentFollowUp | null>(null);
   const [terminalBusy, setTerminalBusy] = useState(false);
+  const [applyingCredit, setApplyingCredit] = useState(false);
   /** Square Terminal API checkout id — we poll until the physical device completes payment. */
   const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
   /** Square Point of Sale app (Stand + reader) — separate from Square Terminal API. */
@@ -166,12 +176,18 @@ export default function DoctorDashboardPage() {
     if (!billingEditJustSaved) return;
     const saved = billingEditSavedFingerprintRef.current;
     if (saved === null) return;
-    const cur = billingFormFingerprint(billLines, doctorNotes, diagnosis);
+    const cur = billingFormFingerprint(
+      billLines,
+      doctorNotes,
+      diagnosis,
+      professionalDiscount,
+      professionalDiscountReason,
+    );
     if (cur !== saved) {
       setBillingEditJustSaved(false);
       billingEditSavedFingerprintRef.current = null;
     }
-  }, [billingEditJustSaved, billLines, doctorNotes, diagnosis]);
+  }, [billingEditJustSaved, billLines, doctorNotes, diagnosis, professionalDiscount, professionalDiscountReason]);
 
   useEffect(() => {
     if (!activeAppt) setPaymentConfirmOpen(false);
@@ -186,6 +202,20 @@ export default function DoctorDashboardPage() {
     return () => {
       document.body.style.overflow = prev;
     };
+  }, [activeAppt, consultWorkspaceExpanded]);
+
+  /** Allow quick keyboard escape from full-screen consult workspace. */
+  useEffect(() => {
+    if (!activeAppt || !consultWorkspaceExpanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPaymentConfirmOpen(false);
+        setConsultWorkspaceExpanded(false);
+        setActiveAppt(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [activeAppt, consultWorkspaceExpanded]);
 
   useEffect(() => {
@@ -322,12 +352,16 @@ export default function DoctorDashboardPage() {
       return;
     }
     setDoctorNotes("");
+    setProfessionalDiscount("");
+    setProfessionalDiscountReason("");
   }, [activeAppt?.id, activeAppt?.status, revisingBillingForAppointmentId]);
 
   useEffect(() => {
     if (!activeAppt) {
       setBillLines([]);
       setDiagnosis("");
+      setProfessionalDiscount("");
+      setProfessionalDiscountReason("");
       setHandoffNotes("");
       return;
     }
@@ -339,10 +373,14 @@ export default function DoctorDashboardPage() {
     if (!activeAppt.booked_service_id) {
       setBillLines([]);
       setDiagnosis("");
+      setProfessionalDiscount("");
+      setProfessionalDiscountReason("");
       return;
     }
     setBillLines([{ service_id: activeAppt.booked_service_id, quantity: "1", unit_price: "" }]);
     setDiagnosis("");
+    setProfessionalDiscount("");
+    setProfessionalDiscountReason("");
   }, [
     activeAppt?.id,
     activeAppt?.booked_service_id,
@@ -410,6 +448,8 @@ export default function DoctorDashboardPage() {
           rendered_services: Array<{ service_id: number; quantity: number; unit_price: string }>;
           invoice_id: number;
           invoice_number: string;
+          discount?: string;
+          professional_discount_reason?: string;
           total_amount: string;
         }>(`/doctor/${appt.id}/billing_for_edit/`);
         if (!data.rendered_services?.length) {
@@ -422,6 +462,8 @@ export default function DoctorDashboardPage() {
         setActiveAppt(appt);
         setDoctorNotes(data.doctor_notes ?? "");
         setDiagnosis(data.diagnosis ?? "");
+        setProfessionalDiscount(data.discount ?? "");
+        setProfessionalDiscountReason(data.professional_discount_reason ?? "");
         setBillLines(
           data.rendered_services.map((r) => ({
             service_id: r.service_id,
@@ -446,6 +488,8 @@ export default function DoctorDashboardPage() {
     setConsultWorkspaceExpanded(false);
     setDoctorNotes("");
     setDiagnosis("");
+    setProfessionalDiscount("");
+    setProfessionalDiscountReason("");
     setBillLines([]);
     void load({ skipReconnectBillingEdit: true });
   };
@@ -486,11 +530,14 @@ export default function DoctorDashboardPage() {
           invoice_id: number;
           invoice_number: string;
           total_amount: string;
+          patient_credit_balance?: string;
           payment: CompleteVisitPayment;
         }>(endpoint, {
           doctor_notes: doctorNotes,
           diagnosis,
           rendered_services: rendered,
+          professional_discount: professionalDiscount.trim() || "0",
+          professional_discount_reason: professionalDiscountReason.trim(),
           charge_saved_card_if_present: shouldChargeSavedCard,
         });
         if (result.payment.charged) {
@@ -500,12 +547,19 @@ export default function DoctorDashboardPage() {
           invoice_id: result.invoice_id,
           invoice_number: result.invoice_number,
           total_amount: result.total_amount,
+          patient_credit_balance: result.patient_credit_balance,
           payment: result.payment,
         });
         setSquareCheckoutId(null);
 
         if (isRevisingAwaitingPayment) {
-          billingEditSavedFingerprintRef.current = billingFormFingerprint(billLines, doctorNotes, diagnosis);
+          billingEditSavedFingerprintRef.current = billingFormFingerprint(
+            billLines,
+            doctorNotes,
+            diagnosis,
+            professionalDiscount,
+            professionalDiscountReason,
+          );
           setBillingEditJustSaved(true);
           await load();
           if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
@@ -529,6 +583,8 @@ export default function DoctorDashboardPage() {
         setConsultWorkspaceExpanded(false);
         setDoctorNotes("");
         setDiagnosis("");
+        setProfessionalDiscount("");
+        setProfessionalDiscountReason("");
         setBillLines([]);
         await load({ skipReconnectBillingEdit: true });
         if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
@@ -574,7 +630,20 @@ export default function DoctorDashboardPage() {
       toast.error("Add at least one service line for this visit (adjust or add rows below).");
       return;
     }
+    const isRevisingAwaitingPayment =
+      revisingBillingForAppointmentId != null && revisingBillingForAppointmentId === activeAppt.id;
+    if (isRevisingAwaitingPayment) {
+      // In explicit edit mode, doctors already chose to update this invoice; submit immediately.
+      await doCompleteVisit(false);
+      return;
+    }
     setPaymentConfirmOpen(true);
+  };
+
+  const closeConsultWorkspace = () => {
+    setPaymentConfirmOpen(false);
+    setConsultWorkspaceExpanded(false);
+    setActiveAppt(null);
   };
 
   const checkInPatient = async (appt: Appointment) => {
@@ -639,6 +708,54 @@ export default function DoctorDashboardPage() {
     setTerminalBusy(false);
   };
 
+  const applyPatientCredit = async () => {
+    if (!paymentFollowUp) return;
+    setApplyingCredit(true);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{
+          invoice_id: number;
+          invoice_number: string;
+          applied_credit: string;
+          remaining_due: string;
+          patient_credit_balance: string;
+          invoice_status: string;
+          already_paid: boolean;
+        }>(`/invoices/${paymentFollowUp.invoice_id}/apply_credit/`, {});
+
+        setPaymentFollowUp((prev) =>
+          prev
+            ? {
+                ...prev,
+                invoice_number: out.invoice_number,
+                total_amount: out.remaining_due,
+                patient_credit_balance: out.patient_credit_balance,
+                payment: {
+                  ...prev.payment,
+                  charged: out.already_paid,
+                  status: out.already_paid ? "paid_by_credit" : prev.payment.status,
+                },
+              }
+            : prev,
+        );
+        if (out.already_paid) {
+          await tryOpenPatientBill(out.invoice_id, { maxAttempts: 3, quiet: true });
+          await load();
+        }
+        return out;
+      },
+      {
+        loadingMessage: "Applying patient credit…",
+        successMessage: (o) =>
+          o?.already_paid
+            ? `Credit covered the full balance ($${o.applied_credit}).`
+            : `Applied $${o?.applied_credit || "0"} credit. Remaining due: $${o?.remaining_due || "0"}.`,
+        errorFallback: "Could not apply patient credit.",
+      },
+    );
+    setApplyingCredit(false);
+  };
+
   /** Opens Square Point of Sale on iPad/Android — patient taps card on Stand + reader. */
   const prepareSquarePosPayment = async () => {
     if (!paymentFollowUp) return;
@@ -686,8 +803,8 @@ export default function DoctorDashboardPage() {
     });
   }, [services, activeAppt?.booked_service_id]);
 
-  /** Estimated total for checked bill lines (same math as complete visit uses on the server). */
-  const consultationEstimatedTotal = useMemo(() => {
+  /** Estimated subtotal for checked bill lines (same base math as server). */
+  const consultationEstimatedSubtotal = useMemo(() => {
     let total = 0;
     let hasLine = false;
     for (const line of billLines) {
@@ -704,6 +821,20 @@ export default function DoctorDashboardPage() {
     if (!hasLine) return null;
     return total;
   }, [billLines, services]);
+
+  const consultationDiscountAmount = useMemo(() => {
+    const raw = professionalDiscount.trim();
+    if (!raw) return 0;
+    const n = parseFloat(raw);
+    if (Number.isNaN(n) || n < 0) return 0;
+    if (consultationEstimatedSubtotal == null) return 0;
+    return Math.min(n, consultationEstimatedSubtotal);
+  }, [professionalDiscount, consultationEstimatedSubtotal]);
+
+  const consultationEstimatedTotal = useMemo(() => {
+    if (consultationEstimatedSubtotal == null) return null;
+    return Math.max(0, consultationEstimatedSubtotal - consultationDiscountAmount);
+  }, [consultationEstimatedSubtotal, consultationDiscountAmount]);
 
   const [printingBill, setPrintingBill] = useState(false);
   const [previewingBill, setPreviewingBill] = useState(false);
@@ -764,6 +895,7 @@ export default function DoctorDashboardPage() {
           invoice_id: number;
           invoice_number: string;
           total_amount: string;
+          patient_credit_balance?: string;
           already_paid?: boolean;
           payment: CompleteVisitPayment;
         }>("/doctor/prepare_invoice_payment/", {
@@ -779,6 +911,7 @@ export default function DoctorDashboardPage() {
           invoice_id: out.invoice_id,
           invoice_number: out.invoice_number,
           total_amount: out.total_amount,
+          patient_credit_balance: out.patient_credit_balance,
           payment: out.payment,
         });
         setSquareCheckoutId(null);
@@ -912,6 +1045,13 @@ export default function DoctorDashboardPage() {
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
               >
                 Use narrow side panel
+              </button>
+              <button
+                type="button"
+                onClick={closeConsultWorkspace}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                Close workspace
               </button>
             </div>
           </div>
@@ -1099,18 +1239,65 @@ export default function DoctorDashboardPage() {
               );
             })}
           </div>
-          {consultationEstimatedTotal != null && (
-            <div className="mt-3 flex items-center justify-between rounded-xl border border-[#16a349]/30 bg-[#f0fdf4] px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[#0d5c2e]">Estimated total (this visit)</span>
-                <HelpTip label="Estimated total" tone="emerald">
-                  Based on checked procedures, units, and fee overrides. Procedures marked insurance-only (no patient charge) are
-                  excluded. {isRevisingBilling ? "After you save, the invoice is rebuilt with the same math." : "Tax may be added on the final invoice after you complete the visit."}
-                </HelpTip>
+          {consultationEstimatedSubtotal != null && (
+            <div className="mt-3 space-y-3 rounded-xl border border-[#16a349]/30 bg-[#f0fdf4] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-[#0d5c2e]">Estimated patient amount</span>
+                  <HelpTip label="Estimated total" tone="emerald">
+                    Based on checked procedures, units, fee overrides, and professional discount. Insurance-only lines are excluded.
+                    {isRevisingBilling
+                      ? " After you save, the same discount and amount are applied to the invoice."
+                      : " Tax stays zero in this workflow; this should match the saved invoice amount."} The discount is
+                    tracked internally for clinic records and payment collection, and is not printed as a separate line on
+                    the patient bill.
+                  </HelpTip>
+                </div>
+                <span className="text-lg font-bold tabular-nums text-slate-900">
+                  {(consultationEstimatedTotal ?? 0).toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                </span>
               </div>
-              <span className="text-lg font-bold tabular-nums text-slate-900">
-                {consultationEstimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
-              </span>
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr),11rem] sm:items-end">
+                <div className="text-xs text-slate-600">
+                  <p>
+                    Subtotal before discount:{" "}
+                    <strong className="font-semibold text-slate-900">
+                      {consultationEstimatedSubtotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                    </strong>
+                  </p>
+                  <p>
+                    Professional discount:{" "}
+                    <strong className="font-semibold text-slate-900">
+                      {consultationDiscountAmount.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                    </strong>
+                  </p>
+                </div>
+                <label className="text-xs text-slate-700">
+                  <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Professional discount ($)
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    className={cn("w-full rounded border border-slate-200 bg-white p-2", spacious ? "text-base" : "text-sm")}
+                    placeholder="0.00"
+                    value={professionalDiscount}
+                    onChange={(e) => setProfessionalDiscount(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="block text-xs text-slate-700">
+                <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Discount reason (optional, internal only)
+                </span>
+                <input
+                  className={cn("w-full rounded border border-slate-200 bg-white p-2", spacious ? "text-base" : "text-sm")}
+                  placeholder="e.g. Professional courtesy"
+                  value={professionalDiscountReason}
+                  onChange={(e) => setProfessionalDiscountReason(e.target.value)}
+                />
+              </label>
             </div>
           )}
         </div>
@@ -1272,6 +1459,11 @@ export default function DoctorDashboardPage() {
                 Invoice {paymentFollowUp.invoice_number ?? paymentFollowUp.invoice_id}
                 {paymentFollowUp.total_amount != null && ` · $${paymentFollowUp.total_amount}`}
               </p>
+              {paymentFollowUp.patient_credit_balance != null && (
+                <p className="mt-1 text-sm text-slate-600">
+                  Patient credit available: <span className="font-semibold">${paymentFollowUp.patient_credit_balance}</span>
+                </p>
+              )}
               {paymentFollowUp.payment.charged && (
                 <p className="mt-2 font-semibold text-[#166534]">
                   Paid — you can print the patient bill for their records.
@@ -1300,6 +1492,14 @@ export default function DoctorDashboardPage() {
               )}
               {!paymentFollowUp.payment.charged && (
                 <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void applyPatientCredit()}
+                    disabled={applyingCredit}
+                    className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    {applyingCredit ? "Applying…" : "Apply patient credit"}
+                  </button>
                   {squarePosConfig?.pos_callback_configured && (
                     <button
                       type="button"
@@ -1774,10 +1974,22 @@ export default function DoctorDashboardPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="consult-workspace-title"
+            onClick={closeConsultWorkspace}
           >
             {/* Portal → body so stacking is above sticky doctor header (z-30); z-[150] below patient chart (z-200) */}
             <div className="flex min-h-[100dvh] w-full items-center justify-center px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-5 sm:py-6 sm:pb-6">
-              <div className="w-full max-w-5xl shrink-0 rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25">
+              <div
+                className="relative w-full max-w-5xl shrink-0 rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={closeConsultWorkspace}
+                  aria-label="Close workspace"
+                  className="absolute right-3 top-3 z-20 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-lg font-semibold leading-none text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                >
+                  ×
+                </button>
                 <div className="max-h-[min(100dvh-2.5rem,56rem)] overflow-y-auto overscroll-y-contain px-5 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-5 sm:max-h-[min(92dvh,56rem)] sm:px-8 sm:pb-10 sm:pt-7">
                   <h2 id="consult-workspace-title" className="sr-only">
                     Active visit workspace for {activeAppt.patient}

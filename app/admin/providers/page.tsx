@@ -25,6 +25,7 @@ type Provider = {
   /** Local edit for the name shown on schedules (maps to login profile full_name); cleared when the list reloads. */
   localDisplayName?: string;
   title: string;
+  credential: string;
   specialty: string;
   active: boolean;
   notification_phone: string;
@@ -39,6 +40,7 @@ const emptyAddForm = {
   new_full_name: "",
   new_email: "",
   title: "",
+  credential: "",
   specialty: "",
   notification_phone: "",
   services: [] as number[],
@@ -136,6 +138,7 @@ export default function AdminProvidersPage() {
         await apiPatch(`/providers/${provider.id}/`, {
           services: provider.services,
           notification_phone: provider.notification_phone?.trim() ?? "",
+          credential: provider.credential?.trim() ?? "",
           display_name: displayNameFor(provider).trim(),
         });
         await load("refresh");
@@ -241,6 +244,7 @@ export default function AdminProvidersPage() {
           new_full_name: addForm.new_full_name.trim() || undefined,
           new_email: addForm.new_email.trim() || undefined,
           title: addForm.title.trim() || undefined,
+          credential: addForm.credential.trim() || undefined,
           specialty: addForm.specialty.trim() || undefined,
           notification_phone: addForm.notification_phone.trim() || undefined,
           services: addForm.services,
@@ -540,6 +544,25 @@ export default function AdminProvidersPage() {
 
                     <div>
                       <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Credential
+                        <HelpTip label="Printed on bills">Shown next to doctor name on printed patient bills.</HelpTip>
+                      </label>
+                      <input
+                        type="text"
+                        value={editorProvider.credential ?? ""}
+                        onChange={(e) =>
+                          setProviders((prev) =>
+                            prev.map((p) => (p.id === editorProvider.id ? { ...p, credential: e.target.value } : p)),
+                          )
+                        }
+                        placeholder="e.g. DC"
+                        className="admin-input py-2.5 text-sm"
+                        aria-label={`Credential for ${editorProvider.provider_name}`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Alert SMS
                         <HelpTip label="Alert SMS">
                           US 10 digits or +1… — Twilio sends check-in and schedule alerts to this number when configured on the server.
@@ -732,6 +755,18 @@ export default function AdminProvidersPage() {
                     onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
                     className="admin-input w-full py-2.5 text-sm"
                     placeholder="DC"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Credential (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={addForm.credential}
+                    onChange={(e) => setAddForm((f) => ({ ...f, credential: e.target.value }))}
+                    className="admin-input w-full py-2.5 text-sm"
+                    placeholder="e.g. DC"
                   />
                 </div>
                 <div>

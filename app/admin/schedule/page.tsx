@@ -34,7 +34,16 @@ type VisitSnapshot = {
     line_total: string;
     charges_patient: boolean;
   }>;
-  invoice: { id: number; invoice_number: string; total_amount: string; status: string } | null;
+  invoice: {
+    id: number;
+    invoice_number: string;
+    subtotal: string;
+    discount: string;
+    credit_applied_total: string;
+    professional_discount_reason: string;
+    total_amount: string;
+    status: string;
+  } | null;
 };
 
 type Appointment = {
@@ -659,11 +668,33 @@ function AdminSchedulePageContent() {
                     <p className="text-xs text-slate-500">No line items on this visit yet.</p>
                   )}
                   {visitSnapshot.invoice && (
-                    <p className="text-xs text-slate-700">
-                      <span className="font-semibold text-slate-500">Invoice:</span>{" "}
-                      {visitSnapshot.invoice.invoice_number} · ${visitSnapshot.invoice.total_amount}{" "}
-                      <span className="text-slate-500">({visitSnapshot.invoice.status})</span>
-                    </p>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      <p>
+                        <span className="font-semibold text-slate-500">Invoice:</span>{" "}
+                        {visitSnapshot.invoice.invoice_number} · ${visitSnapshot.invoice.total_amount}{" "}
+                        <span className="text-slate-500">({visitSnapshot.invoice.status})</span>
+                      </p>
+                      {parseFloat(visitSnapshot.invoice.discount || "0") > 0 ? (
+                        <div className="space-y-0.5">
+                          <p className="text-emerald-700">
+                            <span className="font-semibold">Professional discount (internal):</span> $
+                            {visitSnapshot.invoice.discount}
+                          </p>
+                          {parseFloat(visitSnapshot.invoice.credit_applied_total || "0") > 0 ? (
+                            <p className="text-emerald-700">
+                              <span className="font-semibold">Credit applied (wallet):</span> $
+                              {visitSnapshot.invoice.credit_applied_total}
+                            </p>
+                          ) : null}
+                          {visitSnapshot.invoice.professional_discount_reason?.trim() ? (
+                            <p className="text-slate-600">
+                              <span className="font-semibold">Reason:</span>{" "}
+                              {visitSnapshot.invoice.professional_discount_reason}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   )}
                 </>
               )}

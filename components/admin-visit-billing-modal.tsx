@@ -46,6 +46,8 @@ export function AdminVisitBillingModal({
   const [services, setServices] = useState<ServiceOpt[]>([]);
   const [doctorNotes, setDoctorNotes] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
+  const [professionalDiscount, setProfessionalDiscount] = useState("");
+  const [professionalDiscountReason, setProfessionalDiscountReason] = useState("");
   const [billLines, setBillLines] = useState<BillLine[]>([]);
   const [invoiceHint, setInvoiceHint] = useState("");
   const [portalReady, setPortalReady] = useState(false);
@@ -76,6 +78,8 @@ export function AdminVisitBillingModal({
             diagnosis: string;
             rendered_services: Array<{ service_id: number; quantity: number; unit_price: string }>;
             invoice_number: string;
+            discount?: string;
+            professional_discount_reason?: string;
             total_amount: string;
           }>(`/admin/visit_billing_for_edit/?appointment_id=${appointmentId}`),
         ]);
@@ -83,6 +87,8 @@ export function AdminVisitBillingModal({
         setServices(svcList);
         setDoctorNotes(billing.doctor_notes ?? "");
         setDiagnosis(billing.diagnosis ?? "");
+        setProfessionalDiscount(billing.discount ?? "");
+        setProfessionalDiscountReason(billing.professional_discount_reason ?? "");
         setInvoiceHint(`${billing.invoice_number ?? ""} · $${billing.total_amount ?? ""}`.trim());
         if (!billing.rendered_services?.length) {
           toast.error("No billing lines on this visit.");
@@ -141,6 +147,19 @@ export function AdminVisitBillingModal({
     return total;
   }, [billLines, services]);
 
+  const discountAmount = useMemo(() => {
+    const raw = professionalDiscount.trim();
+    if (!raw || estimatedTotal == null) return 0;
+    const n = parseFloat(raw);
+    if (Number.isNaN(n) || n < 0) return 0;
+    return Math.min(n, estimatedTotal);
+  }, [professionalDiscount, estimatedTotal]);
+
+  const estimatedAfterDiscount = useMemo(() => {
+    if (estimatedTotal == null) return null;
+    return Math.max(0, estimatedTotal - discountAmount);
+  }, [estimatedTotal, discountAmount]);
+
   const toggleService = (serviceId: number) => {
     setBillLines((rows) => {
       const has = rows.some((r) => r.service_id === serviceId);
@@ -176,6 +195,8 @@ export function AdminVisitBillingModal({
           doctor_notes: doctorNotes,
           diagnosis,
           rendered_services: rendered,
+          professional_discount: professionalDiscount.trim() || "0",
+          professional_discount_reason: professionalDiscountReason.trim(),
           charge_saved_card_if_present: false,
         });
         onSaved();
@@ -322,11 +343,57 @@ export function AdminVisitBillingModal({
                       })}
                     </div>
                     {estimatedTotal != null && (
-                      <p className="mt-2 text-sm font-semibold text-[#0d5c2e]">
-                        Estimated patient total:{" "}
-                        {estimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
-                      </p>
+                      <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2">
+                        <p className="text-xs text-slate-600">
+                          Subtotal before discount:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {estimatedTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-600">
+                          Professional discount (internal):{" "}
+                          <span className="font-semibold text-emerald-700">
+                            {discountAmount.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                          </span>
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-[#0d5c2e]">
+                          Estimated patient total:{" "}
+                          {(estimatedAfterDiscount ?? 0).toLocaleString(undefined, {
+                            style: "currency",
+                            currency: "USD",
+                          })}
+                        </p>
+                      </div>
                     )}
+                  </div>
+                  <div>
+                    <p className="mb-1 text-xs font-semibold uppercase text-slate-500">
+                      Professional discount (internal)
+                    </p>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="w-full rounded-lg border border-slate-200 p-2 text-sm"
+                      value={professionalDiscount}
+                      onChange={(e) => setProfessionalDiscount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      Clinic-only adjustment. It updates invoice math and internal records, but it is not shown as a
+                      separate line item on the patient-facing bill printout.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-xs font-semibold uppercase text-slate-500">
+                      Discount reason (optional, internal only)
+                    </p>
+                    <input
+                      className="w-full rounded-lg border border-slate-200 p-2 text-sm"
+                      value={professionalDiscountReason}
+                      onChange={(e) => setProfessionalDiscountReason(e.target.value)}
+                      placeholder="e.g. Professional courtesy"
+                    />
                   </div>
                   <div>
                     <p className="mb-1 text-xs font-semibold uppercase text-slate-500">Visit notes</p>
