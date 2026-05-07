@@ -310,6 +310,7 @@ export default function BookingPage() {
   } | null>(null);
   /** SMS opt-in on the final submit step; must stay unchecked until the user agrees (TCPA-style consent). */
   const [smsConsent, setSmsConsent] = useState(false);
+  const [reasonForVisit, setReasonForVisit] = useState("");
 
   /** Latest calendar day patients may book online (today + 6 months in local time). */
   const maxBookDateIso = useMemo(() => {
@@ -957,6 +958,7 @@ export default function BookingPage() {
           phone,
           email,
           sms_consent: smsConsent,
+          reason_for_visit: reasonForVisit.trim(),
           service_id: item.service.id,
           provider_id: item.provider?.id,
           provider_name: item.provider?.provider_name ?? "",
@@ -1627,6 +1629,17 @@ export default function BookingPage() {
                   </div>
                 );
               })}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                <label className="block text-sm font-semibold text-slate-800">
+                  Please let us know what concern you would like your provider to address during the visit (optional)
+                </label>
+                <textarea
+                  className="mt-2 min-h-[96px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                  placeholder="Example: neck pain, lower back tightness, headache, shoulder discomfort..."
+                  value={reasonForVisit}
+                  onChange={(e) => setReasonForVisit(e.target.value)}
+                />
+              </div>
               {!needsProviderSelection && (
                 <Button
                   type="button"

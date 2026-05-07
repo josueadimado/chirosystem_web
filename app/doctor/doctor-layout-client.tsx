@@ -33,7 +33,7 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
   }, []);
 
   return (
-    <div className="flex min-h-[100dvh] min-h-screen">
+    <div className="flex h-[100dvh] overflow-hidden">
       <Sidebar
         title="Relief Chiropractic"
         items={items}
@@ -43,7 +43,7 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <DoctorHeader sidebarOpen={sidebarOpen} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
-        <main className="doctor-zone flex-1 pb-24">
+        <main className="doctor-zone min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24">
           <div className="mx-auto max-w-7xl px-4 py-6 pb-12 sm:px-6 lg:px-8">
             <div key={pathname} className="content-fade-in">
               {children}
