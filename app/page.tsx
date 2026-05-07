@@ -1311,10 +1311,10 @@ export default function BookingPage() {
                 <>
                   Pick a service category, choose your visit, then select your time—you can book multiple services at once right here. Prefer to call? Book by phone at{" "}
                   <a
-                    href="tel:+18557784282"
+                    href="tel:+12694080303"
                     className="font-medium text-[#0d5c2e] underline-offset-4 hover:underline"
                   >
-                    +1 (855) 778-4282
+                    +1 (269) 408-0303
                   </a>
                   .
                 </>

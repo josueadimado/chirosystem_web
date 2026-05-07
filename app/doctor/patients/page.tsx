@@ -181,8 +181,8 @@ export default function DoctorPatientsPage() {
     <div className="space-y-6">
       <DoctorPageIntro
         eyebrow="Your practice"
-        title="Patient directory"
-        description="Everyone you share care with in this system. Narrow the list with filters, search by contact info, and open a row for the full chart."
+        title="Patients"
+        description="Search patients quickly, open their full chart/details, and review record history in one place."
         pageHelp={
           <>
             Unlike the admin patient list, this view is <strong>scoped to you</strong>: upcoming visits, balances, and “last seen”

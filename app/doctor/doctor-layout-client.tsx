@@ -11,14 +11,14 @@ import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 const items = [
   { label: "My Dashboard", href: "/doctor/dashboard", icon: <IconStethoscope className="w-5 h-5" /> },
   { label: "My Schedule", href: "/doctor/schedule", icon: <IconCalendar className="w-5 h-5" /> },
-  { label: "Patient Directory", href: "/doctor/patients", icon: <IconUsers className="w-5 h-5" /> },
+  { label: "Patients", href: "/doctor/patients", icon: <IconUsers className="w-5 h-5" /> },
   { label: "User guide", href: "/doctor/manual", icon: <IconBook className="w-5 h-5" /> },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
   "/doctor/dashboard": "My Dashboard",
   "/doctor/schedule": "My Schedule",
-  "/doctor/patients": "Patient Directory",
+  "/doctor/patients": "Patients",
   "/doctor/manual": "User guide",
 };
 

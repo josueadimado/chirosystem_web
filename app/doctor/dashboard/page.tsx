@@ -155,6 +155,8 @@ export default function DoctorDashboardPage() {
   const [billSearchLoading, setBillSearchLoading] = useState(false);
   /** When true, consultation form opens as a large centered panel over the schedule. */
   const [consultWorkspaceExpanded, setConsultWorkspaceExpanded] = useState(true);
+  /** Remembers the last in-consultation visit the doctor closed, so Resume can prioritize it. */
+  const [lastClosedConsultAppointmentId, setLastClosedConsultAppointmentId] = useState<number | null>(null);
   /** Awaiting-payment visits: doctor is editing billing lines (Edit billing). */
   const [revisingBillingForAppointmentId, setRevisingBillingForAppointmentId] = useState<number | null>(null);
   /** After "Update invoice" succeeds — stay open until doctor taps Close (or edits again for another save). */
@@ -211,6 +213,7 @@ export default function DoctorDashboardPage() {
       if (e.key === "Escape") {
         setPaymentConfirmOpen(false);
         setConsultWorkspaceExpanded(false);
+        setLastClosedConsultAppointmentId(activeAppt.id);
         setActiveAppt(null);
       }
     };
@@ -284,6 +287,16 @@ export default function DoctorDashboardPage() {
       },
     ];
   }, [appointments]);
+
+  const resumableConsultationAppt = useMemo(() => {
+    const inConsult = appointments.filter((a) => a.status === "in_consultation");
+    if (inConsult.length === 0) return null;
+    if (lastClosedConsultAppointmentId != null) {
+      const last = inConsult.find((a) => a.id === lastClosedConsultAppointmentId);
+      if (last) return last;
+    }
+    return inConsult[0];
+  }, [appointments, lastClosedConsultAppointmentId]);
 
   const load = async (opts?: { focusAppointmentId?: number; skipReconnectBillingEdit?: boolean }) => {
     setLoading(true);
@@ -637,12 +650,16 @@ export default function DoctorDashboardPage() {
       await doCompleteVisit(false);
       return;
     }
-    setPaymentConfirmOpen(true);
+    // One-click finish: complete now, then collect payment from the green banner.
+    await doCompleteVisit(false);
   };
 
   const closeConsultWorkspace = () => {
     setPaymentConfirmOpen(false);
     setConsultWorkspaceExpanded(false);
+    if (activeAppt?.status === "in_consultation") {
+      setLastClosedConsultAppointmentId(activeAppt.id);
+    }
     setActiveAppt(null);
   };
 
@@ -1324,8 +1341,8 @@ export default function DoctorDashboardPage() {
             </>
           ) : (
             <>
-              Next step: you&apos;ll <strong>confirm the amount with the patient</strong>, then choose whether to charge the card on file,
-              send payment to your <strong>Square Terminal</strong>, or use desk / POS options.
+              Next step: click <strong>Complete visit &amp; create invoice</strong>. The visit leaves consultation immediately, then use the
+              green banner for card on file, <strong>Square Terminal</strong>, or desk / POS options.
             </>
           )}
         </p>
@@ -1442,6 +1459,27 @@ export default function DoctorDashboardPage() {
           <DoctorStatsRow stats={dayStats} />
         )}
       </DoctorPageIntro>
+
+      {!activeAppt && resumableConsultationAppt && (
+        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-emerald-900">
+              You still have an active consultation for <strong>{resumableConsultationAppt.patient}</strong> at{" "}
+              <strong>{resumableConsultationAppt.start_time}</strong>.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setConsultWorkspaceExpanded(true);
+                setActiveAppt(resumableConsultationAppt);
+              }}
+              className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+            >
+              Resume current visit
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
       {paymentFollowUp && (
@@ -1848,6 +1886,25 @@ export default function DoctorDashboardPage() {
                         <HelpTip label="Start visit" align="center" tone="emerald">
                           Opens a large chart-and-bill workspace (you can dock it to the narrow side panel). Document the visit, then
                           complete when finished.
+                        </HelpTip>
+                      </div>
+                    )}
+                    {appt.status === "in_consultation" && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConsultWorkspaceExpanded(true);
+                            setActiveAppt(appt);
+                          }}
+                          className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d]"
+                        >
+                          Resume visit
+                        </button>
+                        <HelpTip label="Resume visit" align="center" tone="emerald">
+                          Reopens the consultation workspace for this patient so you can continue charting and billing without
+                          logging out.
                         </HelpTip>
                       </div>
                     )}
