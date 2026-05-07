@@ -63,22 +63,6 @@ type RescheduleAppointmentRow = {
 };
 
 type BookingFlowMode = "new" | "reschedule";
-type CreditTopUpResponse = {
-  checkout_url?: string;
-  patient_name?: string;
-  amount?: string;
-  credit_balance?: string;
-  ambiguous_phone?: boolean;
-  household_members?: Array<{ first_name: string; last_name: string }>;
-  detail?: string;
-};
-type CreditTopUpLookupResponse = {
-  found: boolean;
-  ambiguous_phone?: boolean;
-  first_name?: string;
-  last_name?: string;
-  household_members?: Array<{ first_name: string; last_name: string }>;
-};
 
 type CartItem = {
   service: ServiceOption;
@@ -326,16 +310,6 @@ export default function BookingPage() {
   } | null>(null);
   /** SMS opt-in on the final submit step; must stay unchecked until the user agrees (TCPA-style consent). */
   const [smsConsent, setSmsConsent] = useState(false);
-  const [creditTopUpPhone, setCreditTopUpPhone] = useState<string | undefined>(undefined);
-  const [creditTopUpFirstName, setCreditTopUpFirstName] = useState("");
-  const [creditTopUpLastName, setCreditTopUpLastName] = useState("");
-  const [creditTopUpAmount, setCreditTopUpAmount] = useState("100");
-  const [creditTopUpMembers, setCreditTopUpMembers] = useState<Array<{ first_name: string; last_name: string }>>([]);
-  const [creditTopUpBusy, setCreditTopUpBusy] = useState(false);
-  const [creditTopUpLookupStatus, setCreditTopUpLookupStatus] = useState<
-    "idle" | "checking" | "found" | "missing" | "ambiguous" | "invalid"
-  >("idle");
-  const [creditTopUpLookupMessage, setCreditTopUpLookupMessage] = useState("");
 
   /** Latest calendar day patients may book online (today + 6 months in local time). */
   const maxBookDateIso = useMemo(() => {
@@ -1067,112 +1041,6 @@ export default function BookingPage() {
     }
   };
 
-  const startCreditTopUp = async () => {
-    if (!creditTopUpPhone || !isValidPhoneNumber(creditTopUpPhone)) {
-      toast.error("Enter a valid cell number for credit top-up.");
-      return;
-    }
-    if (creditTopUpLookupStatus === "missing") {
-      toast.error("No patient profile was found for this number. Ask front desk to create your profile first.");
-      return;
-    }
-    if (
-      creditTopUpLookupStatus === "ambiguous" &&
-      (!creditTopUpFirstName.trim() || !creditTopUpLastName.trim())
-    ) {
-      toast.info("This number has multiple profiles. Pick your name below or enter first and last name.");
-      return;
-    }
-    const amt = parseFloat(creditTopUpAmount);
-    if (Number.isNaN(amt) || amt < 1) {
-      toast.error("Enter a valid top-up amount ($1 minimum).");
-      return;
-    }
-    setCreditTopUpBusy(true);
-    setCreditTopUpMembers([]);
-    try {
-      const out = await apiPostPublic<CreditTopUpResponse>("/booking-options/credit-topup-link/", {
-        phone: creditTopUpPhone,
-        first_name: creditTopUpFirstName.trim(),
-        last_name: creditTopUpLastName.trim(),
-        amount: creditTopUpAmount,
-      });
-      if (out.ambiguous_phone && out.household_members?.length) {
-        setCreditTopUpMembers(out.household_members);
-        toast.info("This phone has multiple profiles. Pick a name or type first and last name.");
-        return;
-      }
-      if (!out.checkout_url) {
-        toast.error(out.detail || "Could not start credit top-up payment.");
-        return;
-      }
-      window.location.href = out.checkout_url;
-    } catch (e) {
-      if (e instanceof ApiError) {
-        toast.error(e.message);
-      } else {
-        toast.error("Could not start credit top-up payment.");
-      }
-    } finally {
-      setCreditTopUpBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    const phone = (creditTopUpPhone || "").trim();
-    if (!phone) {
-      setCreditTopUpLookupStatus("idle");
-      setCreditTopUpLookupMessage("");
-      setCreditTopUpMembers([]);
-      return;
-    }
-    if (!isValidPhoneNumber(phone)) {
-      setCreditTopUpLookupStatus("invalid");
-      setCreditTopUpLookupMessage("Enter a valid cell number to check your profile.");
-      setCreditTopUpMembers([]);
-      return;
-    }
-
-    let isActive = true;
-    const timer = window.setTimeout(async () => {
-      setCreditTopUpLookupStatus("checking");
-      setCreditTopUpLookupMessage("Checking this number...");
-      try {
-        const res = await apiGet<CreditTopUpLookupResponse>(
-          `/booking-options/patient-lookup/?phone=${encodeURIComponent(phone)}`,
-        );
-        if (!isActive) return;
-        if (!res.found) {
-          setCreditTopUpLookupStatus("missing");
-          setCreditTopUpLookupMessage("No patient profile found for this number yet.");
-          setCreditTopUpMembers([]);
-          return;
-        }
-        if (res.ambiguous_phone && res.household_members?.length) {
-          setCreditTopUpLookupStatus("ambiguous");
-          setCreditTopUpLookupMessage("Multiple profiles found on this number. Choose your name below.");
-          setCreditTopUpMembers(res.household_members);
-          return;
-        }
-        setCreditTopUpLookupStatus("found");
-        setCreditTopUpLookupMessage(
-          `Profile found${res.first_name || res.last_name ? `: ${[res.first_name || "", res.last_name || ""].filter(Boolean).join(" ")}` : ""}.`,
-        );
-        setCreditTopUpMembers([]);
-      } catch {
-        if (!isActive) return;
-        setCreditTopUpLookupStatus("idle");
-        setCreditTopUpLookupMessage("");
-        setCreditTopUpMembers([]);
-      }
-    }, 450);
-
-    return () => {
-      isActive = false;
-      window.clearTimeout(timer);
-    };
-  }, [creditTopUpPhone]);
-
   const downloadCalendar = () => {
     if (bookingResults.length === 0) return;
     const events = bookingResults.map((r) => {
@@ -1362,86 +1230,11 @@ export default function BookingPage() {
               </Link>
             </div>
             <div className="mt-4 max-w-2xl rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-4 py-4">
-              <p className="text-sm font-semibold text-[#0d5c2e]">Add prepaid credit to your account</p>
+              <p className="text-sm font-semibold text-[#0d5c2e]">Prepaid credit is managed by clinic staff</p>
               <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                Pay real money now with card, and we store it as in-house credit under your patient profile for future visits.
+                Patients no longer add wallet credit from this page. If you want credit added to your account, please contact the
+                front desk and staff will apply it for you.
               </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cell number</label>
-                  <div className="rounded-lg border border-slate-200 bg-white p-2">
-                    <PhoneInput
-                      international
-                      defaultCountry="US"
-                      countryCallingCodeEditable={false}
-                      value={creditTopUpPhone}
-                      onChange={(value) => setCreditTopUpPhone(value)}
-                      placeholder="Enter your cell number"
-                      className="phone-field text-sm"
-                    />
-                  </div>
-                  {creditTopUpLookupMessage ? (
-                    <p
-                      className={cn(
-                        "mt-1 text-xs",
-                        creditTopUpLookupStatus === "found" && "text-emerald-700",
-                        creditTopUpLookupStatus === "ambiguous" && "text-amber-700",
-                        creditTopUpLookupStatus === "missing" && "text-rose-700",
-                        creditTopUpLookupStatus === "invalid" && "text-slate-500",
-                        creditTopUpLookupStatus === "checking" && "text-slate-500",
-                      )}
-                    >
-                      {creditTopUpLookupMessage}
-                    </p>
-                  ) : null}
-                </div>
-                <input
-                  className="rounded-lg border border-slate-200 bg-white p-2 text-sm"
-                  placeholder="First name (if shared phone)"
-                  value={creditTopUpFirstName}
-                  onChange={(e) => setCreditTopUpFirstName(e.target.value)}
-                />
-                <input
-                  className="rounded-lg border border-slate-200 bg-white p-2 text-sm"
-                  placeholder="Last name (if shared phone)"
-                  value={creditTopUpLastName}
-                  onChange={(e) => setCreditTopUpLastName(e.target.value)}
-                />
-                <input
-                  className="rounded-lg border border-slate-200 bg-white p-2 text-sm sm:max-w-[12rem]"
-                  placeholder="Amount (USD)"
-                  value={creditTopUpAmount}
-                  onChange={(e) => setCreditTopUpAmount(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  onClick={() => void startCreditTopUp()}
-                  disabled={creditTopUpBusy}
-                  className="h-auto rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
-                >
-                  {creditTopUpBusy ? "Preparing…" : "Pay & add credit"}
-                </Button>
-              </div>
-              {creditTopUpMembers.length > 0 && (
-                <div className="mt-3 rounded-lg border border-emerald-200 bg-white/80 p-2">
-                  <p className="text-xs text-slate-600">Select your profile on this shared phone:</p>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {creditTopUpMembers.map((m) => (
-                      <button
-                        key={`${m.first_name}-${m.last_name}`}
-                        type="button"
-                        className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900"
-                        onClick={() => {
-                          setCreditTopUpFirstName(m.first_name);
-                          setCreditTopUpLastName(m.last_name);
-                        }}
-                      >
-                        {m.first_name} {m.last_name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
           <div className="relative min-h-[14rem] md:min-h-full">

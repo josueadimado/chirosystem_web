@@ -315,7 +315,8 @@ export default function DoctorDashboardPage() {
           const rev = appts.find((a) => a.id === revisingId && a.status === "awaiting_payment");
           if (rev) return rev;
         }
-        return appts.find((a) => a.status === "in_consultation") ?? null;
+        // Do not auto-pop consultation on dashboard return; doctor chooses when to resume.
+        return null;
       };
       setActiveAppt(pickActive());
     } catch (e) {
