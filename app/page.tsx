@@ -1229,13 +1229,6 @@ export default function BookingPage() {
                 Open check-in
               </Link>
             </div>
-            <div className="mt-4 max-w-2xl rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-4 py-4">
-              <p className="text-sm font-semibold text-[#0d5c2e]">Prepaid credit is managed by clinic staff</p>
-              <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                Patients no longer add wallet credit from this page. If you want credit added to your account, please contact the
-                front desk and staff will apply it for you.
-              </p>
-            </div>
           </div>
           <div className="relative min-h-[14rem] md:min-h-full">
             <Image src="/images/clinic-reception.png" alt="Clinic reception" fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" priority />
