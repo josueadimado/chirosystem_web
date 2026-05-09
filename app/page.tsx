@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppFeedback } from "@/components/app-feedback";
 import { IconCheck, IconChevronLeft, IconChevronRight } from "@/components/icons";
 import { Loader } from "@/components/loader";
@@ -54,6 +54,8 @@ type RescheduleAppointmentRow = {
   start_time: string;
   service_id: number;
   service_name: string;
+  /** From API — preferred for policy checks when booking options are still loading. */
+  service_type?: string;
   provider_id: number;
   provider_name: string;
   duration_minutes: number;
@@ -93,7 +95,17 @@ function providerPickForService(
   return { provider: null, providerSkipped: false };
 }
 
-const BETWEEN_SERVICE_BUFFER_MINUTES = 15;
+/** Post-massage turnover reserved on the provider schedule for public booking (matches API). */
+const MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES = 15;
+
+function massageCalendarTailMinutes(service: { service_type?: string }): number {
+  return service.service_type === "massage" ? MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES : 0;
+}
+
+/** Total minutes blocked on the calendar for one public slot (chiro = duration; massage = duration + tail). */
+function publicBookingCalendarSpanMinutes(service: ServiceOption): number {
+  return Number(service.duration_minutes) + massageCalendarTailMinutes(service);
+}
 
 /** YYYY-MM-DD in the user's local calendar (UTC `toISOString()` can shift the date near midnight). */
 function toLocalISODate(d: Date): string {
@@ -150,7 +162,7 @@ function slotChainFitsPublicDayEnd(dateIso: string, slot: string, spanMinutes: n
 
 /**
  * Last-resort slots if the availability API errors — same Fri 4 PM / Mon–Thu 6 PM rule as the server.
- * Chiropractic: start times every 15 minutes; each visit still lasts durationMinutes (matches API grid merge).
+ * All service types: 15-minute start grid; massage spans duration + post-visit buffer on the calendar.
  */
 function buildFallbackTimeSlots(
   dateIso: string,
@@ -160,10 +172,12 @@ function buildFallbackTimeSlots(
   const openMin = serviceType === "massage" ? 9 * 60 : 8 * 60;
   const closeMin = publicBookingDayEndMinutes(dateIso);
   const duration = Math.max(5, Number(durationMinutes) || 30);
-  const step = serviceType === "chiropractic" ? 15 : Math.max(duration, 15);
+  const step = 15;
+  const span =
+    duration + (serviceType === "massage" ? MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES : 0);
   if (openMin >= closeMin) return [];
   const out: string[] = [];
-  for (let t = openMin; t + duration <= closeMin; t += step) {
+  for (let t = openMin; t + span <= closeMin; t += step) {
     const h24 = Math.floor(t / 60);
     const m = t % 60;
     const suffix = h24 < 12 ? "AM" : "PM";
@@ -171,14 +185,6 @@ function buildFallbackTimeSlots(
     out.push(`${displayH}:${String(m).padStart(2, "0")} ${suffix}`);
   }
   return out;
-}
-
-/** Minutes between two visits on the same provider: 15 only between two massages; no gap when chiropractic is involved. */
-function interVisitBufferMinutes(prev: ServiceOption, nextSvc: ServiceOption): number {
-  if (prev.service_type === "massage" && nextSvc.service_type === "massage") {
-    return BETWEEN_SERVICE_BUFFER_MINUTES;
-  }
-  return 0;
 }
 
 /** Maps public patient-lookup fields to the step-4 chiropractic intake banner state. */
@@ -253,8 +259,10 @@ function appointmentStartDateTimeLocal(appointmentDate: string, displayTime12h: 
 }
 
 function isMassageLateCancelWindow(row: RescheduleAppointmentRow, bookingOptions: BookingOptions | null): boolean {
-  const svc = bookingOptions?.services.find((s) => s.id === row.service_id);
-  if (!svc || svc.service_type !== "massage") return false;
+  const fromRow = row.service_type === "massage";
+  const fromOptions =
+    bookingOptions?.services.find((s) => s.id === row.service_id)?.service_type === "massage";
+  if (!fromRow && !fromOptions) return false;
   const dt = appointmentStartDateTimeLocal(row.appointment_date, row.start_time);
   if (!dt) return false;
   const ms = dt.getTime() - Date.now();
@@ -328,7 +336,30 @@ export default function BookingPage() {
     setOptionsLoading(true);
     withMinimumDelay(apiGet<BookingOptions>("/booking-options/"), 520)
       .then((data) => setOptions(data))
-      .catch(() => setOptionsError("Could not load booking options. Make sure the API is running, then try again."))
+      .catch((err: unknown) => {
+        console.error("Booking options request failed", err);
+        if (err instanceof ApiError) {
+          setOptionsError(
+            `Could not load booking options: ${err.message}. Check the API logs or try http://localhost:8001/api/v1/booking-options/ in your browser.`,
+          );
+          return;
+        }
+        const isNetwork =
+          err instanceof TypeError &&
+          (err.message === "Failed to fetch" || err.message.includes("fetch"));
+        if (isNetwork) {
+          setOptionsError(
+            "Could not reach the API from this page. Start the backend (Docker: run apps/api compose — API is on " +
+              "http://localhost:8001). Open the site at http://localhost:3001, or run API + web together from the " +
+              "repo root with docker compose. If you set NEXT_PUBLIC_API_BASE_URL in a .env file, remove it for " +
+              "local dev or set it to the correct API URL.",
+          );
+          return;
+        }
+        setOptionsError(
+          `Could not load booking options: ${err instanceof Error ? err.message : String(err)}. Make sure the API is running.`,
+        );
+      })
       .finally(() => setOptionsLoading(false));
   };
 
@@ -412,33 +443,6 @@ export default function BookingPage() {
     return firstProvider;
   }, [bookingFlow, reschedulePick, firstProvider]);
 
-  const totalCartMinutes = useMemo(() => {
-    if (cart.length <= 1) return Number(cart[0]?.service.duration_minutes) || 0;
-    let sum = 0;
-    for (let i = 0; i < cart.length; i++) {
-      sum += Number(cart[i].service.duration_minutes) || 0;
-      if (i < cart.length - 1) {
-        sum += interVisitBufferMinutes(cart[i].service, cart[i + 1].service);
-      }
-    }
-    return sum;
-  }, [cart]);
-
-  const totalInterVisitBufferMinutes = useMemo(() => {
-    if (cart.length < 2) return 0;
-    let b = 0;
-    for (let i = 0; i < cart.length - 1; i++) {
-      b += interVisitBufferMinutes(cart[i].service, cart[i + 1].service);
-    }
-    return b;
-  }, [cart]);
-
-  /** Multi-service chain on one provider: API must reserve the full block (each visit + breaks). */
-  const cartSameProviderChain = useMemo(() => {
-    if (cart.length <= 1 || !firstProvider) return false;
-    return cart.every((c) => c.provider && c.provider.id === firstProvider.id);
-  }, [cart, firstProvider]);
-
   useEffect(() => {
     if (!effectiveSlotService || !effectiveSlotProvider || !selectedDate) {
       setAvailableSlots(null);
@@ -451,9 +455,6 @@ export default function BookingPage() {
       provider_id: String(effectiveSlotProvider.id),
       service_id: String(effectiveSlotService.id),
     });
-    if (bookingFlow === "new" && cart.length > 1 && cartSameProviderChain) {
-      params.set("block_minutes", String(totalCartMinutes));
-    }
     if (bookingFlow === "reschedule" && reschedulePick && phone && isValidPhoneNumber(phone)) {
       params.set("exclude_appointment_id", String(reschedulePick.id));
       params.set("phone", phone);
@@ -461,10 +462,8 @@ export default function BookingPage() {
     apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
         let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
-        // Always enforce public closing (Fri 4 PM / Mon–Thu 6 PM) client-side so bad or stale API data cannot show late slots.
-        const rawSpan =
-          bookingFlow === "new" && cart.length > 1 ? totalCartMinutes : effectiveSlotService.duration_minutes;
-        const spanForDayEnd = Number(rawSpan);
+        // Enforce public closing client-side; span matches API (massage includes post-visit calendar buffer).
+        const spanForDayEnd = publicBookingCalendarSpanMinutes(effectiveSlotService);
         slots = slots.filter((slot) => slotChainFitsPublicDayEnd(selectedDate, slot, spanForDayEnd));
         setAvailableSlots(slots);
         setSlotWarning("");
@@ -487,13 +486,11 @@ export default function BookingPage() {
     selectedDate,
     effectiveSlotProvider?.id,
     effectiveSlotService?.id,
-    totalCartMinutes,
-    cart.length,
-    cartSameProviderChain,
     bookingFlow,
     reschedulePick?.id,
     phone,
     effectiveSlotService?.duration_minutes,
+    effectiveSlotService?.service_type,
   ]);
 
   useEffect(() => {
@@ -816,39 +813,47 @@ export default function BookingPage() {
     setStep(1);
   };
 
-  const loadMyAppointments = () => {
+  const loadMyAppointments = useCallback(async () => {
     if (!phone || !isValidPhoneNumber(phone)) {
       toast.error("Enter a valid cell number first.");
       return;
     }
     setRescheduleListLoading(true);
     setRescheduleListError("");
-    apiGet<{
-      ambiguous_phone?: boolean;
-      first_name: string;
-      last_name: string;
-      email: string;
-      appointments: RescheduleAppointmentRow[];
-    }>(`/booking-options/my-appointments/?phone=${encodeURIComponent(phone)}`)
-      .then((res) => {
-        setRescheduleList(res.appointments ?? []);
-        setFirstName(res.first_name ?? "");
-        setLastName(res.last_name ?? "");
-        setEmail(res.email ?? "");
-        setRescheduleSharedPhone(res.ambiguous_phone === true);
-        if ((res.appointments ?? []).length === 0) {
-          setRescheduleListError(
-            "No upcoming visits found for this number that can be changed online. Call the clinic if you need help.",
-          );
-        }
-      })
-      .catch((e) => {
-        setRescheduleList([]);
-        setRescheduleSharedPhone(false);
+    try {
+      const res = await apiGet<{
+        detail?: string;
+        ambiguous_phone?: boolean;
+        first_name: string;
+        last_name: string;
+        email: string;
+        appointments: RescheduleAppointmentRow[];
+      }>(`/booking-options/my-appointments/?phone=${encodeURIComponent(phone)}`);
+      setRescheduleList(res.appointments ?? []);
+      setFirstName(res.first_name ?? "");
+      setLastName(res.last_name ?? "");
+      setEmail(res.email ?? "");
+      setRescheduleSharedPhone(res.ambiguous_phone === true);
+      if ((res.appointments ?? []).length === 0) {
+        setRescheduleListError(
+          "No upcoming visits found for this number that can be changed online. Call the clinic if you need help.",
+        );
+      }
+    } catch (e) {
+      setRescheduleList([]);
+      setRescheduleSharedPhone(false);
+      if (e instanceof ApiError && e.status === 404) {
+        setRescheduleListError(
+          e.message ||
+            "We couldn't find a patient profile with this phone number. Double-check the number or call the clinic.",
+        );
+      } else {
         setRescheduleListError(e instanceof ApiError ? e.message : "Could not load your visits. Try again.");
-      })
-      .finally(() => setRescheduleListLoading(false));
-  };
+      }
+    } finally {
+      setRescheduleListLoading(false);
+    }
+  }, [phone, toast]);
 
   const cancelPublicAppointment = async (row: RescheduleAppointmentRow) => {
     if (!phone || !isValidPhoneNumber(phone)) {
@@ -857,8 +862,8 @@ export default function BookingPage() {
     }
     const lateMassage = isMassageLateCancelWindow(row, options);
     const msg = lateMassage
-      ? `This massage starts within 24 hours. Our policy charges the full massage price (${formatBookingPrice(row.price)}) for late cancellations. If the office already moved you to another time today, call us instead of cancelling here. Cancel online anyway?`
-      : "Cancel this appointment? Chiropractic visits are not charged when you cancel before the visit time. Massage visits with at least 24 hours’ notice are also free to cancel.";
+      ? `This massage starts within 24 hours. The full massage price (${formatBookingPrice(row.price)}) may be charged for a late cancellation, per clinic policy. Cancel online anyway?`
+      : "Cancel this appointment? With this much notice there is no cancellation fee.";
     if (!window.confirm(msg)) return;
     try {
       await apiPostPublic<{ detail?: string }>("/booking-options/cancel-appointment/", {
@@ -866,7 +871,7 @@ export default function BookingPage() {
         appointment_id: row.id,
       });
       toast.success("Your appointment was cancelled.");
-      setRescheduleList((prev) => prev.filter((r) => r.id !== row.id));
+      await loadMyAppointments();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not cancel. Call the clinic if you need help.");
     }
@@ -970,8 +975,9 @@ export default function BookingPage() {
         });
         results.push(result);
         if (i < cart.length - 1) {
-          const gap = interVisitBufferMinutes(item.service, cart[i + 1].service);
-          currentTime = addMinutesToTimeSlot(currentTime, item.service.duration_minutes + gap);
+          const blockMinutes =
+            Number(item.service.duration_minutes) + massageCalendarTailMinutes(item.service);
+          currentTime = addMinutesToTimeSlot(currentTime, blockMinutes);
         }
       }
       setBookingResults(results);
@@ -1025,6 +1031,7 @@ export default function BookingPage() {
       setBookingMessageKind("success");
       setBookingMessage(`Appointment rescheduled. Confirmation #${result.appointment_id}`);
       toast.success("Your visit has been moved to the new time.");
+      await loadMyAppointments();
     } catch (error) {
       setBookingMessageKind("error");
       if (error instanceof ApiError && error.status === 409) {
@@ -1108,7 +1115,7 @@ export default function BookingPage() {
     printWindow.document.close();
   };
 
-  // Schedule preview for cart items (15-min gap only between two massages), or the single visit being rescheduled
+  // Schedule preview for cart items (sequential starts; massage includes post-visit calendar turnover), or reschedule
   const cartSchedule = useMemo(() => {
     if (bookingFlow === "reschedule" && reschedulePick && options) {
       const svc = options.services.find((s) => s.id === reschedulePick.service_id);
@@ -1127,15 +1134,17 @@ export default function BookingPage() {
         },
       ];
     }
-    const rows: Array<CartItem & { startTime: string; endTime: string; breakAfterMinutes: number }> = [];
+    const rows: Array<
+      CartItem & { startTime: string; endTime: string; turnoverAfterMinutes: number }
+    > = [];
     let time = selectedTime;
     cart.forEach((item, idx) => {
       const startTime = time;
       const endTime = addMinutesToTimeSlot(time, item.service.duration_minutes);
       const next = cart[idx + 1];
-      const breakAfterMinutes = next ? interVisitBufferMinutes(item.service, next.service) : 0;
-      rows.push({ ...item, startTime, endTime, breakAfterMinutes });
-      time = next ? addMinutesToTimeSlot(endTime, breakAfterMinutes) : endTime;
+      const turnoverAfterMinutes = massageCalendarTailMinutes(item.service);
+      rows.push({ ...item, startTime, endTime, turnoverAfterMinutes });
+      time = next ? addMinutesToTimeSlot(endTime, turnoverAfterMinutes) : endTime;
     });
     return rows;
   }, [bookingFlow, reschedulePick, options, cart, selectedTime]);
@@ -1815,9 +1824,7 @@ export default function BookingPage() {
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Available time{" "}
                   {bookingFlow === "new" && cart.length > 1
-                    ? cartSameProviderChain
-                      ? "(full block — all services, breaks, and visit length on this schedule)"
-                      : "(for your first service; other visits may use a different provider)"
+                    ? "(first service on this date; other visits are scheduled in order after it)"
                     : ""}
                 </label>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
@@ -1905,25 +1912,13 @@ export default function BookingPage() {
                 })()}
               </div>
 
-              {/* Multi-service break info */}
+              {/* Multi-service: sequential times; massage includes built-in calendar turnover after the visit */}
               {bookingFlow === "new" && cart.length > 1 && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-sm text-blue-900">
-                  <p className="font-medium">
-                    {totalInterVisitBufferMinutes > 0 ? "Scheduling with break" : "Scheduling back-to-back"}
-                  </p>
+                  <p className="font-medium">Multiple visits</p>
                   <p className="mt-1 text-blue-700">
-                    {totalInterVisitBufferMinutes > 0 ? (
-                      <>
-                        Your {cart[0].service.name} starts at the selected time, then there&apos;s a{" "}
-                        {totalInterVisitBufferMinutes}-minute break between visits where needed. Total block:{" "}
-                        {totalDuration + totalInterVisitBufferMinutes} min.
-                      </>
-                    ) : (
-                      <>
-                        Your visits run one after another with no scheduled gap (typical for multiple chiropractic visits).
-                        Total time: {totalDuration} min.
-                      </>
-                    )}
+                    Open times are checked for your first visit. Later visits are placed right after the previous one on
+                    the schedule (massage visits include a short room turnover on our calendar after the booked time).
                   </p>
                 </div>
               )}
@@ -2332,8 +2327,10 @@ export default function BookingPage() {
                         <div className="relative pb-4">
                           <div className="absolute -left-[25px] top-0.5 h-2 w-2 rounded-full bg-amber-400" />
                           <p className="text-xs font-medium text-amber-600">{item.endTime}</p>
-                          {"breakAfterMinutes" in item && item.breakAfterMinutes > 0 ? (
-                            <p className="text-[11px] text-amber-500">{item.breakAfterMinutes}-min break</p>
+                          {"turnoverAfterMinutes" in item && item.turnoverAfterMinutes > 0 ? (
+                            <p className="text-[11px] text-amber-500">
+                              {item.turnoverAfterMinutes} min room turnover on schedule
+                            </p>
                           ) : (
                             <p className="text-[11px] text-slate-500">Back-to-back</p>
                           )}
@@ -2388,10 +2385,7 @@ export default function BookingPage() {
               </p>
               {cart.length > 1 && (
                 <p className="mt-1 text-xs text-[#9a6700]">
-                  {cart.length} services · {totalDuration} min
-                  {totalInterVisitBufferMinutes > 0
-                    ? ` + ${totalInterVisitBufferMinutes} min between visits`
-                    : " · back-to-back"}
+                  {cart.length} services · {totalDuration} min combined visit time
                 </p>
               )}
             </div>

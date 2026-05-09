@@ -1,16 +1,36 @@
 /**
  * API base URL for `fetch`.
  * - Default in the **browser**: `/api/v1` (same origin as Next.js). Next rewrites that to Django
- *   (see `API_PROXY_TARGET` in `next.config.ts`), so you don’t accidentally call another server on :8000.
- * - Override with `NEXT_PUBLIC_API_BASE_URL` only if you need a direct absolute URL.
- * - During **SSR**, uses `API_PROXY_TARGET` + `/api/v1` (defaults to `http://127.0.0.1:8001`).
+ *   (see `API_PROXY_TARGET` in `next.config.ts`).
+ * - `NEXT_PUBLIC_API_BASE_URL` must be a host the **browser** can reach (e.g. `http://127.0.0.1:8001`).
+ *   Do **not** set it to `http://api:8000` — that hostname only works inside Docker; the browser will fail.
+ * - During **SSR**, uses `API_PROXY_TARGET` + `/api/v1` when no public URL is set.
  */
+function browserCanReachApiHost(urlStr: string): boolean {
+  try {
+    const u = new URL(urlStr);
+    // These resolve inside Compose / Docker networks, not in the patient's browser.
+    if (u.hostname === "api" || u.hostname === "redis" || u.hostname === "db") {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getApiBase(): string {
   const explicit = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  if (explicit) return explicit.replace(/\/$/, "");
 
   if (typeof window !== "undefined") {
+    if (explicit && browserCanReachApiHost(explicit)) {
+      return explicit.replace(/\/$/, "");
+    }
     return "/api/v1";
+  }
+
+  if (explicit) {
+    return explicit.replace(/\/$/, "");
   }
 
   const internal = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8001").trim().replace(/\/$/, "");

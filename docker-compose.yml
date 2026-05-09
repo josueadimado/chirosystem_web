@@ -7,6 +7,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # So the container can reach Django on the host at host.docker.internal:8001 (Linux + Docker Desktop).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: sh -c "npm install && npx next dev --webpack --hostname 0.0.0.0"
     # Default host 3001 avoids clash with another Next dev / app on 3000. Container still uses port 3000.
     ports:

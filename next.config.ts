@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 /**
  * Server-side proxy target for `/api/v1/*` (not exposed to the browser).
- * - Docker web container: `http://api:8000` (set in apps/web/docker-compose.yml)
+ * - Docker web container: `http://api:8000` (set in root `docker-compose.yml` when using full stack)
  * - Local `npm run dev`: defaults to `http://127.0.0.1:8001`
  */
 const apiProxyTarget = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8001").replace(/\/$/, "");
