@@ -1,14 +1,21 @@
 "use client";
 
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import {
+  AdminScheduleCalendar,
+  navigateFocusDate,
+  schedulePeriodLabel,
+  type ProviderBlock,
+} from "@/components/admin-schedule-calendar";
 import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { IconCalendar } from "@/components/icons";
 import { Loader } from "@/components/loader";
-import { StatusChipView, appointmentStatusStripeClass } from "@/components/status-chip";
+import { StatusChipView } from "@/components/status-chip";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { addDays, endOfMonth, mondayOfWeekContaining, startOfMonth, toIsoDate } from "@/lib/admin-schedule-utils";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { Suspense, useEffect, useState } from "react";
@@ -99,12 +106,42 @@ function within24HoursBeforeStart(appointmentDate: string, startTime: string): b
   return ms > 0 && ms < 24 * 60 * 60 * 1000;
 }
 
-function getWeekDates(weekStart: Date): Date[] {
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return d;
-  });
+type ScheduleViewMode = "day" | "week" | "month";
+
+function buildAppointmentListParams(
+  view: ScheduleViewMode,
+  focusDate: Date,
+  providerFilter: string,
+  statusFilter: string,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  if (view === "day") {
+    params.set("appointment_date", toIsoDate(focusDate));
+  } else if (view === "week") {
+    const mon = mondayOfWeekContaining(focusDate);
+    const fri = addDays(mon, 4);
+    params.set("date_from", toIsoDate(mon));
+    params.set("date_to", toIsoDate(fri));
+  } else {
+    params.set("date_from", toIsoDate(startOfMonth(focusDate)));
+    params.set("date_to", toIsoDate(endOfMonth(focusDate)));
+  }
+  if (providerFilter) params.set("provider_id", providerFilter);
+  if (statusFilter) params.set("status", statusFilter);
+  return params;
+}
+
+function blockListRange(view: ScheduleViewMode, focusDate: Date): { from: string; to: string } {
+  if (view === "day") {
+    const iso = toIsoDate(focusDate);
+    return { from: iso, to: iso };
+  }
+  if (view === "week") {
+    const mon = mondayOfWeekContaining(focusDate);
+    const fri = addDays(mon, 4);
+    return { from: toIsoDate(mon), to: toIsoDate(fri) };
+  }
+  return { from: toIsoDate(startOfMonth(focusDate)), to: toIsoDate(endOfMonth(focusDate)) };
 }
 
 function AdminSchedulePageContent() {
@@ -115,15 +152,11 @@ function AdminSchedulePageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Appointment | null>(null);
-  const [view, setView] = useState<"week" | "day">("week");
+  const [view, setView] = useState<ScheduleViewMode>("day");
+  const [focusDate, setFocusDate] = useState(() => new Date());
+  const [blocks, setBlocks] = useState<ProviderBlock[]>([]);
   const [providerFilter, setProviderFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [weekStart, setWeekStart] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - d.getDay());
-    return d;
-  });
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [checkingIn, setCheckingIn] = useState(false);
   const [savingDesk, setSavingDesk] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
@@ -206,21 +239,17 @@ function AdminSchedulePageContent() {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams();
-      if (view === "week") {
-        const start = new Date(weekStart);
-        const end = new Date(weekStart);
-        end.setDate(end.getDate() + 6);
-        params.set("date_from", start.toISOString().slice(0, 10));
-        params.set("date_to", end.toISOString().slice(0, 10));
-      } else {
-        params.set("appointment_date", selectedDate.toISOString().slice(0, 10));
-      }
-      if (providerFilter) params.set("provider_id", providerFilter);
-      if (statusFilter) params.set("status", statusFilter);
+      const params = buildAppointmentListParams(view, focusDate, providerFilter, statusFilter);
+      const { from, to } = blockListRange(view, focusDate);
+      const blockParams = new URLSearchParams({ date_from: from, date_to: to });
 
-      const list = await apiGetAuth<Appointment[]>(`/appointments/?${params}`);
+      const [list, blockList] = await Promise.all([
+        apiGetAuth<Appointment[]>(`/appointments/?${params}`),
+        apiGetAuth<ProviderBlock[]>(`/provider-unavailability/?${blockParams}`).catch(() => [] as ProviderBlock[]),
+      ]);
+
       setAppointments(list);
+      setBlocks(blockList);
       setSelected((prev) => {
         if (!prev) return null;
         const fresh = list.find((a) => a.id === prev.id);
@@ -229,6 +258,7 @@ function AdminSchedulePageContent() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load schedule.");
       setAppointments([]);
+      setBlocks([]);
     } finally {
       setLoading(false);
     }
@@ -240,7 +270,7 @@ function AdminSchedulePageContent() {
 
   useEffect(() => {
     loadAppointments();
-  }, [view, weekStart, selectedDate, providerFilter, statusFilter]);
+  }, [view, focusDate, providerFilter, statusFilter]);
 
   useEffect(() => {
     const raw = searchParams.get("appointment");
@@ -331,9 +361,6 @@ function AdminSchedulePageContent() {
     if (saved) setShowReschedule(false);
   };
 
-  const dates = view === "week" ? getWeekDates(weekStart) : [selectedDate];
-
-  /** Fresh patient-facing bill while the invoice is still unpaid (admin can open from schedule). */
   const openPatientBillPreview = async (invoiceId: number) => {
     setPreviewingBill(true);
     try {
@@ -350,15 +377,6 @@ function AdminSchedulePageContent() {
     }
   };
 
-  const appointmentsByDate = dates.reduce(
-    (acc, d) => {
-      const key = d.toISOString().slice(0, 10);
-      acc[key] = appointments.filter((a) => a.appointment_date === key);
-      return acc;
-    },
-    {} as Record<string, Appointment[]>
-  );
-
   const billInvoiceId = visitSnapshot?.invoice?.id ?? billingInvoiceIdHint ?? null;
 
   return (
@@ -368,20 +386,32 @@ function AdminSchedulePageContent() {
         description="See who is coming in, filter by doctor or status, and check patients in from the front desk when they arrive."
         pageHelp={
           <>
-            <strong>Week</strong> shows seven columns; <strong>Day</strong> focuses on one date. Filters query the server when you change
-            them. <strong>Check In</strong> marks the selected visit as arrived (same action families use at the kiosk).
+            Use <strong>Day</strong> for the front-desk time grid (open gaps and provider columns), <strong>Week</strong> for Mon–Fri
+            overview, <strong>Month</strong> for counts at a glance. Filters reload appointments from the server.{" "}
+            <strong>Check In</strong> marks arrival like the kiosk.
           </>
         }
       />
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
       <section className="admin-panel">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-slate-600">View</span>
-            <HelpTip label="Week vs day">
-              Week shows Sunday–Saturday around your chosen week. Day shows a single calendar date—use the arrows or picker implied by
-              navigation to move.
+            <HelpTip label="Calendar views">
+              Day shows a time grid by provider. Week shows Monday–Friday with overlapping visits stacked. Month shows appointment counts;
+              click a day to open it in Day view.
             </HelpTip>
+            <button
+              type="button"
+              onClick={() => setView("day")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                view === "day"
+                  ? "bg-[#16a349] text-white shadow-sm"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Day
+            </button>
             <button
               type="button"
               onClick={() => setView("week")}
@@ -395,41 +425,39 @@ function AdminSchedulePageContent() {
             </button>
             <button
               type="button"
-              onClick={() => setView("day")}
+              onClick={() => setView("month")}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                view === "day"
+                view === "month"
                   ? "bg-[#16a349] text-white shadow-sm"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               }`}
             >
-              Day
+              Month
             </button>
-            {view === "week" && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const d = new Date(weekStart);
-                    d.setDate(d.getDate() - 7);
-                    setWeekStart(d);
-                  }}
-                  className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
-                >
-                  ←
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const d = new Date(weekStart);
-                    d.setDate(d.getDate() + 7);
-                    setWeekStart(d);
-                  }}
-                  className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
-                >
-                  →
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              aria-label="Previous period"
+              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
+              className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              aria-label="Next period"
+              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
+              className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
+            >
+              →
+            </button>
+            <button
+              type="button"
+              onClick={() => setFocusDate(new Date())}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Today
+            </button>
+            <span className="text-sm font-semibold text-slate-800">{schedulePeriodLabel(view, focusDate)}</span>
           </div>
         </div>
 
@@ -474,55 +502,23 @@ function AdminSchedulePageContent() {
         {loading ? (
           <Loader variant="page" label="Loading schedule" sublabel="Fetching your calendar…" />
         ) : (
-          <div
-            className={`grid gap-2 text-xs ${
-              view === "week" ? "grid-cols-7" : "grid-cols-1"
-            }`}
-          >
-            {dates.map((d) => {
-              const key = d.toISOString().slice(0, 10);
-              const dayAppts = appointmentsByDate[key] || [];
-              return (
-                <div
-                  key={key}
-                  className="rounded-lg border border-slate-200 p-2"
-                >
-                  <p className="font-semibold leading-tight">
-                    {formatWeekdayMonthDayYear(key)}
-                  </p>
-                  <div className="mt-2 space-y-2">
-                    {dayAppts.length === 0 ? (
-                      <p className="py-2 text-slate-400">No appointments</p>
-                    ) : (
-                      dayAppts.map((a) => {
-                        const isSelected = selected?.id === a.id;
-                        const timeStr =
-                          a.start_time_display || formatTime(a.start_time);
-                        return (
-                          <button
-                            key={a.id}
-                            type="button"
-                            onClick={() => setSelected(a)}
-                            className={`w-full rounded-lg p-2 pl-2.5 text-left transition ${appointmentStatusStripeClass(a.status)} ${
-                              isSelected
-                                ? "bg-[#16a349]/20 ring-2 ring-[#16a349]/50"
-                                : "bg-[#16a349]/10 hover:bg-[#16a349]/15"
-                            }`}
-                          >
-                            <span className="font-medium">{timeStr}</span>
-                            <br />
-                            <span className="text-slate-700">
-                              {a.patient_name}
-                            </span>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <AdminScheduleCalendar
+            view={view}
+            focusDate={focusDate}
+            appointments={appointments}
+            providers={providers}
+            providerFilter={providerFilter}
+            blocks={blocks}
+            selectedId={selected?.id ?? null}
+            onSelect={(row) => {
+              const full = appointments.find((x) => x.id === row.id);
+              if (full) setSelected(full);
+            }}
+            onPickDayInMonth={(d) => {
+              setFocusDate(d);
+              setView("day");
+            }}
+          />
         )}
       </section>
 

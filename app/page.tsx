@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiGet, apiPostPublic } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { formatMonthDayYear, formatNowMonthDayYearTime, formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { withMinimumDelay } from "@/lib/with-minimum-delay";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
@@ -1338,42 +1338,6 @@ export default function BookingPage() {
     URL.revokeObjectURL(url);
   };
 
-  const printBookingConfirmation = () => {
-    if (bookingResults.length === 0) return;
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-    if (!printWindow) {
-      toast.error("Allow pop-ups for this site to print your confirmation.");
-      return;
-    }
-    const esc = (s: string | number) =>
-      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    const generated = esc(formatNowMonthDayYearTime());
-
-    const rowsHtml = bookingResults
-      .map(
-        (r, i) => `
-        ${bookingResults.length > 1 ? `<tr><td colspan="2" style="padding:10px 14px;font-weight:700;font-size:13px;color:#166534;background:#f0fdf4;border-bottom:1px solid #e2e8f0;">Appointment ${i + 1}</td></tr>` : ""}
-        <tr><th scope="row">Confirmation #</th><td>${esc(r.appointment_id)}</td></tr>
-        <tr><th scope="row">Patient</th><td>${esc(r.patient)}</td></tr>
-        <tr><th scope="row">Service</th><td>${esc(r.service)}</td></tr>
-        ${r.provider ? `<tr><th scope="row">Doctor</th><td>${esc(r.provider)}</td></tr>` : ""}
-        <tr><th scope="row">Date</th><td>${esc(formatMonthDayYear(r.appointment_date))}</td></tr>
-        <tr><th scope="row">Time</th><td>${esc(r.start_time)}</td></tr>
-        <tr class="total-row"><th scope="row">Estimated amount at visit</th><td>$${esc(r.total_amount)}</td></tr>`,
-      )
-      .join("");
-    const grandNum = bookingResults.reduce((sum, r) => sum + Number.parseFloat(String(r.total_amount)), 0);
-    const grandRow =
-      bookingResults.length > 1
-        ? `<tr class="total-row"><th scope="row">Combined estimate (all visits)</th><td>${esc(formatBookingPrice(String(grandNum)))}</td></tr>`
-        : "";
-
-    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Appointment confirmation — Relief Chiropractic</title><style>@page{margin:14mm 16mm;size:letter}*{box-sizing:border-box}body{margin:0;padding:20px;font-family:"Georgia","Times New Roman",serif;color:#1e293b;background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}.screen-note{max-width:640px;margin:0 auto 16px;padding:10px 14px;font-family:system-ui,sans-serif;font-size:13px;color:#475569;text-align:center;background:#fff;border:1px solid #cbd5e1;border-radius:8px}.form{max-width:640px;margin:0 auto;background:#fff;border:2px solid #0f172a;box-shadow:0 4px 24px rgba(15,23,42,.08)}.form-accent{height:6px;background:linear-gradient(90deg,#16a349 0%,#16a349 38%,#e9982f 38%,#e9982f 100%)}.form-inner{padding:28px 32px 32px}.form-header{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px;margin-bottom:20px;border-bottom:2px solid #0f172a}.clinic-name{margin:0;font-family:system-ui,-apple-system,sans-serif;font-size:26px;font-weight:800;letter-spacing:-.02em;color:#e9982f}.doc-title{margin:4px 0 0;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#64748b}.badge-wrap{text-align:right}.badge{display:inline-block;padding:8px 14px;font-family:system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:4px}h2.section-title{margin:0 0 12px;font-family:system-ui,sans-serif;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#334155}table.details{width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:14px;border:1px solid #cbd5e1}table.details tr{border-bottom:1px solid #e2e8f0}table.details tr:last-child{border-bottom:none}table.details th{width:38%;padding:12px 14px;text-align:left;font-weight:600;font-size:12px;color:#475569;background:#f8fafc;border-right:1px solid #e2e8f0;vertical-align:top}table.details td{padding:12px 14px;font-weight:600;color:#0f172a;vertical-align:top;line-height:1.45}tr.total-row th{background:#fffbeb;color:#92400e;border-right-color:#fde68a}tr.total-row td{background:#fffbeb;font-size:18px;font-weight:800;color:#b45309}.instructions{margin-top:22px;padding:14px 16px;font-family:system-ui,sans-serif;font-size:12px;line-height:1.55;color:#475569;background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px}.instructions strong{color:#334155}.form-footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:system-ui,sans-serif;font-size:10px;color:#94a3b8;text-align:center;letter-spacing:.04em}@media print{body{padding:0;background:#fff}.screen-note{display:none!important}.form{max-width:none;border:2px solid #000;box-shadow:none}.form-inner{padding:20px 24px 24px}}</style></head><body><p class="screen-note">A print dialog will open next. Choose your printer or <strong>Save as PDF</strong>.</p><article class="form"><div class="form-accent"></div><div class="form-inner"><header class="form-header"><div><h1 class="clinic-name">Relief Chiropractic</h1><p class="doc-title">Appointment confirmation</p></div><div class="badge-wrap"><span class="badge">Confirmed</span></div></header><h2 class="section-title">Visit details</h2><table class="details"><tbody>${rowsHtml}${grandRow}</tbody></table><div class="instructions"><strong>Before your visit:</strong> Please arrive a few minutes early. Bring this confirmation or check in at the clinic kiosk using your phone number. <strong>Payment:</strong> Amounts above are estimates for the booked service(s); your final balance may change with insurance, taxes, or additional services at check-out.</div><footer class="form-footer">Document generated ${generated} · Relief Chiropractic · Online booking confirmation</footer></div></article><script>window.onload=function(){window.print()};<\/script></body></html>`;
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-  };
-
   // Sidebar / summary: reschedule = one slot; new booking = each cart line uses its own date & time (no chaining).
   const cartSchedule = useMemo(() => {
     if (bookingFlow === "reschedule" && reschedulePick && options) {
@@ -1406,6 +1370,9 @@ export default function BookingPage() {
       };
     });
   }, [bookingFlow, reschedulePick, options, cart, cartSlotPicksByLineId, selectedDate, selectedTime]);
+
+  /** After booking succeeds, the sidebar shows empty cart / $0 — hide it on confirmation. */
+  const hideBookingSidebar = step === 4 && bookingResults.length > 0 && cart.length === 0;
 
   return (
     <main className="content-fade-in min-h-[100dvh] min-h-screen overflow-x-hidden bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
@@ -1497,7 +1464,12 @@ export default function BookingPage() {
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-6",
+          !hideBookingSidebar && "lg:grid-cols-[2fr_1fr]",
+        )}
+      >
         <section className="order-1 min-w-0 rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80 md:p-6 space-y-5">
           <div className="grid grid-cols-4 gap-1 sm:gap-2">
             {([1, 2, 3, 4] as Step[]).map((item) => (
@@ -2661,102 +2633,88 @@ export default function BookingPage() {
 
           {/* ─── STEP 4: Confirmation ─── */}
           {step === 4 && bookingResults.length > 0 && cart.length === 0 && (
-            <div className="animate-fade-in-up rounded-2xl border border-[#16a349]/25 bg-gradient-to-b from-[#f0fdf4] to-white p-6 sm:p-8">
+            <div className="animate-fade-in-up rounded-2xl border border-slate-200/90 bg-card p-6 sm:p-8">
               <div className="flex flex-col items-center text-center">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#16a349] text-white shadow-md shadow-[#16a349]/25" aria-hidden>
-                  <IconCheck className="h-8 w-8" />
+                <div className="flex items-center justify-center gap-2">
+                  <IconCheck className="h-5 w-5 shrink-0 text-[#16a349]" aria-hidden />
+                  <h2 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+                    You&apos;re all set!
+                  </h2>
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">Thank you!</h2>
-                <p className="mt-2 max-w-md text-sm text-slate-600 sm:text-base">
-                  {bookingFlow === "reschedule"
-                    ? "Your appointment has been updated to the new date and time. We look forward to seeing you."
-                    : bookingResults.length > 1
-                      ? "Both appointments are confirmed. We look forward to seeing you."
-                      : "Your appointment is confirmed. We look forward to seeing you."}
-                </p>
+                <p className="mt-2 text-sm text-slate-600">We&apos;ll see you soon.</p>
               </div>
 
-              <div className="mx-auto mt-6 max-w-md space-y-4">
-                {bookingResults.map((result, idx) => (
-                  <div key={result.appointment_id} className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm">
-                    {bookingResults.length > 1 && (
-                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary">Appointment {idx + 1}</p>
-                    )}
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Confirmation</p>
-                    <p className="mt-1 text-lg font-bold text-slate-900">#{result.appointment_id}</p>
-                    <ul className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-sm text-slate-700">
-                      <li><span className="text-slate-500">Patient: </span><span className="font-medium text-slate-900">{result.patient}</span></li>
-                      <li><span className="text-slate-500">Service: </span><span className="font-medium text-slate-900">{result.service}</span></li>
-                      <li>
-                        <span className="text-slate-500">When: </span>
+              <div className="mx-auto mt-8 max-w-md space-y-4">
+                {bookingResults.map((result) => (
+                  <div
+                    key={result.appointment_id}
+                    className="rounded-xl border border-slate-200/90 bg-white p-4 text-left shadow-sm"
+                  >
+                    <h3 className="text-base font-semibold text-slate-900">{result.service}</h3>
+                    <p className="mt-1 text-xs font-normal text-slate-500">
+                      Confirmation #{result.appointment_id}
+                    </p>
+                    <div className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm text-slate-700">
+                      <p>
+                        <span className="text-slate-500">Patient </span>
+                        <span className="font-medium text-slate-900">{result.patient}</span>
+                      </p>
+                      <p>
+                        <span className="text-slate-500">Date &amp; time </span>
                         <span className="font-medium text-slate-900">
                           {formatWeekdayMonthDayYear(result.appointment_date)} at {result.start_time}
                         </span>
-                      </li>
-                      <li>
-                        <span className="text-slate-500">Estimated at visit: </span>
-                        <span className="font-semibold text-[#b45309]">{formatBookingPrice(result.total_amount)}</span>
-                      </li>
-                    </ul>
-                    <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                      This is what you can expect to pay for this booked service at check-in; add-on services may change the
-                      final total.
-                    </p>
+                      </p>
+                      <p>
+                        <span className="text-slate-500">Estimated price </span>
+                        <span className="font-medium text-[#b45309]">{formatBookingPrice(result.total_amount)}</span>
+                      </p>
+                    </div>
                   </div>
                 ))}
               </div>
 
-              {/* Next steps */}
-              <div className="mx-auto mt-6 max-w-md space-y-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">What&apos;s next</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="flex items-start gap-2.5 rounded-xl border border-[#16a349]/20 bg-[#f0fdf4] p-3">
-                    <span className="mt-0.5 text-lg">📱</span>
-                    <div>
-                      <p className="text-xs font-semibold text-[#166534]">Confirmation sent</p>
-                      <p className="text-[11px] text-[#166534]/70">
-                        {phone ? `Text to ${phone}` : "By text"}
-                        {email?.trim() ? ` · Email copy to ${email}` : " · No email given — confirmation is by text only."}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 p-3">
-                    <span className="mt-0.5 text-lg">📋</span>
-                    <div>
-                      <p className="text-xs font-semibold text-blue-900">On arrival</p>
-                      <p className="text-[11px] text-blue-700">
-                        <Link href="/kiosk" className="font-medium underline">Check-in at the kiosk</Link> with your cell number
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                {bookingFlow === "new" && patientLookup === "new" && (
-                  <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                    <span className="mt-0.5 text-lg">⏰</span>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-semibold text-amber-900">First visit?</p>
-                      <p className="text-[11px] text-amber-700">
-                        <a
-                          href="https://www.reliefchiropractic.net/s/New-Patient-Paperwork-2025.doc"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium underline decoration-amber-600/70 underline-offset-2 hover:text-amber-900"
-                        >
-                          Download new-patient paperwork
-                        </a>{" "}
-                        and bring the completed forms,{" "}
-                        <span className="font-medium text-amber-900">or</span> arrive{" "}
-                        <span className="font-medium text-amber-900">25 minutes early</span> to fill them out at the office.
-                      </p>
-                    </div>
-                  </div>
+              <p className="mx-auto mt-6 max-w-md text-center text-xs leading-relaxed text-slate-500">
+                This is what you can expect to pay for your booked service(s) at check-in; add-on services may change the final
+                total.
+              </p>
+
+              <div className="mx-auto mt-6 max-w-md space-y-3 text-center">
+                <p className="text-sm text-slate-500">
+                  A confirmation has been sent by text and email. Check in at the kiosk when you arrive.
+                </p>
+                {bookingResults.some((r) => /new office visit/i.test(r.service)) && (
+                  <p className="text-sm text-slate-500">
+                    First visit? Arrive 25 minutes early or{" "}
+                    <a
+                      href="https://www.reliefchiropractic.net/s/New-Patient-Paperwork-2025.doc"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-[#16a349] underline decoration-[#16a349]/40 underline-offset-2 hover:text-[#13823d]"
+                    >
+                      download paperwork
+                    </a>{" "}
+                    beforehand.
+                  </p>
                 )}
               </div>
 
-              <div className="mx-auto mt-6 flex max-w-md flex-col gap-3 sm:flex-row-reverse sm:justify-center">
-                <Button type="button" onClick={resetBookingFlow} className="h-auto rounded-xl px-6 py-3 text-sm font-semibold shadow-sm">Done</Button>
-                <Button type="button" variant="outline" onClick={downloadCalendar} className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold">Add to calendar</Button>
-                <Button type="button" variant="outline" onClick={printBookingConfirmation} className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold">Print</Button>
+              <div className="mx-auto mt-8 flex max-w-md flex-wrap justify-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={downloadCalendar}
+                  className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold"
+                >
+                  Add to calendar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={resetBookingFlow}
+                  className="h-auto rounded-xl bg-[#16a349] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+                >
+                  Done
+                </Button>
               </div>
             </div>
           )}
@@ -2850,6 +2808,7 @@ export default function BookingPage() {
         </section>
 
         {/* ─── Sidebar: Booking summary (below steps on mobile) ─── */}
+        {!hideBookingSidebar && (
         <aside className="order-2 min-w-0 space-y-4 lg:order-2 lg:pt-1">
           <div className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80">
             <h3 className="text-lg font-bold tracking-tight text-foreground">
@@ -2942,6 +2901,7 @@ export default function BookingPage() {
             </div>
           </div>
         </aside>
+        )}
       </div>
       </div>
     </main>
