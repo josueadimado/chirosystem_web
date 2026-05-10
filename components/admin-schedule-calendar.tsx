@@ -291,7 +291,7 @@ function TimeLabelsColumn() {
   }
   return (
     <div
-      className="relative w-12 shrink-0 border-r border-slate-200 text-[10px] leading-none text-slate-500"
+      className="relative w-12 shrink-0 border-r border-slate-200 text-xs leading-none text-slate-500"
       style={{ height: GRID_PX }}
     >
       {rows.map((m) => {
@@ -393,7 +393,7 @@ function DayProviderColumn({
   return (
     <div className="relative border-l border-slate-100">
       <div className="border-b border-slate-200 bg-slate-50/90 px-2 py-2 text-center">
-        <p className="text-xs font-semibold text-slate-800">{provider.provider_name}</p>
+                <p className="text-sm font-semibold leading-snug text-slate-800">{provider.provider_name}</p>
       </div>
       <div className="relative bg-slate-50/30" style={{ height: GRID_PX }}>
         {/* hour lines */}
@@ -479,21 +479,22 @@ function DayProviderColumn({
               title={tip}
               onClick={() => onSelect(a)}
               className={cn(
-                "group absolute left-0.5 right-0.5 z-[3] overflow-hidden rounded-md border text-left text-[10px] leading-tight transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
+                "group absolute left-0.5 right-0.5 z-[3] overflow-hidden rounded-md border text-left text-xs leading-snug transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                 styles.wrap,
                 selected && "ring-2 ring-[#16a349] ring-offset-1",
               )}
               style={{
                 top: `${topPct}%`,
                 height: `${heightPct}%`,
-                minHeight: 22,
+                minHeight: 28,
                 background: bg,
                 borderColor: a.status === "cancelled" ? "#fecaca" : selected ? "#16a349" : "rgba(255,255,255,0.35)",
               }}
             >
               <AppointmentBlockDecor status={a.status} />
               <span className={cn("block truncate px-1.5 pt-1 font-semibold", styles.text)}>{a.patient_name}</span>
-              <span className="block truncate px-1.5 text-[9px] opacity-90">
+              <span className="block truncate px-1.5 text-[12px] leading-tight opacity-90">
+                {a.provider_name ? `${a.provider_name} · ` : ""}
                 {a.start_time_display || formatTimeShort(a.start_time)} · {dur}m
               </span>
             </button>
@@ -700,14 +701,14 @@ function WeekDayStack({
             title={tip}
             onClick={() => onSelect(a)}
             className={cn(
-              "absolute z-[3] overflow-hidden rounded border text-left text-[9px] leading-tight shadow-sm transition",
+              "absolute z-[3] overflow-hidden rounded border text-left text-[12px] leading-snug shadow-sm transition",
               styles.wrap,
               selected && "ring-2 ring-[#16a349] ring-offset-1",
             )}
             style={{
               top: `${topPct}%`,
               height: `${heightPct}%`,
-              minHeight: 20,
+              minHeight: 24,
               left: `calc(${lane * wPct}% + 2px)`,
               width: `calc(${wPct}% - 4px)`,
               background: bg,
@@ -716,7 +717,7 @@ function WeekDayStack({
           >
             <AppointmentBlockDecor status={a.status} />
             <span className={cn("block truncate px-1 font-semibold", styles.text)}>{a.patient_name}</span>
-            <span className="block truncate px-1 text-[8px] opacity-90">{formatTimeShort(a.start_time)}</span>
+            <span className="block truncate px-1 text-[12px] leading-tight opacity-90">{formatTimeShort(a.start_time)}</span>
           </button>
         );
       })}

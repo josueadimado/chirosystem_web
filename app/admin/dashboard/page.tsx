@@ -99,34 +99,34 @@ export default function AdminDashboardPage() {
           </>
         }
       />
-      <div className="stagger-children grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="stagger-children grid gap-5 md:grid-cols-2 lg:grid-cols-4">
         <div className="admin-panel">
-          <p className="flex items-center gap-1.5 text-sm text-slate-500">
+          <p className="flex items-center gap-1.5 text-[13px] leading-normal text-slate-500">
             Appointments today
             <HelpTip label="Appointments today">Count of visits scheduled for the current calendar day (all providers).</HelpTip>
           </p>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{data.appointments_today}</p>
+          <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-slate-900">{data.appointments_today}</p>
         </div>
         <div className="admin-panel">
-          <p className="flex items-center gap-1.5 text-sm text-slate-500">
+          <p className="flex items-center gap-1.5 text-[13px] leading-normal text-slate-500">
             Checked-in
             <HelpTip label="Checked-in">Patients who have completed check-in for today (kiosk or staff).</HelpTip>
           </p>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-[#16a349]">{data.checked_in}</p>
+          <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-[#16a349]">{data.checked_in}</p>
         </div>
         <div className="admin-panel">
-          <p className="flex items-center gap-1.5 text-sm text-slate-500">
+          <p className="flex items-center gap-1.5 text-[13px] leading-normal text-slate-500">
             Daily revenue
             <HelpTip label="Daily revenue">Total recorded payments or charges attributed to today (from your billing data).</HelpTip>
           </p>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{formattedRevenue}</p>
+          <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-slate-900">{formattedRevenue}</p>
         </div>
         <div className="admin-panel">
-          <p className="flex items-center gap-1.5 text-sm text-slate-500">
+          <p className="flex items-center gap-1.5 text-[13px] leading-normal text-slate-500">
             Pending invoices
             <HelpTip label="Pending invoices">Open balances not yet marked paid—use Billing to collect or adjust.</HelpTip>
           </p>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{data.unpaid_invoices}</p>
+          <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-slate-900">{data.unpaid_invoices}</p>
         </div>
       </div>
 
@@ -144,7 +144,7 @@ export default function AdminDashboardPage() {
             </span>
             <span className="min-w-0">
               <span className="block font-semibold text-slate-900 group-hover:text-[#0d5c2e]">Doctors & providers</span>
-              <span className="mt-1 block text-sm text-slate-600">
+              <span className="mt-1 block text-[14px] leading-relaxed text-slate-600">
                 Add a doctor login, set their name for the schedule, and choose which online visit types they offer.
               </span>
               <span className="mt-2 inline-block text-sm font-medium text-[#16a349] group-hover:underline">Open →</span>
@@ -160,7 +160,7 @@ export default function AdminDashboardPage() {
               </span>
               <span className="min-w-0">
                 <span className="block font-semibold text-slate-900 group-hover:text-violet-900">Team & administrators</span>
-                <span className="mt-1 block text-sm text-slate-600">
+                <span className="mt-1 block text-[14px] leading-relaxed text-slate-600">
                   Create desk staff and extra owner accounts, or manage roles — uses the same logins as the API “team” list.
                 </span>
                 <span className="mt-2 inline-block text-sm font-medium text-violet-800 group-hover:underline">Open →</span>
@@ -190,14 +190,14 @@ export default function AdminDashboardPage() {
             </AdminSectionLabel>
             <Link
               href="/admin/schedule"
-              className="text-sm font-medium text-[#16a349] hover:text-[#13823d] hover:underline"
+              className="text-[14px] font-medium leading-normal text-[#16a349] hover:text-[#13823d] hover:underline"
             >
               View full schedule →
             </Link>
           </div>
           <div className="space-y-2">
             {data.today_schedule.length === 0 ? (
-              <p className="rounded-lg border border-slate-200 p-4 text-slate-500">
+              <p className="rounded-xl border border-slate-200 p-5 text-[14px] leading-relaxed text-slate-600">
                 No appointments today.
               </p>
             ) : (
@@ -205,7 +205,7 @@ export default function AdminDashboardPage() {
                 <Link
                   key={a.id}
                   href={`/admin/schedule?appointment=${a.id}`}
-                  className="flex items-center justify-between rounded-xl border border-slate-200/90 bg-slate-50/40 p-3 transition hover:border-[#16a349]/30 hover:bg-[#16a349]/5"
+                  className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-slate-50/40 px-4 py-3 text-[14px] leading-normal transition hover:border-[#16a349]/30 hover:bg-[#16a349]/5"
                 >
                   <span>
                     {a.start_time} · {a.patient_name}
@@ -223,7 +223,7 @@ export default function AdminDashboardPage() {
           <AdminSectionLabel help="Short audit-style messages from the system (e.g. check-ins, bookings). Exact events depend on your API.">
             Recent activity
           </AdminSectionLabel>
-          <ul className="space-y-2 text-sm text-slate-700">
+          <ul className="space-y-3 text-[14px] leading-relaxed text-slate-700">
             {data.recent_activity.length === 0 ? (
               <li className="text-slate-500">No recent activity.</li>
             ) : (

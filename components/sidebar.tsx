@@ -52,9 +52,11 @@ function NavLink({
       href={item.href}
       title={!open ? item.label : undefined}
       onClick={() => onNavigate?.()}
-      className={`flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors ${
-        open ? "gap-3 px-3" : "justify-center px-0"
-      } ${navActiveClasses(accent, active)}`}
+      className={cn(
+        "flex min-h-11 items-center rounded-lg text-[14px] font-medium leading-normal transition-colors",
+        open ? "gap-3 px-3" : "justify-center px-0",
+        navActiveClasses(accent, active),
+      )}
     >
       {item.icon != null && (
         <span className={`shrink-0 ${navIconClass(accent, active)}`}>{item.icon}</span>
@@ -78,9 +80,9 @@ export function Sidebar({
   const setOpen = onOpenChange ?? setInternalOpen;
   const useGroups = groups != null && groups.length > 0;
 
-  /** Phone / small tablet: close drawer after choosing a page */
+  /** Phone / tablet: close drawer after choosing a page */
   const closeMobileDrawer = () => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
       setOpen(false);
     }
   };
@@ -88,7 +90,7 @@ export function Sidebar({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || !open) return;
-      if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
         setOpen(false);
       }
     };
@@ -97,7 +99,7 @@ export function Sidebar({
   }, [open, setOpen]);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
+    const mq = window.matchMedia("(max-width: 1023px)");
     const syncBodyScroll = () => {
       if (mq.matches && open) document.body.style.overflow = "hidden";
       else document.body.style.overflow = "";
@@ -119,7 +121,7 @@ export function Sidebar({
     <>
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-black/40 transition-opacity duration-200 md:hidden",
+          "fixed inset-0 z-40 bg-black/40 transition-opacity duration-200 lg:hidden",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
         aria-hidden
@@ -129,15 +131,15 @@ export function Sidebar({
         className={cn(
           "flex h-[100dvh] max-h-[100dvh] shrink-0 flex-col border-r transition-[transform,width] duration-200 ease-out",
           chrome,
-          "fixed left-0 top-0 z-50 w-72 max-w-[85vw] md:relative md:top-auto md:z-auto md:max-h-none md:max-w-none",
-          open ? "max-md:translate-x-0 max-md:shadow-xl" : "max-md:-translate-x-full",
-          "md:translate-x-0",
-          open ? "md:w-72" : "md:w-20",
+          "fixed left-0 top-0 z-50 w-72 max-w-[85vw] lg:relative lg:top-auto lg:z-auto lg:max-h-none lg:max-w-none",
+          open ? "max-lg:translate-x-0 max-lg:shadow-xl" : "max-lg:-translate-x-full",
+          "lg:translate-x-0",
+          open ? "lg:w-72" : "lg:w-20",
         )}
       >
         <div
           className={cn(
-            "flex items-center gap-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4",
+            "flex items-center gap-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] lg:pt-4",
             open ? "" : "justify-center px-0",
           )}
         >
@@ -152,7 +154,7 @@ export function Sidebar({
         </div>
         <nav
           className={cn(
-            "flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4",
+            "flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-[max(1rem,env(safe-area-inset-bottom))] lg:pb-4",
             open ? "" : "px-2",
           )}
         >
@@ -160,7 +162,7 @@ export function Sidebar({
             groups.map((group) => (
               <div key={group.label || "main"} className="space-y-1">
                 {open && group.label ? (
-                  <p className="mt-4 mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground first:mt-0">
+                  <p className="mt-4 mb-1 px-3 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground first:mt-0 leading-normal">
                     {group.label}
                   </p>
                 ) : null}

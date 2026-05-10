@@ -13,17 +13,17 @@ export function AdminPageIntro({
   pageHelp?: React.ReactNode;
 }) {
   return (
-    <header className="mb-6 sm:mb-8">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">Administration</p>
-      <div className="mt-1 flex flex-wrap items-center gap-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{title}</h2>
+    <header className="mb-8 sm:mb-10">
+      <p className="text-[13px] font-semibold uppercase tracking-[0.18em] text-primary leading-normal">Administration</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <h2 className="text-2xl font-bold leading-snug tracking-tight text-foreground sm:text-3xl">{title}</h2>
         {pageHelp ? (
           <HelpTip label={`What is ${title}?`} align="center">
             {pageHelp}
           </HelpTip>
         ) : null}
       </div>
-      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600 sm:text-base">{description}</p>
+      <p className="mt-3 max-w-3xl text-[14px] leading-relaxed text-slate-600">{description}</p>
     </header>
   );
 }
@@ -36,8 +36,8 @@ export function AdminSectionLabel({
   help?: React.ReactNode;
 }) {
   return (
-    <div className="mb-3 flex items-center gap-2">
-      <h3 className="text-base font-semibold text-foreground">{children}</h3>
+    <div className="mb-4 flex items-center gap-2">
+      <h3 className="text-lg font-semibold leading-snug text-foreground">{children}</h3>
       {help ? <HelpTip label="About this section">{help}</HelpTip> : null}
     </div>
   );

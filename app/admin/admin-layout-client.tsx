@@ -21,6 +21,8 @@ import {
 } from "@/components/icons";
 import { getRoleCookie } from "@/lib/auth";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { PORTAL_ZONE_CLASSES } from "@/lib/portal-readability-classes";
+import { cn } from "@/lib/utils";
 
 const mainItems = [
   { label: "Dashboard", href: "/admin/dashboard", icon: <IconLayoutGrid className="w-5 h-5" /> },
@@ -67,7 +69,7 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
     setUserName(localStorage.getItem("chiroflow_user_name"));
     setIsOwnerAdmin(getRoleCookie() === "owner_admin");
     // Narrow screens: start with menu closed so content uses full width (open with the menu button)
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
       setSidebarOpen(false);
     }
   }, []);
@@ -120,7 +122,12 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
             onLogout={handleLogout}
           />
           <main className="admin-zone flex-1">
-            <div className="mx-auto max-w-7xl px-4 py-6 pb-12 sm:px-6 lg:px-8">
+            <div
+              className={cn(
+                "mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-6 pb-12 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",
+                PORTAL_ZONE_CLASSES,
+              )}
+            >
               <div key={pathname} className="content-fade-in">
                 {children}
               </div>
@@ -152,15 +159,15 @@ function AdminHeader({
         <button
           type="button"
           onClick={onSidebarToggle}
-          className="shrink-0 rounded-xl p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+          className="inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-xl p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
           title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
           <IconMenu className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900">{title}</h1>
-          <p className="hidden text-xs text-slate-500 sm:block">{todayLine}</p>
+          <h1 className="truncate text-lg font-semibold leading-normal tracking-tight text-slate-900">{title}</h1>
+          <p className="hidden text-[13px] leading-normal text-slate-500 sm:block">{todayLine}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -168,7 +175,7 @@ function AdminHeader({
         <button
           type="button"
           onClick={onLogout}
-          className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/60 sm:px-4"
+          className="min-h-11 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium leading-normal text-foreground shadow-sm transition-colors hover:bg-muted/60"
         >
           Log out
         </button>

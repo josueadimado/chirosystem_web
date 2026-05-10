@@ -8,7 +8,7 @@ import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
-import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { formatMonthDayYear } from "@/lib/format-date";
@@ -97,6 +97,18 @@ type CompleteVisitPayment = {
   payment_intent_id: string | null;
 };
 
+/** Same payload as public booking — active services and which providers offer each. */
+type BookingOptionsResponse = {
+  services: Array<{
+    id: number;
+    name: string;
+    duration_minutes: number;
+    price: string;
+    service_type: string;
+  }>;
+  providers_by_service: Record<string, Array<{ id: number; provider_name: string }>>;
+};
+
 type PaymentFollowUp = {
   invoice_id: number;
   invoice_number?: string;
@@ -140,7 +152,24 @@ export default function DoctorDashboardPage() {
   /** Simple modal to move a visit to another date/time (only before the visit is in progress). */
   const [rescheduleAppt, setRescheduleAppt] = useState<Appointment | null>(null);
   const [resDate, setResDate] = useState("");
-  const [resTime, setResTime] = useState("09:00");
+  /** Slot values from the API (HH:MM:SS), aligned with `resSlotLabels`. */
+  const [resSlotTimes, setResSlotTimes] = useState<string[]>([]);
+  const [resSlotLabels, setResSlotLabels] = useState<string[]>([]);
+  const [resSelectedSlot, setResSelectedSlot] = useState("");
+  const [resSlotsLoading, setResSlotsLoading] = useState(false);
+  /** Book a new future visit after a completed appointment (same availability rules as online booking). */
+  const [bookNextAppt, setBookNextAppt] = useState<Appointment | null>(null);
+  const [bookingOptions, setBookingOptions] = useState<BookingOptionsResponse | null>(null);
+  const [bookNextOptionsLoading, setBookNextOptionsLoading] = useState(false);
+  const [bnServiceId, setBnServiceId] = useState(0);
+  const [bnProviderId, setBnProviderId] = useState(0);
+  const [bnDate, setBnDate] = useState("");
+  const [bnSlotTimes, setBnSlotTimes] = useState<string[]>([]);
+  const [bnSlotLabels, setBnSlotLabels] = useState<string[]>([]);
+  const [bnSelectedSlot, setBnSelectedSlot] = useState("");
+  const [bnSlotsLoading, setBnSlotsLoading] = useState(false);
+  const [savingBookNext, setSavingBookNext] = useState(false);
+  const [myProviderId, setMyProviderId] = useState<number | null>(null);
   const [savingDesk, setSavingDesk] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [billSearchQuery, setBillSearchQuery] = useState("");
@@ -227,6 +256,12 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     setDisplayName(localStorage.getItem("chiroflow_user_name") || "");
+  }, []);
+
+  useEffect(() => {
+    void apiGetAuth<{ provider_id: number }>("/doctor/me/")
+      .then((r) => setMyProviderId(r.provider_id))
+      .catch(() => setMyProviderId(null));
   }, []);
 
   useEffect(() => {
@@ -406,9 +441,94 @@ export default function DoctorDashboardPage() {
   useEffect(() => {
     if (!rescheduleAppt) return;
     setResDate(rescheduleAppt.appointment_date || selectedDate);
-    const iso = rescheduleAppt.start_time_iso || "";
-    setResTime(iso.length >= 5 ? iso.slice(0, 5) : "09:00");
-  }, [rescheduleAppt?.id, rescheduleAppt?.appointment_date, rescheduleAppt?.start_time_iso, selectedDate]);
+  }, [rescheduleAppt?.id, rescheduleAppt?.appointment_date, selectedDate]);
+
+  /** Load real openings for the reschedule flow (same rules as public booking; excludes the current row). */
+  useEffect(() => {
+    if (!rescheduleAppt || !resDate || !myProviderId || !rescheduleAppt.booked_service_id) {
+      setResSlotLabels([]);
+      setResSlotTimes([]);
+      setResSelectedSlot("");
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setResSlotsLoading(true);
+      try {
+        const q = new URLSearchParams({
+          date: resDate,
+          provider_id: String(myProviderId),
+          service_id: String(rescheduleAppt.booked_service_id),
+          exclude_appointment_id: String(rescheduleAppt.id),
+        });
+        const data = await apiGetAuth<{ available_slots: string[]; slot_start_times?: string[] }>(
+          `/booking-options/availability/?${q.toString()}`,
+        );
+        if (cancelled) return;
+        const labels = data.available_slots || [];
+        const times = data.slot_start_times || [];
+        setResSlotLabels(labels);
+        setResSlotTimes(times.length ? times : labels.map(() => ""));
+        const iso = rescheduleAppt.start_time_iso || "";
+        let pick = times[0] || "";
+        const idx = times.findIndex((t) => t === iso || t.startsWith(iso.slice(0, 5)));
+        if (idx >= 0) pick = times[idx];
+        setResSelectedSlot(pick);
+      } catch {
+        if (!cancelled) {
+          setResSlotLabels([]);
+          setResSlotTimes([]);
+          setResSelectedSlot("");
+        }
+      } finally {
+        if (!cancelled) setResSlotsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rescheduleAppt?.id, rescheduleAppt?.booked_service_id, rescheduleAppt?.start_time_iso, resDate, myProviderId]);
+
+  /** Load openings for book-next when service, provider, or date changes. */
+  useEffect(() => {
+    if (!bookNextAppt || !bnDate || !bnServiceId || !bnProviderId) {
+      setBnSlotLabels([]);
+      setBnSlotTimes([]);
+      setBnSelectedSlot("");
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setBnSlotsLoading(true);
+      try {
+        const q = new URLSearchParams({
+          date: bnDate,
+          provider_id: String(bnProviderId),
+          service_id: String(bnServiceId),
+        });
+        const data = await apiGetAuth<{ available_slots: string[]; slot_start_times?: string[] }>(
+          `/booking-options/availability/?${q.toString()}`,
+        );
+        if (cancelled) return;
+        const labels = data.available_slots || [];
+        const times = data.slot_start_times || [];
+        setBnSlotLabels(labels);
+        setBnSlotTimes(times.length ? times : labels.map(() => ""));
+        setBnSelectedSlot(times[0] || "");
+      } catch {
+        if (!cancelled) {
+          setBnSlotLabels([]);
+          setBnSlotTimes([]);
+          setBnSelectedSlot("");
+        }
+      } finally {
+        if (!cancelled) setBnSlotsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bookNextAppt?.id, bnDate, bnServiceId, bnProviderId]);
 
   const saveHandoffNote = async () => {
     if (!activeAppt) return;
@@ -1001,21 +1121,80 @@ export default function DoctorDashboardPage() {
     try {
       await runWithFeedback(
         async () => {
-          await apiPatch(`/appointments/${rescheduleAppt.id}/`, {
+          await apiPost(`/appointments/${rescheduleAppt.id}/reschedule-by-provider/`, {
             appointment_date: resDate,
-            start_time: resTime.length === 5 ? `${resTime}:00` : resTime,
+            start_time: resSelectedSlot,
           });
           setRescheduleAppt(null);
           await load();
         },
         {
           loadingMessage: "Rescheduling…",
-          successMessage: "Appointment moved to the new time.",
+          successMessage: "Appointment rescheduled",
           errorFallback: "Could not reschedule (slot may be taken).",
         },
       );
     } finally {
       setSavingDesk(false);
+    }
+  };
+
+  /** Load bookable services then open the book-next modal for a completed visit. */
+  const openBookNext = (appt: Appointment) => {
+    void (async () => {
+      setBookNextAppt(appt);
+      const initialDate = selectedDate >= todayStr ? selectedDate : todayStr;
+      setBnDate(initialDate);
+      setBookNextOptionsLoading(true);
+      try {
+        const opts = await apiGet<BookingOptionsResponse>("/booking-options/");
+        setBookingOptions(opts);
+        const sid =
+          appt.booked_service_id && opts.services.some((s) => s.id === appt.booked_service_id)
+            ? appt.booked_service_id
+            : opts.services[0]?.id ?? 0;
+        setBnServiceId(sid);
+        const provs = opts.providers_by_service[String(sid)] ?? [];
+        const pid =
+          myProviderId != null && provs.some((p) => p.id === myProviderId)
+            ? myProviderId
+            : provs[0]?.id ?? myProviderId ?? 0;
+        setBnProviderId(pid);
+      } catch {
+        setBookingOptions(null);
+        setBnServiceId(0);
+        setBnProviderId(0);
+      } finally {
+        setBookNextOptionsLoading(false);
+      }
+    })();
+  };
+
+  const submitBookNext = async () => {
+    if (!bookNextAppt || !bnServiceId || !bnProviderId || !bnDate || !bnSelectedSlot) return;
+    setSavingBookNext(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPost(`/appointments/book-by-provider/`, {
+            source_appointment_id: bookNextAppt.id,
+            service_id: bnServiceId,
+            provider_id: bnProviderId,
+            appointment_date: bnDate,
+            start_time: bnSelectedSlot,
+          });
+          setBookNextAppt(null);
+          setBookingOptions(null);
+          await load();
+        },
+        {
+          loadingMessage: "Booking…",
+          successMessage: "Next visit booked",
+          errorFallback: "Could not book that slot (it may have been taken).",
+        },
+      );
+    } finally {
+      setSavingBookNext(false);
     }
   };
 
@@ -1446,7 +1625,8 @@ export default function DoctorDashboardPage() {
             <strong>Print patient bill</strong> runs only after the invoice is marked paid (saved card, reader, or desk checkout). For an
             appointment <strong>awaiting payment</strong>, use <strong>Edit billing</strong> on that row if you need to add a service or fix
             the invoice before collecting. If someone does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
-            <strong>Reschedule</strong> to move a visit.
+            <strong>Reschedule</strong> to move a booked visit. After a visit shows <strong>completed</strong>, use{" "}
+            <strong>Book next visit</strong> to add a new appointment with the same openings as online booking.
           </>
         }
       >
@@ -1695,21 +1875,21 @@ export default function DoctorDashboardPage() {
         </DoctorSectionLabel>
         <div className="flex flex-wrap items-end gap-2">
           <div className="min-w-0 flex-1">
-            <label className="mb-1 block text-xs font-semibold text-slate-500">Patient name, invoice #, or date</label>
+            <label className="mb-1.5 block text-[13px] font-semibold leading-normal text-slate-600">Patient name, invoice #, or date</label>
             <input
               type="text"
               value={billSearchQuery}
               onChange={(e) => setBillSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void searchBills()}
               placeholder="e.g. John Smith, INV-0042, or 2026-04-05"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[14px] leading-normal shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
             />
           </div>
           <button
             type="button"
             onClick={() => void searchBills()}
             disabled={billSearchLoading || !billSearchQuery.trim()}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            className="min-h-11 rounded-xl bg-slate-900 px-5 py-2.5 text-[14px] font-semibold leading-normal text-white hover:bg-slate-800 disabled:opacity-50"
           >
             {billSearchLoading ? "Searching…" : "Search"}
           </button>
@@ -1755,7 +1935,7 @@ export default function DoctorDashboardPage() {
       </section>
       <section className="doctor-panel">
         <DoctorSectionLabel
-          help="Only visits where you are the provider. Click a row to open their chart. Awaiting payment means the visit is done but money is still due — use Collect payment on that row to reopen checkout or the card reader. Before the visit starts you can mark no-show, cancel, or reschedule."
+          help="Only visits where you are the provider. Click a row to open their chart. Awaiting payment means the visit is done but money is still due — use Collect payment on that row to reopen checkout or the card reader. Before the visit starts you can mark no-show, cancel, or reschedule. After a visit is completed you can book their next visit from the row."
         >
           {selectedDate === todayStr ? "Today's schedule" : "Appointments for this day"}
         </DoctorSectionLabel>
@@ -1808,56 +1988,23 @@ export default function DoctorDashboardPage() {
                   tabIndex={0}
                   onClick={() => setPatientDetailId(appt.patient_id)}
                   onKeyDown={(e) => e.key === "Enter" && setPatientDetailId(appt.patient_id)}
-                  className="flex cursor-pointer items-center justify-between px-4 py-3.5"
+                  className="cursor-pointer px-4 py-4 sm:px-5 sm:py-5"
                 >
-                  <div className="flex items-center gap-4">
-                    <span
-                      className={`w-12 shrink-0 text-sm font-medium ${
-                        appt.status === "in_consultation"
-                          ? "cursor-pointer text-[#166534] underline decoration-[#16a349]/40 decoration-dotted underline-offset-2 hover:text-[#0d5c2e]"
-                          : "text-slate-600"
-                      }`}
-                      role={appt.status === "in_consultation" ? "button" : undefined}
-                      tabIndex={appt.status === "in_consultation" ? 0 : undefined}
-                      title={
-                        appt.status === "in_consultation"
-                          ? "Focus this visit — workspace opens in the center (or side panel if docked)"
-                          : undefined
-                      }
-                      onClick={
-                        appt.status === "in_consultation"
-                          ? (e) => {
-                              e.stopPropagation();
-                              setConsultWorkspaceExpanded(true);
-                              setActiveAppt(appt);
-                            }
-                          : undefined
-                      }
-                      onKeyDown={
-                        appt.status === "in_consultation"
-                          ? (e) => {
-                              if (e.key === "Enter") {
-                                e.stopPropagation();
-                                setConsultWorkspaceExpanded(true);
-                                setActiveAppt(appt);
-                              }
-                            }
-                          : undefined
-                      }
-                    >
-                      {appt.start_time}
-                    </span>
-                    <div>
-                      <p className="font-semibold text-slate-900">{appt.patient}</p>
-                      <p className="text-sm text-slate-500">{appt.service || "Follow-up"}</p>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">{appt.patient}</p>
+                      <p className="mt-1.5 text-[13px] leading-normal text-slate-500">
+                        {appt.start_time} – {appt.end_time}
+                        {appt.service ? ` · ${appt.service}` : " · Follow-up"}
+                      </p>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${appointmentStatusPillClass(appt.status)}`}
-                    >
-                      {badgeLabel(statusDisplay(appt.status))}
-                    </span>
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
+                      <span
+                        className={`inline-flex w-fit shrink-0 rounded-full px-3 py-1 text-[13px] font-bold leading-normal ${appointmentStatusPillClass(appt.status)}`}
+                      >
+                        {badgeLabel(statusDisplay(appt.status))}
+                      </span>
+                      <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
                     {appt.status === "booked" && (
                       <button
                         type="button"
@@ -1866,13 +2013,13 @@ export default function DoctorDashboardPage() {
                           void checkInPatient(appt);
                         }}
                         disabled={isCheckingIn}
-                        className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+                        className="min-h-11 w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto sm:min-w-[10rem]"
                       >
                         {isCheckingIn ? "Completing check-in…" : "Check-in"}
                       </button>
                     )}
                     {appt.status === "checked_in" && (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1880,7 +2027,7 @@ export default function DoctorDashboardPage() {
                             startVisit(appt);
                           }}
                           disabled={isStarting}
-                          className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50"
+                          className="min-h-11 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-[14px] font-semibold leading-normal text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50 sm:w-auto sm:min-w-[11rem]"
                         >
                           Start visit
                         </button>
@@ -1891,7 +2038,7 @@ export default function DoctorDashboardPage() {
                       </div>
                     )}
                     {appt.status === "in_consultation" && (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1899,7 +2046,7 @@ export default function DoctorDashboardPage() {
                             setConsultWorkspaceExpanded(true);
                             setActiveAppt(appt);
                           }}
-                          className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d]"
+                          className="min-h-11 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-[14px] font-semibold leading-normal text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] sm:w-auto sm:min-w-[11rem]"
                         >
                           Resume visit
                         </button>
@@ -1910,14 +2057,14 @@ export default function DoctorDashboardPage() {
                       </div>
                     )}
                     {appt.status === "awaiting_payment" && (
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-end">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             void openBillingForEdit(appt);
                           }}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:border-[#16a349]/40 hover:bg-emerald-50/80"
+                          className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-800 shadow-sm hover:border-[#16a349]/40 hover:bg-emerald-50/80 sm:flex-1 sm:min-w-[9rem]"
                         >
                           Edit billing
                         </button>
@@ -1931,7 +2078,7 @@ export default function DoctorDashboardPage() {
                             e.stopPropagation();
                             void resumePaymentForAppointment(appt);
                           }}
-                          className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d]"
+                          className="min-h-11 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-[14px] font-semibold leading-normal text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] sm:flex-1 sm:min-w-[11rem]"
                         >
                           Collect payment
                         </button>
@@ -1945,22 +2092,24 @@ export default function DoctorDashboardPage() {
                             e.stopPropagation();
                             void resumePaymentForAppointment(appt, { trySavedCard: true });
                           }}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#16a349]/35 hover:bg-emerald-50/80 hover:text-[#0d5c2e]"
+                          className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-700 shadow-sm hover:border-[#16a349]/35 hover:bg-emerald-50/80 hover:text-[#0d5c2e] sm:flex-1 sm:min-w-[10rem]"
                         >
                           Retry saved card
                         </button>
                       </div>
                     )}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 {appt.status === "awaiting_payment" && appt.invoice_total != null && (
-                  <p className="border-t border-emerald-100/80 bg-[#f0fdf4]/90 px-4 py-1.5 text-center text-xs font-medium text-[#0d5c2e]">
+                  <p className="border-t border-emerald-100/80 bg-[#f0fdf4]/90 px-4 py-2 text-center text-[13px] font-medium leading-normal text-[#0d5c2e]">
                     Amount due (invoice): ${appt.invoice_total}
                     {appt.invoice_number ? ` · ${appt.invoice_number}` : ""}
                   </p>
                 )}
                 {canDoctorPreVisitDesk(appt.status) && (
-                  <div className="flex flex-wrap gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-2.5">
+                  <div className="grid grid-cols-1 gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-3 sm:grid-cols-3">
                     <button
                       type="button"
                       disabled={savingDesk}
@@ -1978,7 +2127,7 @@ export default function DoctorDashboardPage() {
                           },
                         );
                       }}
-                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+                      className="min-h-11 w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-amber-950 hover:bg-amber-100 disabled:opacity-50"
                     >
                       No-show
                     </button>
@@ -2004,7 +2153,7 @@ export default function DoctorDashboardPage() {
                           },
                         );
                       }}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                      className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                     >
                       Cancel
                     </button>
@@ -2012,9 +2161,24 @@ export default function DoctorDashboardPage() {
                       type="button"
                       disabled={savingDesk}
                       onClick={() => setRescheduleAppt(appt)}
-                      className="rounded-lg border border-[#16a349]/30 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+                      className="min-h-11 w-full rounded-lg border border-[#16a349]/30 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
                     >
                       Reschedule
+                    </button>
+                  </div>
+                )}
+                {appt.status === "completed" && (
+                  <div className="border-t border-slate-200/80 bg-slate-50/60 px-4 py-3">
+                    <button
+                      type="button"
+                      disabled={savingBookNext || bookNextOptionsLoading}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openBookNext(appt);
+                      }}
+                      className="min-h-11 w-full rounded-lg border border-[#16a349]/30 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+                    >
+                      Book next visit
                     </button>
                   </div>
                 )}
@@ -2232,27 +2396,55 @@ export default function DoctorDashboardPage() {
               Reschedule visit
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              {rescheduleAppt.patient} — new date and start time. Length stays the same as the booked service.
+              Pick a new opening from the same rules as online booking. Visit length stays with the booked service.
             </p>
+            <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-800">
+              <p className="font-semibold text-slate-900">{rescheduleAppt.patient}</p>
+              <p className="mt-1 text-slate-700">
+                <span className="font-medium text-slate-600">Currently scheduled:</span>{" "}
+                {formatMonthDayYear(rescheduleAppt.appointment_date)} · {rescheduleAppt.start_time} – {rescheduleAppt.end_time}
+              </p>
+              <p className="mt-1 text-slate-700">
+                <span className="font-medium text-slate-600">Service:</span> {rescheduleAppt.service || "—"}
+              </p>
+            </div>
             <div className="mt-4 space-y-3">
               <label className="block text-xs font-semibold text-slate-600">
-                Date
+                New date
                 <input
                   type="date"
                   value={resDate}
+                  min={todayStr}
                   onChange={(e) => setResDate(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 />
               </label>
               <label className="block text-xs font-semibold text-slate-600">
-                Start time
-                <input
-                  type="time"
-                  value={resTime}
-                  onChange={(e) => setResTime(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                />
+                New time
+                {resSlotsLoading ? (
+                  <span className="mt-1 block text-sm font-normal text-slate-500">Loading openings…</span>
+                ) : (
+                  <select
+                    value={resSelectedSlot}
+                    onChange={(e) => setResSelectedSlot(e.target.value)}
+                    disabled={!resSlotLabels.length}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {resSlotLabels.length === 0 ? (
+                      <option value="">No openings — pick another date</option>
+                    ) : (
+                      resSlotLabels.map((label, i) => (
+                        <option key={`${label}-${i}`} value={resSlotTimes[i] || label}>
+                          {label}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                )}
               </label>
+              {!rescheduleAppt.booked_service_id && (
+                <p className="text-sm text-amber-800">This visit has no booked service — contact the front desk to reschedule.</p>
+              )}
             </div>
             <div className="mt-6 flex flex-wrap justify-end gap-2">
               <button
@@ -2265,11 +2457,143 @@ export default function DoctorDashboardPage() {
               </button>
               <button
                 type="button"
-                disabled={savingDesk || !resDate}
+                disabled={
+                  savingDesk ||
+                  !resDate ||
+                  !resSelectedSlot ||
+                  !rescheduleAppt.booked_service_id ||
+                  resSlotsLoading ||
+                  !resSlotLabels.length
+                }
                 onClick={() => void submitReschedule()}
                 className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
               >
-                {savingDesk ? "Saving…" : "Save"}
+                {savingDesk ? "Saving…" : "Confirm reschedule"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {bookNextAppt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="book-next-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h2 id="book-next-title" className="text-lg font-bold text-slate-900">
+              Book next visit
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Schedule a new appointment for <span className="font-semibold text-slate-800">{bookNextAppt.patient}</span>. Only times that
+              match online booking rules are shown.
+            </p>
+            {bookNextOptionsLoading ? (
+              <p className="mt-4 text-sm text-slate-600">Loading visit types…</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Service
+                  <select
+                    value={bnServiceId || ""}
+                    onChange={(e) => {
+                      const sid = Number(e.target.value);
+                      setBnServiceId(sid);
+                      const provs = bookingOptions?.providers_by_service[String(sid)] ?? [];
+                      const pid =
+                        myProviderId != null && provs.some((p) => p.id === myProviderId)
+                          ? myProviderId
+                          : provs[0]?.id ?? myProviderId ?? 0;
+                      setBnProviderId(pid);
+                    }}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {(bookingOptions?.services ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Provider
+                  <select
+                    value={bnProviderId || ""}
+                    onChange={(e) => setBnProviderId(Number(e.target.value))}
+                    disabled={!bnServiceId}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {(bookingOptions?.providers_by_service[String(bnServiceId)] ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.provider_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Date
+                  <input
+                    type="date"
+                    value={bnDate}
+                    min={todayStr}
+                    onChange={(e) => setBnDate(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Time
+                  {bnSlotsLoading ? (
+                    <span className="mt-1 block text-sm font-normal text-slate-500">Loading openings…</span>
+                  ) : (
+                    <select
+                      value={bnSelectedSlot}
+                      onChange={(e) => setBnSelectedSlot(e.target.value)}
+                      disabled={!bnSlotLabels.length}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    >
+                      {bnSlotLabels.length === 0 ? (
+                        <option value="">No openings — adjust date, service, or provider</option>
+                      ) : (
+                        bnSlotLabels.map((label, i) => (
+                          <option key={`${label}-bn-${i}`} value={bnSlotTimes[i] || label}>
+                            {label}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  )}
+                </label>
+              </div>
+            )}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBookNextAppt(null);
+                  setBookingOptions(null);
+                }}
+                disabled={savingBookNext}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={
+                  savingBookNext ||
+                  bookNextOptionsLoading ||
+                  !bnServiceId ||
+                  !bnProviderId ||
+                  !bnDate ||
+                  !bnSelectedSlot ||
+                  bnSlotsLoading ||
+                  !bnSlotLabels.length
+                }
+                onClick={() => void submitBookNext()}
+                className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {savingBookNext ? "Booking…" : "Confirm booking"}
               </button>
             </div>
           </div>

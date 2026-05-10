@@ -141,7 +141,7 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
         aria-modal="true"
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-1/2 z-[200] grid w-full max-w-[calc(100%-2rem)] max-h-[min(calc(100dvh-2rem),44rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-2xl bg-background p-6 text-sm shadow-xl ring-1 ring-foreground/10 outline-none sm:max-w-lg",
+          "fixed top-[50%] left-1/2 z-[200] grid w-[min(100%-2rem,100vw-2rem)] min-w-0 max-w-[calc(100%-2rem)] max-h-[min(calc(100dvh-2rem),44rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-2xl bg-background p-6 text-[14px] leading-normal shadow-xl ring-1 ring-foreground/10 outline-none sm:min-w-[480px] sm:max-w-lg",
           className
         )}
         onClick={(e) => e.stopPropagation()}
@@ -198,7 +198,7 @@ function DialogFooter({
 
 function DialogTitle({ className, ...props }: React.ComponentProps<"h2">) {
   return (
-    <h2 data-slot="dialog-title" className={cn("font-heading text-base leading-none font-medium", className)} {...props} />
+    <h2 data-slot="dialog-title" className={cn("font-heading text-lg leading-snug font-medium", className)} {...props} />
   )
 }
 
@@ -207,7 +207,7 @@ function DialogDescription({ className, ...props }: React.ComponentProps<"p">) {
     <p
       data-slot="dialog-description"
       className={cn(
-        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        "text-[14px] leading-normal text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
         className
       )}
       {...props}

@@ -183,7 +183,7 @@ export function AppFeedbackProvider({ children }: { children: React.ReactNode })
               role="status"
             >
               <ToastIcon variant={t.variant} />
-              <p className="min-w-0 flex-1 text-sm font-medium leading-snug">{t.message}</p>
+              <p className="min-w-0 flex-1 text-[14px] font-medium leading-normal">{t.message}</p>
               <button
                 type="button"
                 onClick={() => removeToast(t.id)}

@@ -60,7 +60,7 @@ body {
 }
 
 .card {
-  @apply rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm transition-shadow duration-200 hover:shadow-md;
+  @apply rounded-xl border border-border bg-card p-5 text-[14px] leading-normal text-card-foreground shadow-sm transition-shadow duration-200 hover:shadow-md;
 }
 
 .phone-field .PhoneInputCountry {
@@ -238,7 +238,7 @@ body {
 
 /* Slightly richer card for doctor primary panels */
 .doctor-panel {
-  @apply rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
+  @apply rounded-2xl border border-border bg-card p-6 text-[14px] leading-normal text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
 }
 
 /* Admin portal */
@@ -247,11 +247,11 @@ body {
 }
 
 .admin-panel {
-  @apply rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
+  @apply rounded-2xl border border-border bg-card p-6 text-[14px] leading-normal text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
 }
 
 .admin-input {
-  @apply flex min-h-9 w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50;
+  @apply flex min-h-11 w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-[14px] leading-normal shadow-sm transition-colors placeholder:text-muted-foreground placeholder:text-[13px] focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 @theme inline {

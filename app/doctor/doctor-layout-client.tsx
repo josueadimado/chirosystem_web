@@ -7,6 +7,8 @@ import { Sidebar } from "@/components/sidebar";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { PORTAL_ZONE_CLASSES } from "@/lib/portal-readability-classes";
+import { cn } from "@/lib/utils";
 
 const items = [
   { label: "My Dashboard", href: "/doctor/dashboard", icon: <IconStethoscope className="w-5 h-5" /> },
@@ -27,7 +29,7 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
 
   useEffect(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
       setSidebarOpen(false);
     }
   }, []);
@@ -44,7 +46,12 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <DoctorHeader sidebarOpen={sidebarOpen} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <main className="doctor-zone min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24">
-          <div className="mx-auto max-w-7xl px-4 py-6 pb-12 sm:px-6 lg:px-8">
+          <div
+            className={cn(
+              "mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-6 pb-12 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",
+              PORTAL_ZONE_CLASSES,
+            )}
+          >
             <div key={pathname} className="content-fade-in">
               {children}
             </div>
@@ -96,15 +103,15 @@ function DoctorHeader({
         <button
           type="button"
           onClick={onSidebarToggle}
-          className="shrink-0 rounded-xl p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+          className="inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-xl p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
           title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
           <IconMenu className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
-          <p className="hidden text-xs text-muted-foreground sm:block">{todayLine}</p>
+          <h1 className="truncate text-lg font-semibold leading-normal tracking-tight text-foreground">{title}</h1>
+          <p className="hidden text-[13px] leading-normal text-muted-foreground sm:block">{todayLine}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -112,7 +119,7 @@ function DoctorHeader({
         <button
           type="button"
           onClick={handleLogout}
-          className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/60 sm:px-4"
+          className="min-h-11 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium leading-normal text-foreground shadow-sm transition-colors hover:bg-muted/60"
         >
           Log out
         </button>
