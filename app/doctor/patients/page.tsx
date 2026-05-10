@@ -7,7 +7,7 @@ import { formatMonthDayYear } from "@/lib/format-date";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-/** Matches `PatientSerializer` — `GET /patients/` */
+/** Matches `PatientSerializer` — each item in `GET /patients/` `results` */
 type PatientApi = {
   id: number;
   first_name: string;
@@ -17,28 +17,24 @@ type PatientApi = {
   date_of_birth: string | null;
 };
 
+/** DRF paginated list (`page` + `page_size` query params) */
+type PaginatedPatients = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: PatientApi[];
+};
+
+const PAGE_SIZE = 25;
+
 function fullName(p: PatientApi): string {
   return `${p.first_name || ""} ${p.last_name || ""}`.trim() || "Patient";
 }
 
-function digitsOnly(s: string): string {
-  return s.replace(/\D/g, "");
-}
-
-function matchesSearch(p: PatientApi, q: string): boolean {
-  const t = q.trim().toLowerCase();
-  if (!t) return true;
-  const name = fullName(p).toLowerCase();
-  if (name.includes(t)) return true;
-  const email = (p.email || "").toLowerCase();
-  if (email.includes(t)) return true;
-  const qd = digitsOnly(q);
-  if (qd.length >= 3 && digitsOnly(p.phone || "").includes(qd)) return true;
-  return false;
-}
-
 export default function DoctorPatientsPage() {
   const [patients, setPatients] = useState<PatientApi[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -49,29 +45,51 @@ export default function DoctorPatientsPage() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
+  // New search → start from page 1 (server filters + paginates)
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
   const load = useCallback(() => {
     setLoading(true);
     setError("");
-    void apiGetAuth<PatientApi[]>("/patients/")
-      .then((rows) => setPatients(Array.isArray(rows) ? rows : []))
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("page_size", String(PAGE_SIZE));
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    void apiGetAuth<PaginatedPatients>(`/patients/?${params.toString()}`)
+      .then((data) => {
+        setPatients(Array.isArray(data.results) ? data.results : []);
+        setTotalCount(typeof data.count === "number" ? data.count : 0);
+      })
       .catch((e) => {
         setError(e instanceof ApiError ? e.message : "Could not load patients.");
         setPatients([]);
+        setTotalCount(0);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [page, debouncedSearch]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- mount / patient-id fetch lifecycle */
+  /* eslint-disable react-hooks/set-state-in-effect -- load when page/search changes */
   useEffect(() => {
     void load();
   }, [load]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const filtered = useMemo(() => {
-    return patients.filter((p) => matchesSearch(p, debouncedSearch));
-  }, [patients, debouncedSearch]);
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
+    [totalCount],
+  );
+
+  const rangeLabel = useMemo(() => {
+    if (totalCount === 0) return null;
+    const start = (page - 1) * PAGE_SIZE + 1;
+    const end = Math.min(page * PAGE_SIZE, totalCount);
+    return `${start}–${end}`;
+  }, [page, totalCount]);
 
   const searching = debouncedSearch.length > 0;
+  const showPagination = !loading && totalCount > 0 && totalPages > 1;
 
   return (
     <div className="space-y-6">
@@ -105,13 +123,15 @@ export default function DoctorPatientsPage() {
           <div className="py-12">
             <Loader variant="page" label="Loading patients" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : patients.length === 0 ? (
           <p className="mt-6 text-center text-slate-600">
-            {patients.length === 0 ? "No patients are on file yet." : "No patients found matching your search."}
+            {totalCount === 0 && !searching
+              ? "No patients are on file yet."
+              : "No patients found matching your search."}
           </p>
         ) : (
           <ul className="mt-6 divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-            {filtered.map((p) => (
+            {patients.map((p) => (
               <li key={p.id}>
                 <Link
                   href={`/doctor/patients/${p.id}/record`}
@@ -137,11 +157,48 @@ export default function DoctorPatientsPage() {
           </ul>
         )}
 
-        {!loading && patients.length > 0 && (
+        {showPagination ? (
+          <div className="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-center text-sm text-slate-600 sm:text-left">
+              Page {page} of {totalPages}
+              {rangeLabel ? (
+                <>
+                  {" "}
+                  <span className="text-slate-400">·</span> Showing {rangeLabel} of {totalCount}
+                </>
+              ) : null}
+            </p>
+            <div className="flex justify-center gap-2 sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={loading || page <= 1}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={loading || page >= totalPages}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {!loading && totalCount > 0 && (
           <p className="mt-4 text-center text-xs text-slate-500">
-            {searching
-              ? `Showing ${filtered.length} of ${patients.length} patients`
-              : `${patients.length} patient${patients.length === 1 ? "" : "s"} — use search to narrow`}
+            {searching ? (
+              <>
+                {totalCount} match{totalCount === 1 ? "" : "es"}
+                {totalPages > 1 ? " — use Previous / Next to see more" : ""}
+              </>
+            ) : (
+              `${totalCount} patient${totalCount === 1 ? "" : "s"} — use search to narrow`
+            )}
           </p>
         )}
 
