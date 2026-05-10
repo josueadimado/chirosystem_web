@@ -1,8 +1,8 @@
 "use client";
 
-import { IconChevronDown } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
 import Link from "next/link";
@@ -76,41 +76,8 @@ function parseMoney(s: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Parse times like "9:00 AM" and return minutes from midnight, or null. */
-function parseTimeToMinutes(t: string): number | null {
-  const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const ap = m[3].toUpperCase();
-  if (ap === "PM" && h !== 12) h += 12;
-  if (ap === "AM" && h === 12) h = 0;
-  return h * 60 + min;
-}
-
-function formatDuration(start: string, end: string): string {
-  const a = parseTimeToMinutes(start);
-  const b = parseTimeToMinutes(end);
-  if (a === null || b === null || b < a) return "—";
-  const mins = b - a;
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m ? `${h}h ${m}m` : `${h}h`;
-}
-
-const UPCOMING_STATUSES = new Set(["booked", "scheduled", "checked_in", "in_consultation"]);
-
-function isPastVisit(a: AppointmentHistoryRow): boolean {
-  const today = new Date().toISOString().slice(0, 10);
-  if (a.appointment_date > today) return false;
-  if (a.appointment_date < today) return true;
-  return !UPCOMING_STATUSES.has(a.status);
-}
-
 function pricePaidLabel(inv: AppointmentHistoryRow["invoice"]): string {
   if (!inv) return "—";
-  const total = parseMoney(inv.total_amount);
   const st = (inv.status || "").toLowerCase();
   if (st === "paid") return `Paid $${inv.total_amount}`;
   if (st === "void") return "—";
@@ -129,6 +96,13 @@ function compareAppointmentsChronological(a: AppointmentHistoryRow, b: Appointme
   const d = a.appointment_date.localeCompare(b.appointment_date);
   if (d !== 0) return d;
   return (a.start_time || "").localeCompare(b.start_time || "");
+}
+
+/** Most recent appointment first (for on-screen visit history). */
+function compareAppointmentsNewestFirst(a: AppointmentHistoryRow, b: AppointmentHistoryRow): number {
+  const d = b.appointment_date.localeCompare(a.appointment_date);
+  if (d !== 0) return d;
+  return (b.start_time || "").localeCompare(a.start_time || "");
 }
 
 function formatAmountBilled(inv: AppointmentHistoryRow["invoice"]): string {
@@ -161,14 +135,16 @@ export default function DoctorPatientRecordPage() {
   const [detail, setDetail] = useState<PatientDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
-  const [docStamp, setDocStamp] = useState("");
+  const [selectedVisit, setSelectedVisit] = useState<AppointmentHistoryRow | null>(null);
+  const [docStamp] = useState(() =>
+    typeof window !== "undefined"
+      ? new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+      : "",
+  );
 
+  /* eslint-disable react-hooks/set-state-in-effect -- load chart when patient id changes */
   useEffect(() => {
-    setDocStamp(new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
-  }, []);
-
-  useEffect(() => {
+    setSelectedVisit(null);
     if (!Number.isFinite(id) || id <= 0) {
       setLoading(false);
       return;
@@ -183,22 +159,22 @@ export default function DoctorPatientRecordPage() {
       })
       .finally(() => setLoading(false));
   }, [id]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  const pastVisits = useMemo(() => {
-    if (!detail?.appointments) return [];
-    return [...detail.appointments].filter(isPastVisit).sort((a, b) => {
-      if (a.appointment_date !== b.appointment_date) {
-        return a.appointment_date.localeCompare(b.appointment_date);
-      }
-      return (a.start_time || "").localeCompare(b.start_time || "");
-    });
+  /** All appointments, most recent first — full visit history on screen. */
+  const visitsNewestFirst = useMemo(() => {
+    if (!detail?.appointments?.length) return [];
+    return [...detail.appointments].sort(compareAppointmentsNewestFirst);
   }, [detail]);
 
   const billing = useMemo(() => {
+    if (!detail?.appointments?.length) {
+      return { totalBilled: 0, totalPaid: 0, outstanding: 0, visitCount: 0 };
+    }
     let totalBilled = 0;
     let totalPaid = 0;
     let outstanding = 0;
-    for (const a of pastVisits) {
+    for (const a of detail.appointments) {
       const inv = a.invoice;
       if (!inv) continue;
       const st = (inv.status || "").toLowerCase();
@@ -208,8 +184,13 @@ export default function DoctorPatientRecordPage() {
       if (st === "paid") totalPaid += amt;
       else outstanding += amt;
     }
-    return { totalBilled, totalPaid, outstanding, visitCount: pastVisits.length };
-  }, [pastVisits]);
+    return {
+      totalBilled,
+      totalPaid,
+      outstanding,
+      visitCount: detail.appointments.length,
+    };
+  }, [detail]);
 
   /** All chart appointments (for legal / insurance printout billing table). */
   const allVisitsSorted = useMemo(() => {
@@ -232,15 +213,6 @@ export default function DoctorPatientRecordPage() {
     return { totalBilled, totalPaid };
   }, [allVisitsSorted]);
 
-  const toggleRow = (apptId: number) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(apptId)) next.delete(apptId);
-      else next.add(apptId);
-      return next;
-    });
-  };
-
   if (!Number.isFinite(id) || id <= 0) {
     return <div className="p-6 text-sm text-rose-700">Invalid patient id.</div>;
   }
@@ -257,10 +229,10 @@ export default function DoctorPatientRecordPage() {
     return (
       <div className="space-y-4">
         <Link
-          href="/doctor/schedule"
+          href="/doctor/patients"
           className="print:hidden inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
         >
-          ← Back to schedule
+          ← Back to patients
         </Link>
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error || "Patient record could not be loaded."}
@@ -406,10 +378,10 @@ export default function DoctorPatientRecordPage() {
         {/* Top bar: back + print */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
-            href="/doctor/schedule"
+            href="/doctor/patients"
             className="print:hidden inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            ← Back to schedule
+            ← Back to patients
           </Link>
           <button
             type="button"
@@ -438,130 +410,44 @@ export default function DoctorPatientRecordPage() {
           </div>
         </div>
 
-        {/* Visit history */}
+        {/* Visit history — opens detail in a side drawer (no inline expansion). */}
         <section className="space-y-3">
           <h2 className="text-lg font-bold tracking-tight text-slate-900">Visit history</h2>
           <p className="text-sm text-slate-600">
-            Past appointments in chronological order. Expand a row for chart notes and visit documentation.
+            All appointments, most recent first. Select a row to read chart and handoff notes in the panel on the right.
           </p>
 
-          {pastVisits.length === 0 ? (
+          {visitsNewestFirst.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-12 text-center">
-              <p className="font-semibold text-slate-800">No past visits on file yet</p>
-              <p className="mt-2 text-sm text-slate-500">Completed or past-dated appointments will appear here.</p>
+              <p className="font-semibold text-slate-800">No visits on file yet</p>
+              <p className="mt-2 text-sm text-slate-500">Appointments for this patient will appear here.</p>
             </div>
           ) : (
             <ul className="space-y-2">
-              {pastVisits.map((a) => {
-                const open = expanded.has(a.id);
-                return (
-                  <li
-                    key={a.id}
-                    className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm"
+              {visitsNewestFirst.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVisit(a)}
+                    className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 text-left shadow-sm transition hover:border-[#16a349]/25 hover:bg-slate-50/80 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
                   >
-                    <button
-                      type="button"
-                      onClick={() => toggleRow(a.id)}
-                      className="flex w-full flex-col gap-3 px-4 py-4 text-left transition hover:bg-slate-50/80 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
-                      aria-expanded={open}
-                    >
-                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
-                        <span className="font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</span>
-                        <span className="text-sm text-slate-700">{a.service || "—"}</span>
-                        <span className="text-sm text-slate-600">{a.provider || "—"}</span>
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
-                        >
-                          {a.status.replace(/_/g, " ")}
-                        </span>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-4">
-                        <span className="text-sm text-slate-600">
-                          {formatDuration(a.start_time, a.end_time)}
-                        </span>
-                        <span className="text-sm font-medium text-slate-800">{pricePaidLabel(a.invoice)}</span>
-                        <IconChevronDown
-                          className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-                        />
-                      </div>
-                    </button>
-
-                    {open ? (
-                      <div className="space-y-4 border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:px-5">
-                        <div>
-                          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                            Chart note (handoff)
-                          </p>
-                          <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800">
-                            {a.clinical_handoff_notes?.trim() ? a.clinical_handoff_notes : "No handoff note for this visit."}
-                          </div>
-                        </div>
-
-                        {a.visit ? (
-                          <div className="rounded-xl border border-slate-200/90 bg-white p-4">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                              Visit snapshot
-                            </p>
-                            {a.visit.reason_for_visit?.trim() ? (
-                              <p className="mt-3 text-sm">
-                                <span className="font-semibold text-slate-600">Reason: </span>
-                                <span className="text-slate-800">{a.visit.reason_for_visit}</span>
-                              </p>
-                            ) : null}
-                            {a.visit.diagnosis?.trim() ? (
-                              <p className="mt-2 text-sm">
-                                <span className="font-semibold text-slate-600">Diagnosis (bill): </span>
-                                <span className="text-slate-800">{a.visit.diagnosis}</span>
-                              </p>
-                            ) : null}
-                            {a.visit.doctor_notes?.trim() ? (
-                              <div className="mt-2 text-sm">
-                                <span className="font-semibold text-slate-600">Visit notes: </span>
-                                <div className="mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 leading-relaxed text-slate-800">
-                                  {a.visit.doctor_notes}
-                                </div>
-                              </div>
-                            ) : null}
-                            {a.visit.rendered_services.length > 0 ? (
-                              <div className="mt-3">
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                                  Procedures billed
-                                </p>
-                                <ul className="mt-1.5 space-y-1 text-xs text-slate-700">
-                                  {a.visit.rendered_services.map((line, idx) => (
-                                    <li
-                                      key={idx}
-                                      className="flex flex-wrap gap-x-2 border-b border-slate-200/60 py-1.5 last:border-0"
-                                    >
-                                      <span className="font-mono text-[11px] text-slate-500">{line.billing_code || "—"}</span>
-                                      <span>{line.service_name}</span>
-                                      {line.charges_patient === false ? (
-                                        <span className="text-[10px] font-semibold uppercase text-indigo-700">
-                                          (insurance line · no patient charge)
-                                        </span>
-                                      ) : null}
-                                      <span className="text-slate-500">
-                                        ×{line.quantity} · ${line.line_total}
-                                      </span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ) : null}
-                            {a.visit.completed_at ? (
-                              <p className="mt-2 text-[10px] text-slate-400">Completed {a.visit.completed_at}</p>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <p className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-sm text-slate-500">
-                            No completed visit documentation on file for this appointment.
-                          </p>
-                        )}
-                      </div>
-                    ) : null}
-                  </li>
-                );
-              })}
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+                      <span className="font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</span>
+                      <span className="text-sm text-slate-600 tabular-nums">{a.start_time}</span>
+                      <span className="text-sm text-slate-700">{a.service || "—"}</span>
+                      <span className="text-sm text-slate-600">{a.provider || "—"}</span>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
+                      >
+                        {a.status.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-4">
+                      <span className="text-sm font-medium text-slate-800">{pricePaidLabel(a.invoice)}</span>
+                    </div>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
         </section>
@@ -595,7 +481,7 @@ export default function DoctorPatientRecordPage() {
         <section className="space-y-3">
           <h2 className="text-lg font-bold tracking-tight text-slate-900">Billing summary</h2>
           <p className="text-sm text-slate-600">
-            Totals are calculated from invoices linked to past appointments on this chart.
+            Totals are calculated from invoices linked to appointments on this chart.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
@@ -617,6 +503,60 @@ export default function DoctorPatientRecordPage() {
           </div>
         </section>
       </div>
+
+      <Sheet open={selectedVisit !== null} onOpenChange={(open) => !open && setSelectedVisit(null)}>
+        {selectedVisit ? (
+          <SheetContent
+            side="right"
+            showCloseButton
+            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[480px]"
+          >
+            <div className="shrink-0 border-b border-slate-100 px-5 pb-4 pt-14">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Visit details</p>
+              <p className="mt-1 text-xl font-bold tracking-tight text-slate-900">
+                {formatMonthDayYear(selectedVisit.appointment_date)}
+              </p>
+              <p className="mt-2 text-sm font-medium text-slate-800">
+                {selectedVisit.start_time}
+                {selectedVisit.end_time ? ` – ${selectedVisit.end_time}` : ""}
+              </p>
+              <p className="mt-3 text-sm text-slate-700">{selectedVisit.service || "—"}</p>
+              <p className="mt-1 text-sm text-slate-600">{selectedVisit.provider || "—"}</p>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusBadgeClass(selectedVisit.status)}`}
+                >
+                  {selectedVisit.status.replace(/_/g, " ")}
+                </span>
+              </div>
+              <p className="mt-4 text-sm font-semibold text-slate-900">{pricePaidLabel(selectedVisit.invoice)}</p>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-6">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Handoff note</p>
+                  <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-relaxed text-slate-800">
+                    {selectedVisit.clinical_handoff_notes?.trim()
+                      ? selectedVisit.clinical_handoff_notes
+                      : "No handoff note for this visit."}
+                  </div>
+                </div>
+
+                {selectedVisit.visit?.doctor_notes?.trim() ? (
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Chart / visit notes</p>
+                    <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800">
+                      {selectedVisit.visit.doctor_notes}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </SheetContent>
+        ) : null}
+      </Sheet>
 
       {/* Legal / insurance printout — hidden on screen; print CSS swaps visibility */}
       <div id="patient-file-print-root" className="hidden">
