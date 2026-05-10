@@ -655,7 +655,7 @@ export default function DoctorDashboardPage() {
     setPaymentConfirmOpen(false);
     setIsCompleting(true);
     setError("");
-    await runWithFeedback(
+    const feedbackResult = await runWithFeedback(
       async () => {
         const endpoint = isRevisingAwaitingPayment
           ? `/doctor/${apptId}/revise_visit_billing/`
@@ -694,7 +694,6 @@ export default function DoctorDashboardPage() {
             professionalDiscount,
             professionalDiscountReason,
           );
-          setBillingEditJustSaved(true);
           await load();
           if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
             try {
@@ -740,9 +739,7 @@ export default function DoctorDashboardPage() {
           : "Completing visit and creating invoice…",
         successMessage: (r) =>
           isRevisingAwaitingPayment
-            ? r?.payment?.charged
-              ? "Billing updated — payment received."
-              : "Billing updated — green banner shows the new amount and payment options."
+            ? ""
             : r?.payment?.charged
               ? "Visit completed — payment received; patient bill opened for printing."
               : "Visit completed — collect payment, then tap Print patient bill.",
@@ -752,6 +749,12 @@ export default function DoctorDashboardPage() {
       },
     );
     setIsCompleting(false);
+    if (feedbackResult !== undefined && isRevisingAwaitingPayment) {
+      toast.success("Bill saved");
+      window.setTimeout(() => {
+        cancelBillingEdit();
+      }, 1500);
+    }
   };
 
   const completeVisit = async () => {

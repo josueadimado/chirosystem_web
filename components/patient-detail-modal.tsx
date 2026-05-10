@@ -6,6 +6,7 @@ import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -314,6 +315,13 @@ export function PatientDetailModal({
     }
   };
 
+  /** Doctor chart opens full-page record instead of an in-modal history tab (modal is too small). */
+  const isDoctorChart = detailPath === "/doctor/patient_detail";
+
+  useEffect(() => {
+    if (isDoctorChart && tab === "history") setTab("overview");
+  }, [isDoctorChart, tab]);
+
   if (patientId === null) return null;
   if (!portalReady) return null;
 
@@ -335,11 +343,16 @@ export function PatientDetailModal({
         : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
     }`;
 
-  const tabs: { id: Tab; label: string; hint: string }[] = [
-    { id: "overview", label: "Overview", hint: "Summary & demographics" },
-    { id: "intake", label: "Patient intake", hint: "Address & contacts" },
-    { id: "history", label: "Record history", hint: "Visits, chart notes & billing" },
-  ];
+  const tabs: { id: Tab; label: string; hint: string }[] = isDoctorChart
+    ? [
+        { id: "overview", label: "Overview", hint: "Summary & demographics" },
+        { id: "intake", label: "Patient intake", hint: "Address & contacts" },
+      ]
+    : [
+        { id: "overview", label: "Overview", hint: "Summary & demographics" },
+        { id: "intake", label: "Patient intake", hint: "Address & contacts" },
+        { id: "history", label: "Record history", hint: "Visits, chart notes & billing" },
+      ];
 
   const displayInitial = (d: PatientDetail) =>
     (d.first_name?.trim().charAt(0) || d.last_name?.trim().charAt(0) || "?").toUpperCase();
@@ -381,25 +394,35 @@ export function PatientDetailModal({
               <span className="block text-2xl leading-none">×</span>
             </button>
           </div>
-          <div className="mt-4 flex gap-1 rounded-xl border border-slate-200/80 bg-slate-50/90 p-1 shadow-inner">
-            {tabs.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                title={t.hint}
-                onClick={() => setTab(t.id)}
-                className={`flex-1 rounded-lg px-2 py-2.5 text-center text-sm font-semibold transition sm:px-3 ${
-                  tab === t.id
-                    ? "bg-white text-[#0d5c2e] shadow-md shadow-emerald-900/5 ring-1 ring-emerald-100/80"
-                    : "text-slate-600 hover:bg-white/60 hover:text-slate-900"
-                }`}
+          <div className="mt-4 flex flex-wrap items-stretch gap-2">
+            <div className="flex min-w-0 flex-1 gap-1 rounded-xl border border-slate-200/80 bg-slate-50/90 p-1 shadow-inner">
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  title={t.hint}
+                  onClick={() => setTab(t.id)}
+                  className={`flex-1 rounded-lg px-2 py-2.5 text-center text-sm font-semibold transition sm:px-3 ${
+                    tab === t.id
+                      ? "bg-white text-[#0d5c2e] shadow-md shadow-emerald-900/5 ring-1 ring-emerald-100/80"
+                      : "text-slate-600 hover:bg-white/60 hover:text-slate-900"
+                  }`}
+                >
+                  <span className="hidden sm:inline">{t.label}</span>
+                  <span className="sm:hidden">
+                    {t.id === "overview" ? "Info" : t.id === "intake" ? "Intake" : "History"}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {isDoctorChart && patientId ? (
+              <Link
+                href={`/doctor/patients/${patientId}/record`}
+                className="inline-flex shrink-0 items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-50/90 px-3 py-2 text-sm font-semibold text-[#0d5c2e] shadow-inner transition hover:bg-emerald-100/90"
               >
-                <span className="hidden sm:inline">{t.label}</span>
-                <span className="sm:hidden">
-                  {t.id === "overview" ? "Info" : t.id === "intake" ? "Intake" : "History"}
-                </span>
-              </button>
-            ))}
+                View full record →
+              </Link>
+            ) : null}
           </div>
         </div>
 
@@ -709,7 +732,7 @@ export function PatientDetailModal({
                 </div>
               )}
 
-              {tab === "history" && (
+              {tab === "history" && !isDoctorChart && (
                 <div className="animate-fade-in space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <DoctorSectionLabel>Patient record history</DoctorSectionLabel>

@@ -19,8 +19,7 @@ import {
   type TimeInterval,
 } from "@/lib/admin-schedule-utils";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
-import { useEffect, useMemo, useState } from "react";
-
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 /** Mirrors API fields used by the admin schedule (names unchanged). */
 export type ScheduleAppointment = {
   id: number;
@@ -128,6 +127,130 @@ function AppointmentBlockDecor({ status }: { status: string }) {
 }
 
 const GRID_PX = 640;
+
+/** Minimum CSS px height so two lines (name + time) always fit */
+const MIN_APPOINTMENT_BLOCK_PX = 52;
+const MIN_LANE_WIDTH_PX = 90;
+const LANE_GAP_PX = 2;
+
+function formatPatientNameShort(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return fullName.trim();
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  return `${first} ${last.charAt(0).toUpperCase()}.`;
+}
+
+function appointmentTooltipStatus(status: string): string {
+  const key = status === "booked" ? "scheduled" : status;
+  return key.replace(/_/g, " ");
+}
+
+function PatientNameLine({
+  fullName,
+  textClassName,
+}: {
+  fullName: string;
+  textClassName?: string;
+}) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const measure = measureRef.current;
+    if (!row || !measure) return;
+    const check = () => {
+      setCompact(measure.scrollWidth > row.clientWidth);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(row);
+    return () => ro.disconnect();
+  }, [fullName]);
+
+  const display = compact ? formatPatientNameShort(fullName) : fullName;
+
+  return (
+    <div ref={rowRef} className="min-w-0 px-1.5 pt-1">
+      <span
+        ref={measureRef}
+        className={cn("pointer-events-none invisible absolute whitespace-nowrap font-semibold text-[12px]", textClassName)}
+        aria-hidden
+      >
+        {fullName}
+      </span>
+      <span className={cn("block font-semibold leading-tight text-[12px]", textClassName)}>{display}</span>
+    </div>
+  );
+}
+
+function AppointmentBlockTooltip({
+  patientName,
+  serviceName,
+  startLabel,
+  endLabel,
+  providerName,
+  status,
+  children,
+}: {
+  patientName: string;
+  serviceName: string;
+  startLabel: string;
+  endLabel: string;
+  providerName: string;
+  status: string;
+  children: ReactNode;
+}) {
+  const [visible, setVisible] = useState(false);
+  const [place, setPlace] = useState<"top" | "bottom">("top");
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const updatePlacement = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const tipEstimate = 132;
+    const margin = 8;
+    const spaceAbove = r.top;
+    const spaceBelow = window.innerHeight - r.bottom;
+    if (spaceAbove >= tipEstimate + margin && spaceAbove >= spaceBelow) setPlace("top");
+    else if (spaceBelow >= tipEstimate + margin) setPlace("bottom");
+    else setPlace(spaceAbove >= spaceBelow ? "top" : "bottom");
+  };
+
+  return (
+    <div
+      ref={wrapRef}
+      className="relative flex h-full min-h-0 w-full min-w-0 flex-col"
+      onMouseEnter={() => {
+        updatePlacement();
+        setVisible(true);
+      }}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {children}
+      {visible ? (
+        <div
+          role="tooltip"
+          className={cn(
+            "pointer-events-none absolute left-1/2 z-[60] w-max max-w-[min(288px,calc(100vw-24px))] -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-[11px] leading-snug text-slate-800 shadow-xl",
+            place === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5",
+          )}
+        >
+          <p className="font-semibold text-slate-900">{patientName}</p>
+          <p className="mt-1 text-slate-700">{serviceName?.trim() ? serviceName : "—"}</p>
+          <p className="mt-1 tabular-nums text-slate-600">
+            {startLabel} – {endLabel}
+          </p>
+          <p className="mt-1 text-slate-600">{providerName}</p>
+          <p className="mt-1 capitalize text-slate-500">{appointmentTooltipStatus(status)}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** Horizontal “now” line position (% from top of day grid), or null if outside 7–7 or not today. */
 function nowLinePercent(focusDate: Date): number | null {
@@ -466,37 +589,40 @@ function DayProviderColumn({
           const styles = statusBlockStyles(a.status, base);
           const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
           const selected = selectedId === a.id;
-          const tip = [
-            a.patient_name,
-            a.service_name || "Service",
-            `${formatTimeShort(a.start_time)} – ${formatTimeShort(a.end_time)} (${dur} min)`,
-            a.status.replace(/_/g, " "),
-          ].join("\n");
+          const startShown = a.start_time_display || formatTimeShort(a.start_time);
+          const endShown = a.end_time_display || formatTimeShort(a.end_time);
           return (
             <button
               key={a.id}
               type="button"
-              title={tip}
               onClick={() => onSelect(a)}
               className={cn(
-                "group absolute left-0.5 right-0.5 z-[3] overflow-hidden rounded-md border text-left text-xs leading-snug transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
+                "absolute left-0.5 right-0.5 z-[3] flex flex-col overflow-hidden rounded-md border text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                 styles.wrap,
                 selected && "ring-2 ring-[#16a349] ring-offset-1",
               )}
               style={{
                 top: `${topPct}%`,
                 height: `${heightPct}%`,
-                minHeight: 28,
+                minHeight: MIN_APPOINTMENT_BLOCK_PX,
                 background: bg,
                 borderColor: a.status === "cancelled" ? "#fecaca" : selected ? "#16a349" : "rgba(255,255,255,0.35)",
               }}
             >
               <AppointmentBlockDecor status={a.status} />
-              <span className={cn("block truncate px-1.5 pt-1 font-semibold", styles.text)}>{a.patient_name}</span>
-              <span className="block truncate px-1.5 text-[12px] leading-tight opacity-90">
-                {a.provider_name ? `${a.provider_name} · ` : ""}
-                {a.start_time_display || formatTimeShort(a.start_time)} · {dur}m
-              </span>
+              <AppointmentBlockTooltip
+                patientName={a.patient_name}
+                serviceName={a.service_name || ""}
+                startLabel={startShown}
+                endLabel={endShown}
+                providerName={a.provider_name}
+                status={a.status}
+              >
+                <PatientNameLine fullName={a.patient_name} textClassName={styles.text} />
+                <span className="mt-auto block shrink-0 px-1.5 pb-1 text-[11px] leading-tight opacity-90 tabular-nums">
+                  {startShown} – {endShown}
+                </span>
+              </AppointmentBlockTooltip>
             </button>
           );
         })}
@@ -659,69 +785,104 @@ function WeekDayStack({
     return { entries: list, ...lanes };
   }, [appointments, blocks, providers]);
 
-  const wPct = 100 / laneCount;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [colWidth, setColWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const apply = () => setColWidth(el.clientWidth);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const innerMinW = Math.max(
+    colWidth,
+    laneCount * MIN_LANE_WIDTH_PX + Math.max(0, laneCount - 1) * LANE_GAP_PX,
+  );
+  const laneW =
+    laneCount > 0
+      ? (innerMinW - Math.max(0, laneCount - 1) * LANE_GAP_PX) / laneCount
+      : MIN_LANE_WIDTH_PX;
 
   return (
-    <>
-      {entries.map((entry) => {
-        if (entry.kind === "block") {
-          const b = entry.block;
-          const { topPct, heightPct } = timePositionPercent(entry.start, entry.end - entry.start);
+    <div ref={containerRef} className="absolute inset-0 overflow-x-auto overflow-y-hidden">
+      <div className="relative h-full min-w-full" style={{ width: innerMinW }}>
+        {entries.map((entry) => {
+          if (entry.kind === "block") {
+            const b = entry.block;
+            const { topPct, heightPct } = timePositionPercent(entry.start, entry.end - entry.start);
+            const lane = laneByKey.get(entry.key) ?? 0;
+            const leftPx = lane * (laneW + LANE_GAP_PX);
+            return (
+              <div
+                key={entry.key}
+                className="pointer-events-none absolute z-[1] rounded border border-slate-300"
+                style={{
+                  top: `${topPct}%`,
+                  height: `${heightPct}%`,
+                  minHeight: 4,
+                  left: leftPx,
+                  width: laneW,
+                  backgroundImage: STRIPE_BG,
+                  backgroundColor: "#e5e7eb",
+                }}
+                title="Blocked (online booking)"
+              />
+            );
+          }
+          const a = entry.appt;
+          const dur = appointmentDurationMinutes(a.start_time, a.end_time);
+          const { topPct, heightPct } = timePositionPercent(entry.start, dur);
           const lane = laneByKey.get(entry.key) ?? 0;
+          const base = providerColorForId(a.provider);
+          const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
+          const styles = statusBlockStyles(a.status, base);
+          const selected = selectedId === a.id;
+          const leftPx = lane * (laneW + LANE_GAP_PX);
+          const startShown = a.start_time_display || formatTimeShort(a.start_time);
+          const endShown = a.end_time_display || formatTimeShort(a.end_time);
           return (
-            <div
+            <button
               key={entry.key}
-              className="pointer-events-none absolute z-[1] rounded border border-slate-300"
+              type="button"
+              onClick={() => onSelect(a)}
+              className={cn(
+                "absolute z-[3] flex flex-col overflow-hidden rounded border text-left shadow-sm transition",
+                styles.wrap,
+                selected && "ring-2 ring-[#16a349] ring-offset-1",
+              )}
               style={{
                 top: `${topPct}%`,
                 height: `${heightPct}%`,
-                minHeight: 4,
-                left: `calc(${lane * wPct}% + 2px)`,
-                width: `calc(${wPct}% - 4px)`,
-                backgroundImage: STRIPE_BG,
-                backgroundColor: "#e5e7eb",
+                minHeight: MIN_APPOINTMENT_BLOCK_PX,
+                left: leftPx,
+                width: laneW,
+                background: bg,
+                borderColor: a.status === "cancelled" ? "#fecaca" : "rgba(255,255,255,0.35)",
               }}
-              title="Blocked (online booking)"
-            />
+            >
+              <AppointmentBlockDecor status={a.status} />
+              <AppointmentBlockTooltip
+                patientName={a.patient_name}
+                serviceName={a.service_name || ""}
+                startLabel={startShown}
+                endLabel={endShown}
+                providerName={a.provider_name}
+                status={a.status}
+              >
+                <PatientNameLine fullName={a.patient_name} textClassName={styles.text} />
+                <span className="mt-auto block shrink-0 px-1 pb-1 text-[11px] leading-tight opacity-90 tabular-nums">
+                  {startShown} – {endShown}
+                </span>
+              </AppointmentBlockTooltip>
+            </button>
           );
-        }
-        const a = entry.appt;
-        const dur = appointmentDurationMinutes(a.start_time, a.end_time);
-        const { topPct, heightPct } = timePositionPercent(entry.start, dur);
-        const lane = laneByKey.get(entry.key) ?? 0;
-        const base = providerColorForId(a.provider);
-        const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
-        const styles = statusBlockStyles(a.status, base);
-        const selected = selectedId === a.id;
-        const tip = [a.patient_name, a.provider_name, a.service_name || "", `${dur} min`, a.status].join("\n");
-        return (
-          <button
-            key={entry.key}
-            type="button"
-            title={tip}
-            onClick={() => onSelect(a)}
-            className={cn(
-              "absolute z-[3] overflow-hidden rounded border text-left text-[12px] leading-snug shadow-sm transition",
-              styles.wrap,
-              selected && "ring-2 ring-[#16a349] ring-offset-1",
-            )}
-            style={{
-              top: `${topPct}%`,
-              height: `${heightPct}%`,
-              minHeight: 24,
-              left: `calc(${lane * wPct}% + 2px)`,
-              width: `calc(${wPct}% - 4px)`,
-              background: bg,
-              borderColor: a.status === "cancelled" ? "#fecaca" : "rgba(255,255,255,0.35)",
-            }}
-          >
-            <AppointmentBlockDecor status={a.status} />
-            <span className={cn("block truncate px-1 font-semibold", styles.text)}>{a.patient_name}</span>
-            <span className="block truncate px-1 text-[12px] leading-tight opacity-90">{formatTimeShort(a.start_time)}</span>
-          </button>
-        );
-      })}
-    </>
+        })}
+      </div>
+    </div>
   );
 }
 

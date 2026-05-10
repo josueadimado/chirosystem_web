@@ -45,15 +45,6 @@ function Sheet({
     return () => document.removeEventListener("keydown", onKey)
   }, [openProp, setOpen])
 
-  React.useEffect(() => {
-    if (!openProp) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [openProp])
-
   return (
     <SheetContext.Provider value={{ open: openProp, onOpenChange: setOpen }}>{children}</SheetContext.Provider>
   )
@@ -92,6 +83,13 @@ const sheetSideClasses = {
   right: "inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm",
 }
 
+const sheetClosedTransform: Record<"top" | "right" | "bottom" | "left", string> = {
+  right: "translateX(100%)",
+  left: "translateX(-100%)",
+  top: "translateY(-100%)",
+  bottom: "translateY(100%)",
+}
+
 function SheetContent({
   className,
   children,
@@ -104,28 +102,96 @@ function SheetContent({
 }) {
   const { open, onOpenChange } = useSheetContext("SheetContent")
   const [mounted, setMounted] = React.useState(false)
+  /** Keep portal mounted until close animation finishes */
+  const [present, setPresent] = React.useState(open)
+  /** Visual “open” state for enter/exit transitions */
+  const [slideOpen, setSlideOpen] = React.useState(false)
+  const [reduceMotion, setReduceMotion] = React.useState(false)
 
   React.useEffect(() => {
     setMounted(true)
   }, [])
 
-  if (!mounted || !open) return null
+  React.useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
+    setReduceMotion(mq.matches)
+    const listener = () => setReduceMotion(mq.matches)
+    mq.addEventListener("change", listener)
+    return () => mq.removeEventListener("change", listener)
+  }, [])
+
+  React.useEffect(() => {
+    if (open) {
+      setPresent(true)
+      if (reduceMotion) {
+        setSlideOpen(true)
+        return
+      }
+      const id = window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => setSlideOpen(true))
+      })
+      return () => window.cancelAnimationFrame(id)
+    }
+    setSlideOpen(false)
+  }, [open, reduceMotion])
+
+  /** When transitions are off, unmount immediately on close */
+  React.useEffect(() => {
+    if (!open && reduceMotion) {
+      setPresent(false)
+    }
+  }, [open, reduceMotion])
+
+  const onPanelTransitionEnd = React.useCallback(
+    (e: React.TransitionEvent<HTMLDivElement>) => {
+      if (e.propertyName !== "transform") return
+      if (!slideOpen && !open) {
+        setPresent(false)
+      }
+    },
+    [slideOpen, open],
+  )
+
+  React.useEffect(() => {
+    if (!present) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [present])
+
+  if (!mounted || !present) return null
+
+  const transitionMs = slideOpen ? 220 : 180
+  const easing = slideOpen ? "cubic-bezier(0, 0, 0.2, 1)" : "cubic-bezier(0.4, 0, 1, 1)"
+  const closedTf = sheetClosedTransform[side]
 
   return createPortal(
     <>
       <div
         aria-hidden
-        className="fixed inset-0 z-[200] bg-slate-900/40 transition-opacity supports-backdrop-filter:backdrop-blur-sm"
+        className="fixed inset-0 z-[200] bg-slate-900/40 supports-backdrop-filter:backdrop-blur-sm"
+        style={{
+          opacity: slideOpen ? 1 : 0,
+          transition: reduceMotion ? undefined : `opacity ${transitionMs}ms ${easing}`,
+          pointerEvents: present ? "auto" : "none",
+        }}
         onClick={() => onOpenChange(false)}
       />
       <div
         data-slot="sheet-content"
         data-side={side}
         className={cn(
-          "fixed z-[200] flex flex-col gap-4 border-border bg-background bg-clip-padding p-6 text-sm shadow-lg",
+          "fixed z-[200] flex flex-col gap-4 border-border bg-background bg-clip-padding p-6 text-sm shadow-lg will-change-transform",
           sheetSideClasses[side],
           className
         )}
+        style={{
+          transform: slideOpen ? "translate(0, 0)" : closedTf,
+          transition: reduceMotion ? undefined : `transform ${transitionMs}ms ${easing}`,
+        }}
+        onTransitionEnd={reduceMotion ? undefined : onPanelTransitionEnd}
         {...props}
       >
         {children}

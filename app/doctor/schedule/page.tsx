@@ -1,74 +1,267 @@
 "use client";
 
-import { useAppFeedback } from "@/components/app-feedback";
+import {
+  AdminScheduleCalendar,
+  navigateFocusDate,
+  schedulePeriodLabel,
+  type ProviderBlock,
+  type ScheduleAppointment,
+} from "@/components/admin-schedule-calendar";
 import { DoctorPageIntro, DoctorSectionLabel } from "@/components/doctor-shell";
+import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
-import { IconChevronLeft, IconChevronRight } from "@/components/icons";
 import { Loader } from "@/components/loader";
-import { PatientDetailModal } from "@/components/patient-detail-modal";
-import { appointmentStatusPillClass, appointmentStatusStripeClass } from "@/components/status-chip";
-import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
-import { formatMonthDayYear } from "@/lib/format-date";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import {
+  addDays,
+  endOfMonth,
+  mondayOfWeekContaining,
+  parseTimeToMinutes,
+  startOfMonth,
+  toIsoDate,
+} from "@/lib/admin-schedule-utils";
+import { formatWeekdayMonthDayYear } from "@/lib/format-date";
+import Link from "next/link";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
 
-type Appointment = {
-  id: number;
-  patient: string;
-  patient_id: number;
-  service: string;
-  start_time: string;
-  end_time: string;
-  status: string;
-};
-
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 type CalendarStatus = { oauth_configured: boolean; connected: boolean };
 
+type AppointmentRow = {
+  id: number;
+  patient: number;
+  patient_name: string;
+  provider: number;
+  provider_name: string;
+  booked_service: number | null;
+  service_name: string;
+  service_type?: string;
+  appointment_date: string;
+  start_time: string;
+  end_time: string;
+  start_time_display?: string;
+  end_time_display?: string;
+  status: string;
+};
+
+type ScheduleViewMode = "day" | "week" | "month";
+
+/** Same payload as public booking — book next flow */
+type BookingOptionsResponse = {
+  services: Array<{
+    id: number;
+    name: string;
+    duration_minutes: number;
+    price: string;
+    service_type: string;
+  }>;
+  providers_by_service: Record<string, Array<{ id: number; provider_name: string }>>;
+};
+
+function formatTime(t: string): string {
+  if (!t) return "";
+  const match = t.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return t;
+  const h = parseInt(match[1], 10);
+  const m = match[2];
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  return `${h12}:${m} ${ampm}`;
+}
+
+function formatAppointmentDuration(start: string, end: string): string {
+  const mins = Math.max(0, parseTimeToMinutes(end) - parseTimeToMinutes(start));
+  if (mins <= 0) return "—";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"}`;
+  const h = Math.floor(mins / 60);
+  const rem = mins % 60;
+  if (rem === 0) return `${h} hour${h === 1 ? "" : "s"}`;
+  return `${h} hr ${rem} min`;
+}
+
+function drawerStatusBadgeClass(status: string): string {
+  switch (status) {
+    case "booked":
+    case "scheduled":
+      return "bg-emerald-100 text-emerald-900";
+    case "checked_in":
+    case "in_consultation":
+      return "bg-sky-100 text-sky-900";
+    case "awaiting_payment":
+      return "bg-violet-100 text-violet-900";
+    case "completed":
+      return "bg-slate-200 text-slate-800";
+    case "cancelled":
+      return "bg-pink-100 text-pink-900";
+    case "no_show":
+      return "bg-orange-100 text-orange-900";
+    default:
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
+function drawerStatusLabel(status: string): string {
+  const key = status === "booked" ? "scheduled" : status;
+  return key.replaceAll("_", " ");
+}
+
+function buildAppointmentListParams(
+  view: ScheduleViewMode,
+  focusDate: Date,
+  providerId: number,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  if (view === "day") {
+    params.set("appointment_date", toIsoDate(focusDate));
+  } else if (view === "week") {
+    const mon = mondayOfWeekContaining(focusDate);
+    const fri = addDays(mon, 4);
+    params.set("date_from", toIsoDate(mon));
+    params.set("date_to", toIsoDate(fri));
+  } else {
+    params.set("date_from", toIsoDate(startOfMonth(focusDate)));
+    params.set("date_to", toIsoDate(endOfMonth(focusDate)));
+  }
+  params.set("provider_id", String(providerId));
+  return params;
+}
+
+function blockListRange(view: ScheduleViewMode, focusDate: Date): { from: string; to: string } {
+  if (view === "day") {
+    const iso = toIsoDate(focusDate);
+    return { from: iso, to: iso };
+  }
+  if (view === "week") {
+    const mon = mondayOfWeekContaining(focusDate);
+    const fri = addDays(mon, 4);
+    return { from: toIsoDate(mon), to: toIsoDate(fri) };
+  }
+  return { from: toIsoDate(startOfMonth(focusDate)), to: toIsoDate(endOfMonth(focusDate)) };
+}
+
 function DoctorSchedulePageInner() {
   const { runWithFeedback } = useAppFeedback();
   const searchParams = useSearchParams();
-  const [appointmentsByDate, setAppointmentsByDate] = useState<Record<string, Appointment[]>>({});
+  const [providerId, setProviderId] = useState<number | null>(null);
+  const [providerName, setProviderName] = useState("");
+  const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
+  const [blocks, setBlocks] = useState<ProviderBlock[]>([]);
   const [loading, setLoading] = useState(true);
-  const [patientDetailId, setPatientDetailId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [view, setView] = useState<ScheduleViewMode>("week");
+  const [focusDate, setFocusDate] = useState(() => new Date());
+  const [selected, setSelected] = useState<AppointmentRow | null>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
+
+  const [handoffNotes, setHandoffNotes] = useState("");
+  const [handoffLoading, setHandoffLoading] = useState(false);
+  const [savingHandoff, setSavingHandoff] = useState(false);
+
+  const [bookNextAppt, setBookNextAppt] = useState<AppointmentRow | null>(null);
+  const [bookingOptions, setBookingOptions] = useState<BookingOptionsResponse | null>(null);
+  const [bookNextOptionsLoading, setBookNextOptionsLoading] = useState(false);
+  const [bnServiceId, setBnServiceId] = useState(0);
+  const [bnProviderId, setBnProviderId] = useState(0);
+  const [bnDate, setBnDate] = useState("");
+  const [bnSlotTimes, setBnSlotTimes] = useState<string[]>([]);
+  const [bnSlotLabels, setBnSlotLabels] = useState<string[]>([]);
+  const [bnSelectedSlot, setBnSelectedSlot] = useState("");
+  const [bnSlotsLoading, setBnSlotsLoading] = useState(false);
+  const [savingBookNext, setSavingBookNext] = useState(false);
+
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus | null>(null);
   const [calendarNote, setCalendarNote] = useState("");
   const [calendarBusy, setCalendarBusy] = useState(false);
-  const [view, setView] = useState<"day" | "week" | "month">("week");
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
-  const [weekStart, setWeekStart] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - d.getDay());
-    return d;
-  });
 
-  const loadWeek = async () => {
+  const navSigRef = useRef<{ view: ScheduleViewMode; focusMs: number } | null>(null);
+  /** Wall-mounted touchscreen: chart note grows with content; min height enforced in layout effect. */
+  const handoffTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const adjustHandoffTextareaHeight = useCallback(() => {
+    const el = handoffTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(300, el.scrollHeight)}px`;
+  }, []);
+
+  const providersForCalendar = useMemo(() => {
+    if (providerId == null) return [];
+    return [{ id: providerId, provider_name: providerName || `Provider ${providerId}` }];
+  }, [providerId, providerName]);
+
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    void apiGetAuth<{ provider_id: number; provider_name: string }>("/doctor/me/")
+      .then((r) => {
+        setProviderId(r.provider_id);
+        setProviderName(r.provider_name || "");
+      })
+      .catch(() => {
+        setProviderId(null);
+        setProviderName("");
+      })
+      .finally(() => setAuthReady(true));
+  }, []);
+
+  const loadAppointments = useCallback(async () => {
+    if (providerId == null) return;
     setLoading(true);
     setError("");
-    const results: Record<string, Appointment[]> = {};
     try {
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(weekStart);
-        d.setDate(weekStart.getDate() + i);
-        const dateStr = d.toISOString().slice(0, 10);
-        const appts = await apiGetAuth<Appointment[]>(`/doctor/appointments/?date=${dateStr}`);
-        results[dateStr] = appts;
-      }
-      setAppointmentsByDate(results);
+      const params = buildAppointmentListParams(view, focusDate, providerId);
+      const list = await apiGetAuth<AppointmentRow[]>(`/appointments/?${params}`);
+      setAppointments(list);
+      setSelected((prev) => {
+        if (!prev) return null;
+        const fresh = list.find((a) => a.id === prev.id);
+        return fresh ?? null;
+      });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load schedule.");
-      setAppointmentsByDate({});
+      setAppointments([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [providerId, view, focusDate]);
+
+  const loadBlocks = useCallback(async () => {
+    if (providerId == null) return;
+    const { from, to } = blockListRange(view, focusDate);
+    const blockParams = new URLSearchParams({
+      date_from: from,
+      date_to: to,
+      provider_id: String(providerId),
+    });
+    try {
+      const blockList = await apiGetAuth<ProviderBlock[]>(`/provider-unavailability/?${blockParams}`);
+      setBlocks(blockList);
+    } catch {
+      setBlocks([]);
+    }
+  }, [providerId, view, focusDate]);
 
   useEffect(() => {
-    loadWeek();
-  }, [weekStart]);
+    void loadAppointments();
+  }, [loadAppointments]);
+
+  useEffect(() => {
+    void loadBlocks();
+  }, [loadBlocks]);
+
+  useEffect(() => {
+    const ms = focusDate.getTime();
+    const prev = navSigRef.current;
+    navSigRef.current = { view, focusMs: ms };
+    if (!prev) return;
+    if (prev.view !== view || prev.focusMs !== ms) {
+      setSelected(null);
+    }
+  }, [view, focusDate]);
 
   useEffect(() => {
     apiGetAuth<CalendarStatus>("/doctor/google_calendar/status/")
@@ -88,57 +281,205 @@ function DoctorSchedulePageInner() {
     }
   }, [searchParams]);
 
-  const prevWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() - 7);
-    setWeekStart(d);
+  useEffect(() => {
+    if (!selected) {
+      setHandoffNotes("");
+      return;
+    }
+    let cancelled = false;
+    setHandoffLoading(true);
+    void apiGetAuth<{ clinical_handoff_notes?: string }>(`/appointments/${selected.id}/`)
+      .then((row) => {
+        if (!cancelled) setHandoffNotes(row.clinical_handoff_notes ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setHandoffNotes("");
+      })
+      .finally(() => {
+        if (!cancelled) setHandoffLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
+
+  useLayoutEffect(() => {
+    adjustHandoffTextareaHeight();
+  }, [handoffNotes, handoffLoading, selected?.id, adjustHandoffTextareaHeight]);
+
+  useEffect(() => {
+    if (!bookNextAppt || !bnDate || !bnServiceId || !bnProviderId) {
+      setBnSlotLabels([]);
+      setBnSlotTimes([]);
+      setBnSelectedSlot("");
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setBnSlotsLoading(true);
+      try {
+        const q = new URLSearchParams({
+          date: bnDate,
+          provider_id: String(bnProviderId),
+          service_id: String(bnServiceId),
+        });
+        const data = await apiGetAuth<{ available_slots: string[]; slot_start_times?: string[] }>(
+          `/booking-options/availability/?${q.toString()}`,
+        );
+        if (cancelled) return;
+        const labels = data.available_slots || [];
+        const times = data.slot_start_times || [];
+        setBnSlotLabels(labels);
+        setBnSlotTimes(times.length ? times : labels.map(() => ""));
+        setBnSelectedSlot(times[0] || "");
+      } catch {
+        if (!cancelled) {
+          setBnSlotLabels([]);
+          setBnSlotTimes([]);
+          setBnSelectedSlot("");
+        }
+      } finally {
+        if (!cancelled) setBnSlotsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bookNextAppt?.id, bnDate, bnServiceId, bnProviderId]);
+
+  const handleCheckIn = async () => {
+    if (!selected) return;
+    setCheckingIn(true);
+    await runWithFeedback(
+      async () => {
+        await apiPost("/kiosk/checkin/", { appointment_id: selected.id });
+        await loadAppointments();
+        setSelected((prev) => (prev ? { ...prev, status: "checked_in" } : null));
+      },
+      {
+        loadingMessage: "Completing check-in…",
+        successMessage: "Check-in complete.",
+        errorFallback: "Could not complete check-in.",
+      },
+    );
+    setCheckingIn(false);
   };
 
-  const nextWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + 7);
-    setWeekStart(d);
+  const saveHandoff = async () => {
+    if (!selected) return;
+    setSavingHandoff(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch("/doctor/appointment_handoff/", {
+            appointment_id: selected.id,
+            clinical_handoff_notes: handoffNotes,
+          });
+        },
+        {
+          loadingMessage: "Saving chart note…",
+          successMessage: "Chart note saved.",
+          errorFallback: "Could not save chart note.",
+        },
+      );
+    } finally {
+      setSavingHandoff(false);
+    }
   };
 
-  const goToday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - d.getDay());
-    setWeekStart(d);
-    setSelectedDate(new Date());
+  const openBookNext = (appt: AppointmentRow) => {
+    void (async () => {
+      setBookNextAppt(appt);
+      const initialDate = appt.appointment_date >= todayStr ? appt.appointment_date : todayStr;
+      setBnDate(initialDate);
+      setBookNextOptionsLoading(true);
+      try {
+        const opts = await apiGet<BookingOptionsResponse>("/booking-options/");
+        setBookingOptions(opts);
+        const sid =
+          appt.booked_service && opts.services.some((s) => s.id === appt.booked_service)
+            ? appt.booked_service
+            : opts.services[0]?.id ?? 0;
+        setBnServiceId(sid);
+        const provs = opts.providers_by_service[String(sid)] ?? [];
+        const pid = provs.some((p) => p.id === appt.provider) ? appt.provider : provs[0]?.id ?? 0;
+        setBnProviderId(pid);
+      } catch {
+        setBookingOptions(null);
+        setBnServiceId(0);
+        setBnProviderId(0);
+      } finally {
+        setBookNextOptionsLoading(false);
+      }
+    })();
   };
 
-  const weekDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return d;
-  });
+  const submitBookNext = async () => {
+    if (!bookNextAppt || !bnServiceId || !bnProviderId || !bnDate || !bnSelectedSlot) return;
+    setSavingBookNext(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPost(`/appointments/book-by-provider/`, {
+            source_appointment_id: bookNextAppt.id,
+            service_id: bnServiceId,
+            provider_id: bnProviderId,
+            appointment_date: bnDate,
+            start_time: bnSelectedSlot,
+          });
+          setBookNextAppt(null);
+          setBookingOptions(null);
+          await loadAppointments();
+        },
+        {
+          loadingMessage: "Booking…",
+          successMessage: "Next visit booked",
+          errorFallback: "Could not book that slot (it may have been taken).",
+        },
+      );
+    } finally {
+      setSavingBookNext(false);
+    }
+  };
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const scheduleAppts: ScheduleAppointment[] = appointments;
 
-  const weekApptCount = useMemo(() => {
-    return Object.values(appointmentsByDate).reduce((n, list) => n + list.length, 0);
-  }, [appointmentsByDate]);
-  const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
-  const firstDay = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1);
+  const firstDay = new Date(focusDate.getFullYear(), focusDate.getMonth(), 1);
   const startPad = firstDay.getDay();
+  const daysInMonth = new Date(focusDate.getFullYear(), focusDate.getMonth() + 1, 0).getDate();
   const days = Array.from({ length: 42 }, (_, i) => {
     const d = i - startPad + 1;
     if (d < 1) return null;
-    const total = daysInMonth(weekStart.getFullYear(), weekStart.getMonth());
-    if (d > total) return null;
+    if (d > daysInMonth) return null;
     return d;
   });
+
+  if (!authReady) {
+    return (
+      <div className="doctor-panel flex min-h-[280px] items-center justify-center py-12">
+        <Loader variant="page" label="Loading schedule" sublabel="Verifying your profile…" />
+      </div>
+    );
+  }
+
+  if (providerId === null) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-950">
+        No provider profile is linked to your account. Contact the clinic administrator.
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
       <aside className="space-y-4">
         <div className="doctor-panel p-4">
-          <DoctorSectionLabel help="Pick a day to highlight it for the larger week grid. Arrows on the main view still move by week.">
+          <DoctorSectionLabel help="Pick a day to open it in Day view on the main calendar. Use arrows on the calendar for week/month navigation.">
             Month
           </DoctorSectionLabel>
           <div className="mb-2 flex items-center justify-between">
             <span className="font-semibold text-slate-800">
-              {MONTHS[weekStart.getMonth()]} {weekStart.getFullYear()}
+              {MONTHS[focusDate.getMonth()]} {focusDate.getFullYear()}
             </span>
           </div>
           <div className="grid grid-cols-7 gap-0.5 text-center text-xs">
@@ -153,14 +494,17 @@ function DoctorSchedulePageInner() {
                 type="button"
                 onClick={() => {
                   if (d !== null) {
-                    const date = new Date(weekStart.getFullYear(), weekStart.getMonth(), d);
-                    setSelectedDate(date);
+                    const date = new Date(focusDate.getFullYear(), focusDate.getMonth(), d, 12, 0, 0);
+                    setFocusDate(date);
+                    setView("day");
                   }
                 }}
                 className={`rounded py-1.5 text-sm ${
                   d === null
                     ? "invisible"
-                    : `${weekStart.getMonth() === selectedDate.getMonth() && selectedDate.getDate() === d ? "bg-[#16a349] text-white" : "hover:bg-slate-100"}`
+                    : focusDate.getDate() === d
+                      ? "bg-[#16a349] text-white"
+                      : "hover:bg-slate-100"
                 }`}
               >
                 {d ?? ""}
@@ -247,143 +591,321 @@ function DoctorSchedulePageInner() {
         <DoctorPageIntro
           eyebrow="Planning"
           title="Your schedule"
-          description="Browse the week, jump to today, and open a patient chart from any slot. Only appointments assigned to you are shown."
+          description="Your assigned visits on the same time grid as the front desk: duration-sized blocks, open gaps, and today’s time line. Only your appointments load."
           pageHelp={
             <>
-              The <strong>main grid</strong> is always your week at a glance. Day and month toggles change how much you see; clicking a
-              patient opens their chart. Calendar sync is optional and separate from this view.
+              Use <strong>Day</strong> for the detailed time grid, <strong>Week</strong> for Monday–Friday columns, <strong>Month</strong>{" "}
+              for counts. Click a block to open the patient chart drawer (not a small popup).
             </>
           }
         />
 
         {error && <p className="rounded-xl bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>}
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <HelpTip label="Week navigation" tone="emerald">
-              Today snaps the week view to the current week. Arrows move backward or forward one week at a time.
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-slate-600">View</span>
+            <HelpTip label="Calendar views">
+              Day shows your column with open gaps and blocks by time. Week shows Monday–Friday; month shows counts — click a day for Day
+              view.
             </HelpTip>
             <button
               type="button"
-              onClick={goToday}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-[#16a349]/30 hover:bg-emerald-50/50"
+              onClick={() => setView("day")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                view === "day" ? "bg-[#16a349] text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Day
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("week")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                view === "week" ? "bg-[#16a349] text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Week
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("month")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                view === "month" ? "bg-[#16a349] text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Month
+            </button>
+            <button
+              type="button"
+              aria-label="Previous period"
+              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
+              className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              aria-label="Next period"
+              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
+              className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
+            >
+              →
+            </button>
+            <button
+              type="button"
+              onClick={() => setFocusDate(new Date())}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
             >
               Today
             </button>
-            <button
-              type="button"
-              onClick={prevWeek}
-              className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm hover:bg-slate-50"
-              aria-label="Previous week"
-            >
-              <IconChevronLeft className="h-5 w-5" />
-            </button>
-            <span className="min-w-[160px] text-center text-sm font-semibold text-slate-800">
-              {formatMonthDayYear(weekDates[0].toISOString().slice(0, 10))} –{" "}
-              {formatMonthDayYear(weekDates[6].toISOString().slice(0, 10))}
-            </span>
-            <button
-              type="button"
-              onClick={nextWeek}
-              className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm hover:bg-slate-50"
-              aria-label="Next week"
-            >
-              <IconChevronRight className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <HelpTip label="Day, week, month" align="center" tone="emerald">
-              Switches the density of the main calendar. Week is the default columns you see below; day and month narrow or widen the
-              time horizon (behavior follows the buttons you select).
-            </HelpTip>
-            <div className="flex gap-1 rounded-xl border border-slate-200/90 bg-slate-50/50 p-1">
-            {(["day", "week", "month"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition ${
-                  view === v
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                {v}
-              </button>
-            ))}
-            </div>
+            <span className="text-sm font-semibold text-slate-800">{schedulePeriodLabel(view, focusDate)}</span>
           </div>
         </div>
 
-        {!loading && (
-          <p className="text-sm text-slate-500">
-            <span className="font-medium text-slate-700">{weekApptCount}</span> appointment
-            {weekApptCount === 1 ? "" : "s"} this week
-          </p>
-        )}
-
         {loading ? (
           <div className="doctor-panel flex min-h-[280px] items-center justify-center py-12">
-            <Loader variant="page" label="Loading your week" sublabel="Pulling appointments…" />
+            <Loader variant="page" label="Loading schedule" sublabel="Fetching your calendar…" />
           </div>
         ) : (
-          <div className="doctor-panel overflow-hidden p-0">
-            <div className="grid grid-cols-7 border-b border-slate-200/90 bg-slate-50/80">
-              {weekDates.map((d) => (
-                <div
-                  key={d.toISOString()}
-                  className={`border-r border-slate-200/80 p-3 text-center last:border-r-0 ${
-                    d.toISOString().slice(0, 10) === todayStr ? "bg-[#16a349]/12" : ""
-                  }`}
-                >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{DAYS[d.getDay()]}</p>
-                  <p className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">{d.getDate()}</p>
-                </div>
-              ))}
-            </div>
-            <div className="grid min-h-[260px] grid-cols-7 divide-x divide-slate-200/80 bg-white">
-              {weekDates.map((d) => {
-                const dateStr = d.toISOString().slice(0, 10);
-                const appts = appointmentsByDate[dateStr] ?? [];
-                return (
-                  <div key={dateStr} className="min-h-[220px] p-2">
-                    {appts.length === 0 ? (
-                      <p className="pt-3 text-center text-[11px] font-medium uppercase tracking-wide text-slate-300">
-                        —
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {appts.map((a) => (
-                          <button
-                            key={a.id}
-                            type="button"
-                            onClick={() => setPatientDetailId(a.patient_id)}
-                            className={`w-full rounded-xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 p-2.5 pl-2 text-left text-xs shadow-sm transition hover:border-[#16a349]/35 hover:shadow-md ${appointmentStatusStripeClass(a.status)}`}
-                          >
-                            <p className="font-semibold text-[#0d5c2e]">{a.start_time}</p>
-                            <p className="truncate font-medium text-slate-800">{a.patient}</p>
-                            {a.service ? <p className="truncate text-slate-500">{a.service}</p> : null}
-                            <p
-                              className={`mt-1.5 inline-block max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${appointmentStatusPillClass(a.status)}`}
-                            >
-                              {(a.status || "booked").replaceAll("_", " ")}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+          <div className="doctor-panel overflow-hidden p-4">
+            <AdminScheduleCalendar
+              view={view}
+              focusDate={focusDate}
+              appointments={scheduleAppts}
+              providers={providersForCalendar}
+              providerFilter={String(providerId)}
+              blocks={blocks}
+              selectedId={selected?.id ?? null}
+              onSelect={(row) => {
+                const full = appointments.find((x) => x.id === row.id);
+                if (full) setSelected(full);
+              }}
+              onPickDayInMonth={(d) => {
+                setFocusDate(d);
+                setView("day");
+              }}
+            />
           </div>
         )}
       </div>
-      {patientDetailId && (
-        <PatientDetailModal
-          patientId={patientDetailId}
-          onClose={() => setPatientDetailId(null)}
-        />
+
+      <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
+        {selected ? (
+          <SheetContent
+            side="right"
+            showCloseButton
+            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[480px]"
+          >
+            <div className="shrink-0 border-b border-slate-100 px-5 pb-4 pt-14">
+              <h2 className="text-xl font-bold tracking-tight text-slate-900">{selected.patient_name}</h2>
+              <p className="mt-1 text-sm font-medium text-slate-600">{selected.service_name || "—"}</p>
+              <p className="mt-3 text-sm text-slate-800">
+                {formatWeekdayMonthDayYear(selected.appointment_date)} at{" "}
+                {selected.start_time_display || formatTime(selected.start_time)}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Duration · {formatAppointmentDuration(selected.start_time, selected.end_time)}
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${drawerStatusBadgeClass(selected.status)}`}
+                >
+                  {drawerStatusLabel(selected.status)}
+                </span>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-3">
+                {(selected.status === "cancelled" || selected.status === "no_show") && (
+                  <p className="text-center text-sm text-slate-500">No actions available</p>
+                )}
+
+                {selected.status === "completed" && (
+                  <button
+                    type="button"
+                    onClick={() => openBookNext(selected)}
+                    className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+                  >
+                    Book next visit
+                  </button>
+                )}
+
+                {(selected.status === "booked" || selected.status === "scheduled") && (
+                  <button
+                    type="button"
+                    onClick={() => void handleCheckIn()}
+                    disabled={checkingIn}
+                    className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                  >
+                    {checkingIn ? "Completing check-in…" : "Check in"}
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-8 max-w-none border-t border-slate-200 pt-6">
+                <label className="block w-full max-w-none">
+                  <span className="text-base font-bold uppercase tracking-wide text-slate-900">
+                    Chart note for the team (handoff)
+                  </span>
+                  <span className="mt-1 block text-sm leading-relaxed text-slate-500">
+                    Visible on this patient chart to every provider. Saved on this appointment only.
+                  </span>
+                  <textarea
+                    ref={handoffTextareaRef}
+                    value={handoffNotes}
+                    onChange={(e) => setHandoffNotes(e.target.value)}
+                    disabled={handoffLoading}
+                    placeholder={handoffLoading ? "Loading…" : "Reason for follow-up, preferences, reminders…"}
+                    rows={1}
+                    className="mt-3 box-border min-h-[300px] w-full max-w-none resize-none overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-3 text-lg leading-[1.6] text-slate-900 shadow-inner placeholder:text-slate-400 focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 disabled:bg-slate-50"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={savingHandoff || handoffLoading || !selected}
+                  onClick={() => void saveHandoff()}
+                  className="mt-3 min-h-[52px] w-full rounded-xl border border-[#16a349]/40 bg-[#ecfdf5] px-4 py-3 text-base font-semibold text-[#0d5c2e] hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  {savingHandoff ? "Saving…" : "Save chart note"}
+                </button>
+              </div>
+
+              <div className="mt-8 border-t border-slate-100 pt-5">
+                <Link
+                  href={`/doctor/patients/${selected.patient}/history`}
+                  className="inline-flex text-sm font-semibold text-[#16a349] hover:text-[#13823d]"
+                >
+                  View full patient record →
+                </Link>
+              </div>
+            </div>
+          </SheetContent>
+        ) : null}
+      </Sheet>
+
+      {bookNextAppt && (
+        <div
+          className="fixed inset-0 z-[220] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="doctor-schedule-book-next-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <h2 id="doctor-schedule-book-next-title" className="text-lg font-bold text-slate-900">
+              Book next visit
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Schedule a new appointment for <span className="font-semibold text-slate-800">{bookNextAppt.patient_name}</span>.
+            </p>
+            {bookNextOptionsLoading ? (
+              <p className="mt-4 text-sm text-slate-600">Loading visit types…</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Service
+                  <select
+                    value={bnServiceId || ""}
+                    onChange={(e) => {
+                      const sid = Number(e.target.value);
+                      setBnServiceId(sid);
+                      const provs = bookingOptions?.providers_by_service[String(sid)] ?? [];
+                      const pid = provs.some((p) => p.id === bookNextAppt.provider) ? bookNextAppt.provider : provs[0]?.id ?? 0;
+                      setBnProviderId(pid);
+                    }}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {(bookingOptions?.services ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Provider
+                  <select
+                    value={bnProviderId || ""}
+                    onChange={(e) => setBnProviderId(Number(e.target.value))}
+                    disabled={!bnServiceId}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {(bookingOptions?.providers_by_service[String(bnServiceId)] ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.provider_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Date
+                  <input
+                    type="date"
+                    value={bnDate}
+                    min={todayStr}
+                    onChange={(e) => setBnDate(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Time
+                  {bnSlotsLoading ? (
+                    <span className="mt-1 block text-sm font-normal text-slate-500">Loading openings…</span>
+                  ) : (
+                    <select
+                      value={bnSelectedSlot}
+                      onChange={(e) => setBnSelectedSlot(e.target.value)}
+                      disabled={!bnSlotLabels.length}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    >
+                      {bnSlotLabels.length === 0 ? (
+                        <option value="">No openings — adjust date, service, or provider</option>
+                      ) : (
+                        bnSlotLabels.map((label, i) => (
+                          <option key={`${label}-bn-${i}`} value={bnSlotTimes[i] || label}>
+                            {label}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  )}
+                </label>
+              </div>
+            )}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBookNextAppt(null);
+                  setBookingOptions(null);
+                }}
+                disabled={savingBookNext}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={
+                  savingBookNext ||
+                  bookNextOptionsLoading ||
+                  !bnServiceId ||
+                  !bnProviderId ||
+                  !bnDate ||
+                  !bnSelectedSlot ||
+                  bnSlotsLoading ||
+                  !bnSlotLabels.length
+                }
+                onClick={() => void submitBookNext()}
+                className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {savingBookNext ? "Booking…" : "Confirm booking"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
