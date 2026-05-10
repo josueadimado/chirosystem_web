@@ -1061,6 +1061,8 @@ export default function BookingPage() {
       });
       toast.success("Your appointment was cancelled.");
       await loadMyAppointments();
+      setReschedulePick((pick) => (pick?.id === row.id ? null : pick));
+      setStep(1);
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not cancel. Call the clinic if you need help.");
     }
@@ -1407,7 +1409,7 @@ export default function BookingPage() {
             </h1>
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
               {bookingFlow === "reschedule" ? (
-                "Move a visit you already booked—we'll verify your cell number and show open times for your doctor."
+                "Change or cancel a visit you already booked—we'll verify your cell number. You can pick a new time or cancel online."
               ) : (
                 <>
                   Choose a service, pick your time, and you&apos;re done. Prefer to call?{" "}
@@ -1440,7 +1442,7 @@ export default function BookingPage() {
                     : "border border-border/80 bg-card text-foreground hover:border-primary/30",
                 )}
               >
-                Reschedule a visit
+                Reschedule or cancel a visit
               </button>
             </div>
             <p className="mt-4 max-w-lg text-center text-xs text-muted-foreground sm:text-left">
@@ -1531,7 +1533,8 @@ export default function BookingPage() {
                   <h2 className="text-lg font-semibold text-[#0d5c2e]">Find your appointment</h2>
                   <p className="text-sm leading-relaxed text-slate-600">
                     Enter the <strong className="text-slate-800">same cell number</strong> you used when you booked. We list
-                    upcoming visits you can move. (Checked in or finished visits need the front desk.)
+                    upcoming visits you can <strong className="text-slate-800">reschedule or cancel</strong>. (Checked in or
+                    finished visits need the front desk.)
                   </p>
                   <div className={`rounded-lg border bg-white p-2 ${rescheduleListError && !rescheduleListLoading ? "border-amber-300" : "border-slate-200"}`}>
                     <PhoneInput
@@ -1575,35 +1578,39 @@ export default function BookingPage() {
                       {rescheduleList.map((row) => (
                         <div
                           key={row.id}
-                          className="flex flex-col gap-2 rounded-xl border border-border/90 bg-card p-3 sm:flex-row sm:items-center"
+                          className="flex flex-col gap-3 rounded-xl border border-border/90 bg-card p-3 sm:flex-row sm:items-stretch"
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setReschedulePick(row);
-                              setSlotWarning("");
-                              setStep(2);
-                            }}
-                            className="min-w-0 flex-1 rounded-lg border border-transparent p-2 text-left transition-all hover:border-[#16a349]/40 hover:bg-[#f0fdf4]/50"
-                          >
+                          <div className="min-w-0 flex-1 space-y-1">
                             <p className="font-semibold text-slate-900">{row.service_name}</p>
                             {row.patient_name ? (
                               <p className="text-xs font-medium text-slate-500">Patient: {row.patient_name}</p>
                             ) : null}
-                            <p className="mt-1 text-sm text-slate-600">
+                            <p className="text-sm text-slate-600">
                               {row.provider_name} ·{" "}
                               {formatWeekdayMonthDayYear(row.appointment_date)} at {row.start_time}
                             </p>
-                            <p className="mt-1 text-[11px] text-[#166534]">Tap to pick a new time →</p>
-                          </button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-auto shrink-0 rounded-xl border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-50"
-                            onClick={() => void cancelPublicAppointment(row)}
-                          >
-                            Cancel visit
-                          </Button>
+                          </div>
+                          <div className="flex shrink-0 flex-col gap-2 sm:w-[11.5rem]">
+                            <Button
+                              type="button"
+                              className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4d26]"
+                              onClick={() => {
+                                setReschedulePick(row);
+                                setSlotWarning("");
+                                setStep(2);
+                              }}
+                            >
+                              Reschedule
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-auto w-full rounded-xl border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-50"
+                              onClick={() => void cancelPublicAppointment(row)}
+                            >
+                              Cancel visit
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1773,11 +1780,12 @@ export default function BookingPage() {
             <div className="animate-fade-in-up space-y-4">
               {bookingFlow === "reschedule" && reschedulePick ? (
                 <div className="space-y-4 rounded-xl border border-[#166534]/20 bg-[#f0fdf4]/40 p-4">
-                  <h2 className="text-lg font-semibold text-[#0d5c2e]">Visit you&apos;re moving</h2>
+                  <h2 className="text-lg font-semibold text-[#0d5c2e]">Reschedule or cancel this visit</h2>
                   <p className="text-sm text-slate-600">
-                    You can change the <strong className="text-slate-800">date and time</strong> only. The visit type and
-                    doctor stay the same. Pick a new slot in the next step — we only show times that are open for this
-                    visit.
+                    <strong className="text-slate-800">Reschedule:</strong> change the date and time only — visit type and
+                    doctor stay the same; the next step lists open slots for this visit.{" "}
+                    <strong className="text-slate-800">Cancel:</strong> remove the appointment now (same rules as on the
+                    list below).
                   </p>
                   <ul className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-800">
                     <li>
@@ -1796,13 +1804,23 @@ export default function BookingPage() {
                       </span>
                     </li>
                   </ul>
-                  <Button
-                    type="button"
-                    onClick={() => setStep(3)}
-                    className="h-auto w-full rounded-xl bg-foreground px-6 py-3 text-base font-semibold text-background hover:bg-foreground/90 sm:w-auto"
-                  >
-                    Choose new date &amp; time
-                  </Button>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <Button
+                      type="button"
+                      onClick={() => setStep(3)}
+                      className="h-auto w-full rounded-xl bg-foreground px-6 py-3 text-base font-semibold text-background hover:bg-foreground/90 sm:w-auto"
+                    >
+                      Choose new date &amp; time
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-auto w-full rounded-xl border-rose-200 px-6 py-3 text-base font-semibold text-rose-800 hover:bg-rose-50 sm:w-auto"
+                      onClick={() => void cancelPublicAppointment(reschedulePick)}
+                    >
+                      Cancel this visit
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <>
