@@ -1,8 +1,8 @@
 /**
- * Patient Bill HTML (statement layout) — used by the portal modal and optional new-window print.
+ * Patient Bill HTML — Relief Chiropractic–style statement layout for preview + print.
  */
 
-import { formatMonthDayYear, formatNowMonthDayYearTime } from "@/lib/format-date";
+import { formatMonthDayYear, formatNowMonthDayYearTime, parseApiDateOnly } from "@/lib/format-date";
 
 export type PatientBillLine = {
   service_offered: string;
@@ -13,7 +13,7 @@ export type PatientBillLine = {
   pos: string;
   /** Full line amount (for insurance / documentation). */
   line_total: string;
-  /** Same as line total on the printed bill (full documented amount per row). Patient invoice totals exclude lines with charges_patient false. */
+  /** Patient-portion amount when insurance-only line — kept for API parity; charge table uses fees/units. */
   patient_due?: string;
   charges_patient?: boolean;
 };
@@ -26,24 +26,37 @@ export type PatientBillPayload = {
   address_line1: string;
   city_state_zip: string;
   phone: string;
+  /** Printed next to provider block when set in Admin → Settings. */
+  employer_tax_id?: string;
+  email?: string;
   pos_default?: string;
   invoice_number: string;
+  patient_id?: number;
   date_of_service: string;
+  /** Display billing date on statement (from server). */
+  billing_date_display?: string;
+  /** “Statement” date top-right (from server, usually today). */
+  statement_date_display?: string;
   patient_name: string;
   patient_address: string;
   diagnosis: string;
   provider_name?: string;
   provider_credential?: string;
   lines: PatientBillLine[];
+  /** Sum of all documented line amounts (Bill charges row). */
   subtotal: string;
-  /** Sum of chargeable lines only (matches invoice balance before tax); omitted on old API responses. */
   patient_subtotal?: string;
+  discount?: string;
+  credit_applied_total?: string;
   tax: string;
   total_amount: string;
   status?: string;
+  insurance_payments_total?: string;
+  /** Card/cash/online payments recorded on the invoice (successful). */
+  patient_payments_total?: string;
+  payments_card_cash_total?: string;
 };
 
-/** For React keys — changes when lines, totals, or diagnosis change (e.g. after billing edit). */
 export function patientBillContentSignature(bill: PatientBillPayload): string {
   const lineSig = (bill.lines ?? [])
     .map((l) => `${l.cpt_code}:${l.units}:${l.fees}:${l.line_total}:${l.charges_patient ? 1 : 0}`)
@@ -54,6 +67,7 @@ export function patientBillContentSignature(bill: PatientBillPayload): string {
     bill.tax,
     bill.total_amount,
     bill.diagnosis ?? "",
+    bill.patient_payments_total ?? "",
     lineSig,
   ].join("#");
 }
@@ -66,6 +80,24 @@ function trimTextForPrint(input: string, maxChars: number): string {
   const v = (input || "").trim();
   if (!v || v.length <= maxChars) return v;
   return `${v.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+/** US numeric date for Date range column, e.g. 8/14/2025 */
+function formatSlashDate(isoDate: string): string {
+  const d = parseApiDateOnly(isoDate);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric" });
+}
+
+function dateRangeCell(dateOfService: string): string {
+  const s = formatSlashDate(dateOfService);
+  return `${s}-${s}`;
+}
+
+function moneyLabel(s: string | undefined): string {
+  const v = (s ?? "").trim();
+  if (!v) return "$0.00";
+  return v.startsWith("$") ? esc(v) : `$${esc(v)}`;
 }
 
 function fitProfileForBill(b: PatientBillPayload) {
@@ -83,15 +115,16 @@ function fitProfileForBill(b: PatientBillPayload) {
       profileName: "Extra compact",
       pageMarginMm: 5,
       bodyFontPx: 8.6,
-      headingPx: 13,
+      titlePx: 22,
+      tealPx: 11,
       uiFontPx: 8.6,
       tableFontPx: 8,
-      boxPaddingY: 3,
-      boxPaddingX: 4,
-      cellPaddingY: 2,
-      cellPaddingX: 2,
+      boxPaddingY: 8,
+      boxPaddingX: 10,
+      cellPadY: 4,
+      cellPadX: 5,
       printZoom: 0.84,
-      maxDescriptionChars: 58,
+      maxDescriptionChars: 52,
       maxDiagnosisChars: 220,
       maxAddressChars: 110,
     };
@@ -101,15 +134,16 @@ function fitProfileForBill(b: PatientBillPayload) {
       profileName: "Compact",
       pageMarginMm: 6,
       bodyFontPx: 9.2,
-      headingPx: 14,
+      titlePx: 24,
+      tealPx: 12,
       uiFontPx: 9.2,
-      tableFontPx: 8.4,
-      boxPaddingY: 4,
-      boxPaddingX: 5,
-      cellPaddingY: 2,
-      cellPaddingX: 2,
+      tableFontPx: 8.6,
+      boxPaddingY: 10,
+      boxPaddingX: 12,
+      cellPadY: 5,
+      cellPadX: 6,
       printZoom: 0.88,
-      maxDescriptionChars: 72,
+      maxDescriptionChars: 68,
       maxDiagnosisChars: 320,
       maxAddressChars: 140,
     };
@@ -118,15 +152,16 @@ function fitProfileForBill(b: PatientBillPayload) {
     profileName: "Standard",
     pageMarginMm: 7,
     bodyFontPx: 10,
-    headingPx: 15,
+    titlePx: 26,
+    tealPx: 13,
     uiFontPx: 10,
-    tableFontPx: 9,
-    boxPaddingY: 5,
-    boxPaddingX: 6,
-    cellPaddingY: 3,
-    cellPaddingX: 3,
+    tableFontPx: 9.2,
+    boxPaddingY: 12,
+    boxPaddingX: 14,
+    cellPadY: 6,
+    cellPadX: 8,
     printZoom: 0.92,
-    maxDescriptionChars: 96,
+    maxDescriptionChars: 88,
     maxDiagnosisChars: 520,
     maxAddressChars: 180,
   };
@@ -135,26 +170,60 @@ function fitProfileForBill(b: PatientBillPayload) {
 /** Full HTML document for the bill (no scripts). Safe for iframe srcDoc. */
 export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   const fit = fitProfileForBill(b);
-  const showPatientPortionRow =
-    b.patient_subtotal != null && b.patient_subtotal !== b.subtotal;
   const diagnosisForPrint = trimTextForPrint(b.diagnosis || "", fit.maxDiagnosisChars);
   const patientAddressForPrint = trimTextForPrint(b.patient_address || "", fit.maxAddressChars);
+
+  const teal = "#0f766e";
+  const headerMuted = "#64748b";
+  const theadBg = "#f1f5f9";
+
+  const clinicStreetCity = [b.address_line1, b.city_state_zip].filter(Boolean).join(" ").trim();
+
+  const billingDate =
+    (b.billing_date_display || "").trim() || formatMonthDayYear(b.date_of_service);
+  const stmtDate =
+    (b.statement_date_display || "").trim() ||
+    formatMonthDayYear(new Date().toISOString().slice(0, 10));
+
+  const patientLine =
+    b.patient_id != null
+      ? `${esc(b.patient_name)} #${b.patient_id}`
+      : esc(b.patient_name);
+
+  const employerId = (b.employer_tax_id || "").trim();
+  const discountAmt = parseFloat((b.discount || "0").replace(/,/g, "")) || 0;
+
   const rows = b.lines
     .map((l) => {
       const descriptionForPrint = trimTextForPrint(l.description || "", fit.maxDescriptionChars);
-      const pat = l.patient_due != null ? l.patient_due : l.line_total;
       return `
     <tr>
+      <td>${esc(dateRangeCell(b.date_of_service))}</td>
       <td>${esc(l.cpt_code)}</td>
       <td>${esc(descriptionForPrint)}</td>
-      <td class="num">$${esc(l.fees)}</td>
+      <td class="num">${moneyLabel(l.fees)}</td>
       <td class="num">${esc(l.units)}</td>
       <td class="num">${esc(l.pos)}</td>
-      <td class="num">$${esc(l.line_total)}</td>
-      <td class="num">$${esc(pat)}</td>
     </tr>`;
     })
     .join("");
+
+  const providerCred = b.provider_credential ? `, ${esc(b.provider_credential)}` : "";
+  const providerBlock =
+    b.provider_name?.trim() !== ""
+      ? `<section class="prov">
+    <h2 class="sec-title">Provider</h2>
+    <p class="prov-line"><strong>Provider:</strong> ${esc(b.provider_name!)}${providerCred} — ${esc(clinicStreetCity)}</p>
+    <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${employerId ? esc(employerId) : "—"}</p>
+  </section>`
+      : "";
+
+  const chargesTitle = esc(`Charges for Bill #${b.invoice_number}`);
+  const totalsTitle = esc(`Bill #${b.invoice_number} Totals`);
+
+  const insPay = moneyLabel(b.insurance_payments_total ?? "0.00");
+  const patientPay = moneyLabel(b.patient_payments_total ?? "0.00");
+  const adjustments = moneyLabel(b.discount ?? "0.00");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -163,98 +232,222 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   <title>${esc(b.bill_title || "Patient Bill")} — ${esc(b.invoice_number)}</title>
   <style>
     @page { margin: ${fit.pageMarginMm}mm; size: letter; }
-    body { font-family: Georgia, "Times New Roman", serif; color: #111; font-size: ${fit.bodyFontPx}px; margin: 0; padding: 8px; line-height: 1.22; }
-    h1 { font-size: ${fit.headingPx}px; margin: 0 0 2px; font-family: system-ui, sans-serif; }
-    .clinic { font-family: system-ui, sans-serif; font-size: ${fit.uiFontPx}px; line-height: 1.2; margin-bottom: 6px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 6px 0; font-family: system-ui, sans-serif; font-size: ${fit.uiFontPx}px; }
-    .box { border: 1px solid #333; padding: ${fit.boxPaddingY}px ${fit.boxPaddingX}px; min-height: 20px; }
-    .label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em; color: #444; margin-bottom: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 6px; font-family: system-ui, sans-serif; font-size: ${fit.tableFontPx}px; table-layout: fixed; }
-    th, td { border: 1px solid #333; padding: ${fit.cellPaddingY}px ${fit.cellPaddingX}px; vertical-align: top; }
-    th { background: #f3f4f6; text-align: left; font-weight: 700; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #0f172a;
+      font-size: ${fit.bodyFontPx}px;
+      margin: 0;
+      padding: 10px 12px 14px;
+      line-height: 1.35;
+    }
+    .preview-banner {
+      margin: 0 0 12px;
+      padding: 8px 10px;
+      background: #fffbeb;
+      border: 1px solid #f59e0b;
+      border-radius: 6px;
+      font-size: ${Math.max(8, fit.uiFontPx - 0.2)}px;
+      color: #78350f;
+      line-height: 1.25;
+    }
+    .preview-banner strong { display: block; font-size: ${Math.max(9, fit.uiFontPx)}px; margin-bottom: 3px; }
+    .fit-chip {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid #f59e0b;
+      background: #fff7ed;
+      color: #9a3412;
+      font-size: ${Math.max(8, fit.uiFontPx - 0.8)}px;
+      font-weight: 600;
+    }
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .doc-title {
+      font-size: ${fit.titlePx}px;
+      font-weight: 800;
+      color: ${teal};
+      letter-spacing: 0.02em;
+      margin: 0;
+      line-height: 1.05;
+    }
+    .stmt-date {
+      font-size: ${fit.uiFontPx}px;
+      color: #0f172a;
+      white-space: nowrap;
+      margin-top: 4px;
+    }
+    .clinic-dash {
+      border: 2px dashed #cbd5e1;
+      border-radius: 4px;
+      text-align: center;
+      padding: ${fit.boxPaddingY}px ${fit.boxPaddingX}px;
+      margin: 0 auto 14px;
+      max-width: 420px;
+      font-size: ${fit.uiFontPx}px;
+      line-height: 1.45;
+    }
+    .clinic-dash strong { font-size: ${Math.min(fit.uiFontPx + 1.2, fit.titlePx - 2)}px; color: #0f172a; }
+    .meta-lines { margin: 12px 0 14px; font-size: ${fit.uiFontPx}px; }
+    .meta-lines p { margin: 5px 0; }
+    .lbl { font-weight: 600; color: #0f172a; }
+    .sec-title {
+      font-size: ${fit.tealPx}px;
+      font-weight: 700;
+      color: ${teal};
+      margin: 16px 0 8px;
+      letter-spacing: 0.01em;
+    }
+    .diag-body {
+      white-space: pre-wrap;
+      margin: 0 0 6px;
+      font-size: ${fit.uiFontPx}px;
+      color: #0f172a;
+    }
+    table.charges {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 18px;
+      font-size: ${fit.tableFontPx}px;
+    }
+    table.charges thead th {
+      background: ${theadBg};
+      color: ${teal};
+      font-weight: 700;
+      text-align: left;
+      padding: ${fit.cellPadY}px ${fit.cellPadX}px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    table.charges tbody td {
+      padding: ${fit.cellPadY}px ${fit.cellPadX}px;
+      vertical-align: top;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    table.charges tbody tr:last-child td { border-bottom: none; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .totals { margin-top: 7px; max-width: 250px; margin-left: auto; font-family: system-ui, sans-serif; font-size: ${fit.uiFontPx}px; }
-    .totals row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #ddd; }
-    .grand { font-weight: 800; font-size: ${Math.max(10, fit.uiFontPx + 1)}px; margin-top: 4px; }
-    .provider-signoff { margin-top: 7px; font-family: system-ui, sans-serif; font-size: ${Math.max(8, fit.uiFontPx - 0.4)}px; color: #334155; }
-    .provider-signoff strong { color: #111827; }
-    .foot { margin-top: 7px; font-size: ${Math.max(8, fit.uiFontPx - 0.6)}px; color: #555; font-family: system-ui, sans-serif; }
-    .preview-banner { margin: 0 0 8px; padding: 6px 8px; background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; font-family: system-ui, sans-serif; font-size: ${Math.max(8, fit.uiFontPx - 0.2)}px; color: #78350f; line-height: 1.22; }
-    .preview-banner strong { display: block; font-size: ${Math.max(9, fit.uiFontPx)}px; margin-bottom: 2px; }
-    .fit-chip { display: inline-block; margin-top: 5px; padding: 2px 6px; border-radius: 999px; border: 1px solid #f59e0b; background: #fff7ed; color: #9a3412; font-size: ${Math.max(8, fit.uiFontPx - 0.8)}px; font-weight: 600; }
-    * { page-break-inside: avoid; }
+    table.totals {
+      width: 100%;
+      max-width: 380px;
+      margin: 10px 0 18px auto;
+      border-collapse: collapse;
+      font-size: ${fit.uiFontPx}px;
+    }
+    table.totals thead th {
+      background: ${theadBg};
+      color: ${teal};
+      font-weight: 700;
+      padding: 6px 10px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    table.totals thead th.amt { text-align: right; }
+    table.totals td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    table.totals td.lab { color: ${teal}; font-weight: 600; }
+    table.totals td.amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    table.totals tr.balance td { border-bottom: none; padding-top: 10px; font-size: ${Math.max(fit.uiFontPx + 0.5, 11)}px; }
+    .prov { margin-top: 16px; font-size: ${fit.uiFontPx}px; }
+    .prov-line { margin: 6px 0; }
+    .foot {
+      margin-top: 18px;
+      padding-top: 10px;
+      border-top: 1px solid #e2e8f0;
+      font-size: ${Math.max(8, fit.uiFontPx - 0.6)}px;
+      color: ${headerMuted};
+      line-height: 1.35;
+    }
     @media print { body { zoom: ${fit.printZoom}; } }
   </style>
 </head>
 <body>
-  <h1>${esc(b.bill_title || "Patient Bill")}</h1>
   ${
     b.is_preview
-      ? `<div class="preview-banner"><strong>Preview only</strong>This is what the bill will look like before payment. After the invoice is marked paid, use &ldquo;Print patient bill&rdquo; for the official copy. Use Print in the toolbar above or your browser&rsquo;s print dialog for a paper copy.<span class="fit-chip">Auto-fit mode: ${esc(fit.profileName)}</span></div>`
+      ? `<div class="preview-banner"><strong>Preview only</strong>This is how the bill will look before payment is recorded. After the invoice is paid, open &ldquo;Print patient bill&rdquo; for the official copy.<span class="fit-chip">Auto-fit: ${esc(fit.profileName)}</span></div>`
       : ""
   }
-  <div class="clinic">
+  <header class="top-row">
+    <h1 class="doc-title">PATIENT BILL</h1>
+    <div class="stmt-date">${esc(stmtDate)}</div>
+  </header>
+
+  <div class="clinic-dash">
     <strong>${esc(b.clinic_name)}</strong><br/>
-    ${esc(b.address_line1)}<br/>
-    ${esc(b.city_state_zip)}<br/>
+    ${esc(clinicStreetCity)}<br/>
     ${esc(b.phone)}
   </div>
-  <div class="grid">
-    <div>
-      <div class="label">Date of service</div>
-      <div class="box">${esc(formatMonthDayYear(b.date_of_service))}</div>
-    </div>
-    <div>
-      <div class="label">Bill / Invoice #</div>
-      <div class="box">${esc(b.invoice_number)}</div>
-    </div>
-    <div style="grid-column: 1 / -1;">
-      <div class="label">Patient</div>
-      <div class="box">${esc(b.patient_name)}</div>
-    </div>
-    <div style="grid-column: 1 / -1;">
-      <div class="label">Address</div>
-      <div class="box">${esc(patientAddressForPrint)}</div>
-    </div>
-    <div style="grid-column: 1 / -1;">
-      <div class="label">Diagnosis</div>
-      <div class="box">${esc(diagnosisForPrint)}</div>
-    </div>
+
+  <div class="meta-lines">
+    <p><span class="lbl">Billing Date:</span> ${esc(billingDate)}</p>
+    <p><span class="lbl">Patient:</span> ${patientLine}</p>
+    <p><span class="lbl">Address:</span> ${esc(patientAddressForPrint)}</p>
   </div>
-  <table>
+
+  <h2 class="sec-title">Diagnosis</h2>
+  <div class="diag-body">${esc(diagnosisForPrint)}</div>
+
+  <h2 class="sec-title">${chargesTitle}</h2>
+  <table class="charges">
     <thead>
       <tr>
+        <th>Date Range</th>
         <th>CPT Code</th>
         <th>Description</th>
         <th class="num">Fees</th>
         <th class="num">Units</th>
         <th class="num">POS</th>
-        <th class="num">Line total</th>
-        <th class="num">Patient pays</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
-  <div class="totals">
-    <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Subtotal (all procedures)</span><span>$${esc(b.subtotal)}</span></div>
-    ${
-      showPatientPortionRow
-        ? `<div style="display:flex;justify-content:space-between;padding:4px 0;color:#374151;"><span>Patient responsibility (billable services)</span><span>$${esc(b.patient_subtotal!)}</span></div>`
-        : ""
-    }
-    <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Sales tax</span><span>$${esc(b.tax)}</span></div>
-    <div class="grand" style="display:flex;justify-content:space-between;"><span>Amount due (patient)</span><span>$${esc(b.total_amount)}</span></div>
-  </div>
-  ${
-    b.provider_name
-      ? `<p class="provider-signoff">Treating provider: <strong>${esc(b.provider_name)}</strong>${b.provider_credential ? ` (${esc(b.provider_credential)})` : ""}</p>`
-      : ""
-  }
+
+  <h2 class="sec-title">${totalsTitle}</h2>
+  <table class="totals">
+    <thead>
+      <tr>
+        <th scope="col"></th>
+        <th scope="col" class="amt">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="lab">Bill Charges</td>
+        <td class="amt">${moneyLabel(b.subtotal)}</td>
+      </tr>
+      <tr>
+        <td class="lab">Sales Tax (*)</td>
+        <td class="amt">${moneyLabel(b.tax)}</td>
+      </tr>
+      <tr>
+        <td class="lab">Ins Co. Payments</td>
+        <td class="amt">${insPay}</td>
+      </tr>
+      <tr>
+        <td class="lab">Patient Payments</td>
+        <td class="amt">${patientPay}</td>
+      </tr>
+      <tr>
+        <td class="lab">Adjustments${discountAmt > 0 ? " (discount)" : ""}</td>
+        <td class="amt">${adjustments}</td>
+      </tr>
+      <tr class="balance">
+        <td class="lab">Balance Due</td>
+        <td class="amt">${moneyLabel(b.total_amount)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  ${providerBlock}
+
   <p class="foot">
-    Line totals document every service on this visit. <strong>Subtotal</strong> is the full documented amount.
-    <strong>Amount due</strong> is what the patient pays — insurance-only / documentation lines are not added to that balance.
-    Patient payment per clinic policy.
-    ${b.status ? ` Status: ${esc(b.status)}.` : ""}
+    (*) Tax shown per clinic settings. Insurance carrier payments are not itemized on this statement unless recorded separately.
+    ${b.status ? ` Invoice status: ${esc(b.status)}.` : ""}
     Generated ${esc(formatNowMonthDayYearTime())}.
   </p>
 </body>

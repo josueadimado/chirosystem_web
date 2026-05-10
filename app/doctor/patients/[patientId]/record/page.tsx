@@ -4,9 +4,15 @@ import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth } from "@/lib/api";
-import { formatMonthDayYear } from "@/lib/format-date";
+import {
+  formatMonthDayYear,
+  formatNowMonthDayYearTime,
+  formatWeekdayMonthDayYear,
+  parseApiDateOnly,
+} from "@/lib/format-date";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { flushSync } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 
 // --- Types aligned with `GET /doctor/patient_detail/?patient_id=` (same as patient chart modal) ---
@@ -70,12 +76,6 @@ function statusBadgeClass(status: string): string {
   return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
 }
 
-function parseMoney(s: string | undefined): number {
-  if (s == null || s === "") return 0;
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : 0;
-}
-
 function pricePaidLabel(inv: AppointmentHistoryRow["invoice"]): string {
   if (!inv) return "—";
   const st = (inv.status || "").toLowerCase();
@@ -84,13 +84,19 @@ function pricePaidLabel(inv: AppointmentHistoryRow["invoice"]): string {
   return `Billed $${inv.total_amount} (${st.replace(/_/g, " ")})`;
 }
 
-/** Matches clinic bill header defaults (ClinicSettings solo row) — same branding as printed invoices; no extra API. */
+/** Print letterhead — aligns with clinic paperwork (no extra API). */
 const CLINIC_PRINT_HEADER = {
-  name: "Relief Chiropractic",
-  phoneDisplay: "+1 (269) 408-0303",
-  addressLines: ["3830 M 139, Suite 119", "St Joseph, MI 49085"],
-  logoSrc: "/images/clinic-reception.png",
+  name: "Relief Chiropractic PC",
+  phoneDisplay: "269-408-0303",
+  addressLine: "3830 M 139, Suite 119, St Joseph, MI 49085",
 } as const;
+
+/** US-style MM/DD/YYYY for “Date of service” lines on printed records. */
+function formatUsSlashDate(isoDate: string): string {
+  const d = parseApiDateOnly(isoDate);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+}
 
 function compareAppointmentsChronological(a: AppointmentHistoryRow, b: AppointmentHistoryRow): number {
   const d = a.appointment_date.localeCompare(b.appointment_date);
@@ -105,30 +111,6 @@ function compareAppointmentsNewestFirst(a: AppointmentHistoryRow, b: Appointment
   return (b.start_time || "").localeCompare(a.start_time || "");
 }
 
-function formatAmountBilled(inv: AppointmentHistoryRow["invoice"]): string {
-  if (!inv) return "—";
-  const st = (inv.status || "").toLowerCase();
-  if (st === "void") return "—";
-  return `$${inv.total_amount}`;
-}
-
-function formatAmountPaid(inv: AppointmentHistoryRow["invoice"]): string {
-  if (!inv) return "—";
-  const st = (inv.status || "").toLowerCase();
-  if (st === "void") return "—";
-  if (st === "paid") return `$${inv.total_amount}`;
-  return "$0.00";
-}
-
-/** Invoice payload does not include payment tender; describe settlement status for records requests. */
-function paymentMethodLabel(inv: AppointmentHistoryRow["invoice"]): string {
-  if (!inv) return "—";
-  const st = (inv.status || "").toLowerCase();
-  if (st === "void") return "Void";
-  if (st === "paid") return "Paid";
-  return `Unpaid (${st.replace(/_/g, " ")})`;
-}
-
 export default function DoctorPatientRecordPage() {
   const params = useParams<{ patientId: string }>();
   const id = Number(params.patientId);
@@ -136,11 +118,10 @@ export default function DoctorPatientRecordPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedVisit, setSelectedVisit] = useState<AppointmentHistoryRow | null>(null);
-  const [docStamp] = useState(() =>
-    typeof window !== "undefined"
-      ? new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-      : "",
-  );
+  /** Shown on printed footer; set immediately before `window.print()` so the timestamp matches the print action. */
+  const [printGeneratedAt, setPrintGeneratedAt] = useState("");
+  const [printStart, setPrintStart] = useState("");
+  const [printEnd, setPrintEnd] = useState("");
 
   /* eslint-disable react-hooks/set-state-in-effect -- load chart when patient id changes */
   useEffect(() => {
@@ -161,57 +142,51 @@ export default function DoctorPatientRecordPage() {
   }, [id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  const appointmentDateBounds = useMemo(() => {
+    if (!detail?.appointments?.length) return { min: "", max: "" };
+    const dates = detail.appointments.map((a) => a.appointment_date).sort();
+    return { min: dates[0]!, max: dates[dates.length - 1]! };
+  }, [detail]);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- default print range when patient chart loads */
+  useEffect(() => {
+    if (!appointmentDateBounds.min) {
+      setPrintStart("");
+      setPrintEnd("");
+      return;
+    }
+    setPrintStart(appointmentDateBounds.min);
+    setPrintEnd(appointmentDateBounds.max);
+  }, [detail?.id, appointmentDateBounds.min, appointmentDateBounds.max]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   /** All appointments, most recent first — full visit history on screen. */
   const visitsNewestFirst = useMemo(() => {
     if (!detail?.appointments?.length) return [];
     return [...detail.appointments].sort(compareAppointmentsNewestFirst);
   }, [detail]);
 
-  const billing = useMemo(() => {
-    if (!detail?.appointments?.length) {
-      return { totalBilled: 0, totalPaid: 0, outstanding: 0, visitCount: 0 };
-    }
-    let totalBilled = 0;
-    let totalPaid = 0;
-    let outstanding = 0;
-    for (const a of detail.appointments) {
-      const inv = a.invoice;
-      if (!inv) continue;
-      const st = (inv.status || "").toLowerCase();
-      if (st === "void") continue;
-      const amt = parseMoney(inv.total_amount);
-      totalBilled += amt;
-      if (st === "paid") totalPaid += amt;
-      else outstanding += amt;
-    }
-    return {
-      totalBilled,
-      totalPaid,
-      outstanding,
-      visitCount: detail.appointments.length,
-    };
-  }, [detail]);
-
-  /** All chart appointments (for legal / insurance printout billing table). */
+  /** All chart appointments, oldest first — used for print narrative order. */
   const allVisitsSorted = useMemo(() => {
     if (!detail?.appointments?.length) return [];
     return [...detail.appointments].sort(compareAppointmentsChronological);
   }, [detail]);
 
-  const billingTotalsPrint = useMemo(() => {
-    let totalBilled = 0;
-    let totalPaid = 0;
-    for (const a of allVisitsSorted) {
-      const inv = a.invoice;
-      if (!inv) continue;
-      const st = (inv.status || "").toLowerCase();
-      if (st === "void") continue;
-      const amt = parseMoney(inv.total_amount);
-      totalBilled += amt;
-      if (st === "paid") totalPaid += amt;
-    }
-    return { totalBilled, totalPaid };
-  }, [allVisitsSorted]);
+  /** Visits whose appointment date falls in the selected print range (inclusive). */
+  const visitsForPrint = useMemo(() => {
+    if (!allVisitsSorted.length || !printStart || !printEnd) return allVisitsSorted;
+    let a = printStart;
+    let b = printEnd;
+    if (a > b) [a, b] = [b, a];
+    return allVisitsSorted.filter((row) => row.appointment_date >= a && row.appointment_date <= b);
+  }, [allVisitsSorted, printStart, printEnd]);
+
+  const handlePrintPatientFile = () => {
+    flushSync(() => {
+      setPrintGeneratedAt(formatNowMonthDayYearTime());
+    });
+    window.print();
+  };
 
   if (!Number.isFinite(id) || id <= 0) {
     return <div className="p-6 text-sm text-rose-700">Invalid patient id.</div>;
@@ -247,7 +222,7 @@ export default function DoctorPatientRecordPage() {
   const printStyles = `
     @page {
       size: letter;
-      margin: 14mm 12mm 22mm 12mm;
+      margin: 14mm 12mm 18mm 12mm;
       @bottom-center {
         content: "Page " counter(page);
         font-size: 11px;
@@ -284,88 +259,110 @@ export default function DoctorPatientRecordPage() {
         color: #000 !important;
         font-family: ui-serif, Georgia, "Times New Roman", serif;
         font-size: 12px;
-        line-height: 1.45;
+        line-height: 1.5;
       }
       #patient-file-print-root * {
         box-shadow: none !important;
         text-shadow: none !important;
-        background: transparent !important;
-        color: #000 !important;
-        border-color: #000 !important;
       }
-      #patient-file-print-root img {
-        filter: grayscale(100%);
-        max-height: 56px;
-        width: auto;
+      #patient-file-print-root .pf-print-wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 8px;
       }
-      #patient-file-print-root .pf-clinic-bar {
-        display: flex;
-        align-items: flex-start;
-        gap: 16px;
-        margin-bottom: 24px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid #000;
-        page-break-after: always;
+      #patient-file-print-root .pf-print-header {
+        text-align: center;
+        margin-bottom: 22px;
       }
-      #patient-file-print-root .pf-patient-name-top {
-        font-size: 20px;
+      #patient-file-print-root .pf-clinic-name {
+        font-size: 15px;
         font-weight: 700;
-        margin: 0 0 16px 0;
+        margin: 0 0 6px 0;
       }
-      #patient-file-print-root .pf-section-title {
-        font-size: 16px;
+      #patient-file-print-root .pf-clinic-line {
+        margin: 2px 0;
+        font-size: 12px;
+      }
+      #patient-file-print-root .pf-report-line {
+        margin-top: 12px;
+        font-size: 11px;
+      }
+      #patient-file-print-root .pf-patient-line {
+        text-align: center;
         font-weight: 700;
-        margin: 0 0 12px 0;
-        text-transform: none;
+        font-size: 13px;
+        margin: 18px 0 8px 0;
       }
-      #patient-file-print-root .pf-print-break-before {
-        page-break-before: always;
+      #patient-file-print-root .pf-policy-line {
+        text-align: center;
+        font-size: 12px;
+        margin: 0 0 18px 0;
       }
-      #patient-file-print-root .pf-print-note-block {
-        page-break-inside: avoid;
-        margin-bottom: 16px;
-      }
-      #patient-file-print-root .pf-table-wrap {
-        margin-top: 8px;
-      }
-      #patient-file-print-root table.pf-billing-table {
+      #patient-file-print-root table.pf-demo-table {
         width: 100%;
         border-collapse: collapse;
         font-size: 12px;
+        margin-bottom: 22px;
       }
-      #patient-file-print-root table.pf-billing-table th,
-      #patient-file-print-root table.pf-billing-table td {
-        border: 1px solid #000;
-        padding: 8px 10px;
-        text-align: left;
+      #patient-file-print-root table.pf-demo-table td {
+        padding: 10px 12px;
         vertical-align: top;
+        border-bottom: 1px solid #ccc;
       }
-      #patient-file-print-root table.pf-billing-table th {
+      #patient-file-print-root table.pf-demo-table td.pf-demo-label {
+        width: 32%;
         font-weight: 700;
+        color: #0f766e !important;
+        font-family: ui-sans-serif, system-ui, sans-serif;
       }
-      #patient-file-print-root table.pf-billing-table tfoot td {
+      #patient-file-print-root table.pf-demo-table td.pf-demo-value {
+        font-family: ui-serif, Georgia, "Times New Roman", serif;
+      }
+      #patient-file-print-root .pf-visit-block {
+        margin-bottom: 22px;
+        page-break-inside: avoid;
+      }
+      #patient-file-print-root .pf-visit-heading {
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 12.5px;
         font-weight: 700;
+        color: #0f766e !important;
+        border-bottom: 1px solid #0f766e;
+        padding-bottom: 4px;
+        margin: 16px 0 10px 0;
+      }
+      #patient-file-print-root .pf-visit-meta {
+        margin: 4px 0;
+        font-size: 11.5px;
+      }
+      #patient-file-print-root .pf-subheading {
+        font-weight: 700;
+        margin: 12px 0 6px 0;
+        font-size: 12px;
+      }
+      #patient-file-print-root .pf-subheading-sm {
+        font-weight: 700;
+        margin: 10px 0 4px 0;
+        font-size: 11.5px;
+      }
+      #patient-file-print-root .pf-note-print {
+        white-space: pre-wrap;
+        margin: 0 0 8px 0;
+        text-align: left;
       }
       #patient-file-print-root .pf-muted {
         font-size: 11px;
-        color: #000 !important;
         opacity: 0.85;
       }
-      #patient-file-print-root .pf-note-head {
-        font-weight: 700;
-        margin-bottom: 6px;
-      }
-      #patient-file-print-root .pf-note-body {
-        white-space: pre-wrap;
-        margin: 0;
-      }
-      #patient-file-print-root .pf-print-demographics p {
-        margin: 0 0 10px 0;
+      #patient-file-print-root .pf-print-empty {
+        font-style: italic;
+        margin: 12px 0;
       }
       #patient-file-print-root .pf-generated {
-        margin-top: 24px;
+        margin-top: 28px;
         font-size: 11px;
-        opacity: 0.8;
+        border-top: 1px solid #999;
+        padding-top: 12px;
       }
     }
   `;
@@ -375,21 +372,51 @@ export default function DoctorPatientRecordPage() {
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
 
       <div id="patient-record-print-root" className="print:hidden space-y-8">
-        {/* Top bar: back + print */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Top bar: back + print date range */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
           <Link
             href="/doctor/patients"
-            className="print:hidden inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            className="print:hidden inline-flex w-fit items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
             ← Back to patients
           </Link>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="print:hidden rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-100"
-          >
-            Print patient file
-          </button>
+          <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-500">Print from</span>
+              <input
+                type="date"
+                value={printStart}
+                onChange={(e) => setPrintStart(e.target.value)}
+                min={appointmentDateBounds.min || undefined}
+                max={appointmentDateBounds.max || undefined}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                aria-label="Print date range start"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-slate-500">Print through</span>
+              <input
+                type="date"
+                value={printEnd}
+                onChange={(e) => setPrintEnd(e.target.value)}
+                min={appointmentDateBounds.min || undefined}
+                max={appointmentDateBounds.max || undefined}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                aria-label="Print date range end"
+              />
+            </div>
+            <p className="min-w-[12rem] pb-2 text-sm text-slate-600">
+              <span className="font-semibold text-slate-800">{visitsForPrint.length}</span> visit
+              {visitsForPrint.length === 1 ? "" : "s"} in this range
+            </p>
+            <button
+              type="button"
+              onClick={handlePrintPatientFile}
+              className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-100"
+            >
+              Print patient file
+            </button>
+          </div>
         </div>
 
         {/* Header — mirrors patient chart modal overview card */}
@@ -476,32 +503,6 @@ export default function DoctorPatientRecordPage() {
             </div>
           </div>
         </section>
-
-        {/* Billing summary — derived from past visits & invoices on this chart */}
-        <section className="space-y-3">
-          <h2 className="text-lg font-bold tracking-tight text-slate-900">Billing summary</h2>
-          <p className="text-sm text-slate-600">
-            Totals are calculated from invoices linked to appointments on this chart.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Total visits</p>
-              <p className="mt-1.5 text-xl font-bold text-slate-900">{billing.visitCount}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Total billed</p>
-              <p className="mt-1.5 text-xl font-bold text-slate-900">${billing.totalBilled.toFixed(2)}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Total paid</p>
-              <p className="mt-1.5 text-xl font-bold text-slate-900">${billing.totalPaid.toFixed(2)}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Outstanding</p>
-              <p className="mt-1.5 text-xl font-bold text-slate-900">${billing.outstanding.toFixed(2)}</p>
-            </div>
-          </div>
-        </section>
       </div>
 
       <Sheet open={selectedVisit !== null} onOpenChange={(open) => !open && setSelectedVisit(null)}>
@@ -558,108 +559,99 @@ export default function DoctorPatientRecordPage() {
         ) : null}
       </Sheet>
 
-      {/* Legal / insurance printout — hidden on screen; print CSS swaps visibility */}
+      {/* Print-only layout — hidden until print; demographics + date-filtered visit narrative */}
       <div id="patient-file-print-root" className="hidden">
-        <header className="pf-clinic-bar">
-          <img src={CLINIC_PRINT_HEADER.logoSrc} alt="Relief Chiropractic" width={120} height={48} />
-          <div>
-            <div style={{ fontSize: "18px", fontWeight: 700 }}>{CLINIC_PRINT_HEADER.name}</div>
-            <div style={{ marginTop: "6px" }}>{CLINIC_PRINT_HEADER.phoneDisplay}</div>
-            <div style={{ marginTop: "4px" }}>
-              {CLINIC_PRINT_HEADER.addressLines.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-            </div>
-          </div>
-        </header>
+        <div className="pf-print-wrap">
+          <header className="pf-print-header">
+            <p className="pf-clinic-name">{CLINIC_PRINT_HEADER.name}</p>
+            <p className="pf-clinic-line">{CLINIC_PRINT_HEADER.addressLine}</p>
+            <p className="pf-clinic-line">Phone: {CLINIC_PRINT_HEADER.phoneDisplay}</p>
+            <p className="pf-report-line">
+              Report generated: {printGeneratedAt || formatNowMonthDayYearTime()}
+            </p>
+          </header>
 
-        <section className="pf-print-demographics">
-          <p className="pf-patient-name-top">
-            {detail.first_name} {detail.last_name}
+          <p className="pf-patient-line">
+            Patient: {detail.first_name} {detail.last_name} #{detail.id} DOB: {detail.date_of_birth || "—"}
           </p>
-          <h2 className="pf-section-title">Patient demographics</h2>
-          <p>
-            <strong>Date of birth:</strong> {detail.date_of_birth || "—"}
-          </p>
-          <p>
-            <strong>Phone:</strong> {detail.phone}
-          </p>
-          <p>
-            <strong>Email:</strong> {detail.email || "—"}
-          </p>
-          <p>
-            <strong>Address:</strong>{" "}
-            {[detail.address_line1, detail.address_line2, detail.city_state_zip].filter(Boolean).join(", ") || "—"}
-          </p>
-          <p>
-            <strong>Emergency contact:</strong>{" "}
-            {detail.emergency_contact_name || detail.emergency_contact_phone
-              ? `${detail.emergency_contact_name}${detail.emergency_contact_phone ? ` · ${detail.emergency_contact_phone}` : ""}`
-              : "—"}
-          </p>
-          <p>
-            <strong>Patient ID:</strong> {detail.id}
-          </p>
-        </section>
+          <p className="pf-policy-line">Policy ID: Not on file in chart</p>
 
-        <section className="pf-print-billing pf-print-break-before">
-          <h2 className="pf-section-title">Billing summary</h2>
+          <table className="pf-demo-table">
+            <tbody>
+              <tr>
+                <td className="pf-demo-label">Phone</td>
+                <td className="pf-demo-value">{detail.phone || "—"}</td>
+              </tr>
+              <tr>
+                <td className="pf-demo-label">Email</td>
+                <td className="pf-demo-value">{detail.email?.trim() ? detail.email : "—"}</td>
+              </tr>
+              <tr>
+                <td className="pf-demo-label">Address</td>
+                <td className="pf-demo-value">
+                  {[detail.address_line1, detail.address_line2, detail.city_state_zip].filter(Boolean).join(", ") || "—"}
+                </td>
+              </tr>
+              <tr>
+                <td className="pf-demo-label">Emergency contact</td>
+                <td className="pf-demo-value">
+                  {detail.emergency_contact_name || detail.emergency_contact_phone
+                    ? `${detail.emergency_contact_name}${detail.emergency_contact_phone ? ` · ${detail.emergency_contact_phone}` : ""}`
+                    : "—"}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
           <p className="pf-muted">
-            All visits on file (invoice amounts as recorded). Payment column reflects invoice settlement status; card/cash
-            tender is stored in the clinic billing system when collected.
+            Visit notes below are limited to the selected print date range ({formatMonthDayYear(printStart)} –{" "}
+            {formatMonthDayYear(printEnd)}), oldest to newest.
           </p>
-          <div className="pf-table-wrap">
-            <table className="pf-billing-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Service</th>
-                  <th>Provider</th>
-                  <th>Amount billed</th>
-                  <th>Amount paid</th>
-                  <th>Payment</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allVisitsSorted.map((a) => (
-                  <tr key={a.id}>
-                    <td>{formatMonthDayYear(a.appointment_date)}</td>
-                    <td>{a.service || "—"}</td>
-                    <td>{a.provider || "—"}</td>
-                    <td>{formatAmountBilled(a.invoice)}</td>
-                    <td>{formatAmountPaid(a.invoice)}</td>
-                    <td>{paymentMethodLabel(a.invoice)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={3}>Totals</td>
-                  <td>${billingTotalsPrint.totalBilled.toFixed(2)}</td>
-                  <td>${billingTotalsPrint.totalPaid.toFixed(2)}</td>
-                  <td>—</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </section>
 
-        <section className="pf-print-notes pf-print-break-before">
-          <h2 className="pf-section-title">Visit notes (chart / handoff)</h2>
-          <p className="pf-muted">Provider team notes recorded on each appointment.</p>
-          {allVisitsSorted.map((a) => (
-            <article key={a.id} className="pf-print-note-block">
-              <div className="pf-note-head">
-                {formatMonthDayYear(a.appointment_date)}
-                {a.provider ? ` · ${a.provider}` : ""}
-              </div>
-              <p className="pf-note-body">{a.clinical_handoff_notes?.trim() || "No chart note recorded for this visit."}</p>
-            </article>
-          ))}
+          {visitsForPrint.length === 0 ? (
+            <p className="pf-print-empty">No visits in the selected date range.</p>
+          ) : (
+            visitsForPrint.map((a) => {
+              const v = a.visit;
+              return (
+                <article key={a.id} className="pf-visit-block">
+                  <h3 className="pf-visit-heading">
+                    {formatWeekdayMonthDayYear(a.appointment_date)} Provider: {a.provider || "—"}
+                  </h3>
+                  <p className="pf-visit-meta">Date of service: {formatUsSlashDate(a.appointment_date)}</p>
+                  <p className="pf-visit-meta">NPI#: —</p>
+                  <p className="pf-subheading">Subjective</p>
+                  <div className="pf-note-print">
+                    {a.clinical_handoff_notes?.trim() ||
+                      "No subjective / handoff note recorded for this visit."}
+                  </div>
+                  {v?.reason_for_visit?.trim() ? (
+                    <>
+                      <p className="pf-subheading-sm">Reason for visit</p>
+                      <div className="pf-note-print">{v.reason_for_visit}</div>
+                    </>
+                  ) : null}
+                  {v?.diagnosis?.trim() ? (
+                    <>
+                      <p className="pf-subheading-sm">Diagnosis (billing)</p>
+                      <div className="pf-note-print">{v.diagnosis}</div>
+                    </>
+                  ) : null}
+                  {v?.doctor_notes?.trim() ? (
+                    <>
+                      <p className="pf-subheading-sm">Visit documentation</p>
+                      <div className="pf-note-print">{v.doctor_notes}</div>
+                    </>
+                  ) : null}
+                </article>
+              );
+            })
+          )}
+
           <p className="pf-generated">
-            Generated {docStamp || "—"} · Relief Chiropractic medical records summary
+            Relief Chiropractic PC · Medical record summary · Printed {printGeneratedAt || formatNowMonthDayYearTime()}
           </p>
-        </section>
+        </div>
       </div>
     </>
   );
