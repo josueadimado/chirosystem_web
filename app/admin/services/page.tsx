@@ -13,6 +13,8 @@ type ServiceType = "chiropractic" | "massage";
 type Service = {
   id: number;
   name: string;
+  /** If set, patients see this on the booking site & confirmations instead of name. Staff still see name. */
+  public_booking_name?: string;
   description: string;
   duration_minutes: number;
   price: string;
@@ -39,6 +41,7 @@ function formatPrice(p: string): string {
 
 const emptyForm = {
   name: "",
+  public_booking_name: "",
   billing_code: "",
   duration_minutes: 30,
   price: "0",
@@ -102,6 +105,7 @@ export default function AdminServicesPage() {
     return services.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
+        (s.public_booking_name || "").toLowerCase().includes(q) ||
         (s.billing_code || "").toLowerCase().includes(q) ||
         (s.description || "").toLowerCase().includes(q),
     );
@@ -117,6 +121,7 @@ export default function AdminServicesPage() {
     setEditing(s);
     setForm({
       name: s.name,
+      public_booking_name: (s.public_booking_name || "").trim(),
       billing_code: s.billing_code || "",
       duration_minutes: s.duration_minutes,
       price: String(s.price),
@@ -144,6 +149,7 @@ export default function AdminServicesPage() {
       async () => {
         const payload = {
           name: form.name.trim(),
+          public_booking_name: form.public_booking_name.trim(),
           billing_code: form.billing_code.trim(),
           duration_minutes: Number(form.duration_minutes) || 30,
           price: form.price,
@@ -192,6 +198,7 @@ export default function AdminServicesPage() {
   const formDirty =
     editing !== null &&
     (form.name !== editing.name ||
+      (form.public_booking_name || "").trim() !== (editing.public_booking_name || "").trim() ||
       (form.billing_code || "") !== (editing.billing_code || "") ||
       form.duration_minutes !== editing.duration_minutes ||
       form.price !== String(editing.price) ||
@@ -210,7 +217,7 @@ export default function AdminServicesPage() {
     <div className="space-y-6">
       <AdminPageIntro
         title="Services & codes"
-        description="Add or edit visit types, prices, and billing codes shown on the public booking site. Use Add visit type for new rows. Turn Active off to hide a visit from online booking and from the provider grid — or delete when nothing should reference it anymore."
+        description="Add or edit visit types, prices, and billing codes. Use Service name for doctors and schedules; optional Patient-facing name for what appears on the public booking site and patient messages. Use Add visit type for new rows. Turn Active off to hide a visit from online booking and from the provider grid — or delete when nothing should reference it anymore."
         pageHelp={
           <>
             These records power the public booking flow and invoices. <strong>Billing code</strong> is the identifier your clinic uses
@@ -324,7 +331,14 @@ export default function AdminServicesPage() {
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold text-slate-900">{s.name}</p>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-900">{s.name}</p>
+                              {(s.public_booking_name || "").trim() ? (
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  Patients see: <span className="font-medium text-slate-700">{(s.public_booking_name || "").trim()}</span>
+                                </p>
+                              ) : null}
+                            </div>
                             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                               {st}
                             </span>
@@ -418,8 +432,8 @@ export default function AdminServicesPage() {
                   )}
                 </div>
                 <HelpTip label="Form overview" align="center">
-                  Name, duration, and price are what patients and invoices see. Billing code is internal. Visit kind sets booking rules on
-                  the public site. Active turns the row on or off without deleting it.
+                  <strong>Service name</strong> is what doctors and schedules use. <strong>Patient-facing name</strong> (optional) overrides
+                  the label on the public booking site and patient texts only. Duration and price apply everywhere. Billing code is internal.
                 </HelpTip>
               </div>
             </div>
@@ -436,11 +450,29 @@ export default function AdminServicesPage() {
                       <input
                         id="svc-name"
                         className="admin-input border-0 bg-transparent shadow-none ring-0 focus:ring-0"
-                        placeholder="e.g. New patient exam"
+                        placeholder="e.g. Miscellaneous (shown to doctors & schedule)"
                         value={form.name}
                         onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label htmlFor="svc-public-name" className={fieldLabel}>
+                      Patient-facing name <span className="font-normal normal-case text-slate-400">(optional)</span>
+                    </label>
+                    <div className={inputWrap}>
+                      <input
+                        id="svc-public-name"
+                        className="admin-input border-0 bg-transparent shadow-none ring-0 focus:ring-0"
+                        placeholder="Leave blank to use service name everywhere — e.g. Chiropractic Visit"
+                        value={form.public_booking_name}
+                        onChange={(e) => setForm((f) => ({ ...f, public_booking_name: e.target.value }))}
+                      />
+                    </div>
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                      When set, the public booking page, voice assistant, and patient SMS/email use this label. Doctor portal and billing
+                      still use <strong className="font-medium text-slate-600">Service name</strong> above.
+                    </p>
                   </div>
                   <div>
                     <label htmlFor="svc-desc" className={fieldLabel}>
