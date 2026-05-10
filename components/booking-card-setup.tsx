@@ -185,14 +185,9 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
 
       {onFile ? (
         <>
-          <p className="mt-2 text-sm leading-relaxed text-slate-700">
-            We already have{" "}
-            <strong>{(onFile.card_brand || "Card").replace(/\b\w/g, (c) => c.toUpperCase())}</strong> ending in{" "}
-            <strong>{onFile.card_last4}</strong> on file for this phone
-            number. You do <strong>not</strong> need to enter your card again for this booking.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            Your card is only charged at the time of service, per clinic policy (including HSA debit cards).
+          <p className="mt-2 text-sm text-slate-700">
+            We have <strong>{(onFile.card_brand || "Card").replace(/\b\w/g, (c) => c.toUpperCase())}</strong> ending in{" "}
+            <strong>{onFile.card_last4}</strong> on file—no need to re-enter for this booking.
           </p>
           {!showForm && (
             <button
@@ -210,13 +205,8 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
         </>
       ) : (
         <>
-          <p className="mt-2 text-sm leading-relaxed text-slate-700">
-            If you would like to expedite your checkout, you can save a card in our secure system. We only see the{" "}
-            <strong>last four digits</strong>.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-700">
-            Your card will only be charged at the time of service and per our client payment policy. This also applies to
-            any <strong>HSA (health savings account)</strong> debit cards.
+          <p className="mt-2 text-sm text-slate-700">
+            Save a card for faster checkout—we only see the last 4 digits. Charged at time of service.
           </p>
           {!showForm && (
             <button

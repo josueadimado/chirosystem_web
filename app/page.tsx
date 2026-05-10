@@ -67,10 +67,22 @@ type RescheduleAppointmentRow = {
 type BookingFlowMode = "new" | "reschedule";
 
 type CartItem = {
+  /** Stable id for this cart row (date/time picks and availability are keyed by this). */
+  lineId: string;
   service: ServiceOption;
   provider: ProviderOption | null;
   providerSkipped: boolean;
 };
+
+type CartSlotPick = { date: string; time: string };
+
+/** Stable id for one row in the cart (two of the same service = two different line ids). */
+function newCartLineId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `line-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
 
 /**
  * Online booking: chiropractic does not ask the patient to pick a doctor — use the first linked provider
@@ -129,10 +141,27 @@ function addCalendarMonths(d: Date, delta: number): Date {
   return x;
 }
 
-/** Latest Mon–Fri date on or before `iso` (for edge cases near booking horizon). */
-function lastWeekdayOnOrBefore(iso: string): string {
+/** Next Mon–Fri date on or after `iso` (stay within `maxIso`). */
+function nextWeekdayOnOrAfter(iso: string, maxIso: string): string {
   const d = new Date(`${iso}T12:00:00`);
-  while (d.getDay() === 0 || d.getDay() === 6) {
+  for (let i = 0; i < 14; i++) {
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) {
+      const out = toLocalISODate(d);
+      if (out <= maxIso) return out;
+      return lastWeekdayOnOrBefore(maxIso);
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return lastWeekdayOnOrBefore(maxIso);
+}
+
+/** Last Mon–Fri date on or before `maxIso` (walk backward from that calendar day). */
+function lastWeekdayOnOrBefore(maxIso: string): string {
+  const d = new Date(`${maxIso}T12:00:00`);
+  for (let i = 0; i < 14; i++) {
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) return toLocalISODate(d);
     d.setDate(d.getDate() - 1);
   }
   return toLocalISODate(d);
@@ -229,23 +258,6 @@ function formatBookingPrice(p: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-function addMinutesToTimeSlot(slot: string, minutes: number): string {
-  const match = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!match) return slot;
-  let h = parseInt(match[1], 10);
-  let m = parseInt(match[2], 10);
-  const ampm = match[3].toUpperCase();
-  if (ampm === "PM" && h !== 12) h += 12;
-  if (ampm === "AM" && h === 12) h = 0;
-  const totalMin = h * 60 + m + minutes;
-  const newH = Math.floor(totalMin / 60) % 24;
-  const newM = totalMin % 60;
-  const newAmpm = newH >= 12 ? "PM" : "AM";
-  const displayH = newH === 0 ? 12 : newH > 12 ? newH - 12 : newH;
-  return `${displayH}:${String(newM).padStart(2, "0")} ${newAmpm}`;
-}
-
-/** Parse API display time (e.g. 2:30 PM) + date into local Date for policy checks. */
 function appointmentStartDateTimeLocal(appointmentDate: string, displayTime12h: string): Date | null {
   const m = displayTime12h.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   if (!m) return null;
@@ -284,6 +296,16 @@ export default function BookingPage() {
 
   const [selectedTime, setSelectedTime] = useState("9:00 AM");
   const [selectedDate, setSelectedDate] = useState(today);
+
+  /** New booking: each cart line has its own date/time (keyed by `lineId`). Reschedule uses `selectedDate` / `selectedTime` only. */
+  const [cartSlotPicksByLineId, setCartSlotPicksByLineId] = useState<Record<string, CartSlotPick>>({});
+  const [cartCalendarMonthByLineId, setCartCalendarMonthByLineId] = useState<Record<string, Date>>({});
+  const [cartSlotsByLineId, setCartSlotsByLineId] = useState<Record<string, string[] | null>>({});
+  const [cartSlotsLoadingByLineId, setCartSlotsLoadingByLineId] = useState<Record<string, boolean>>({});
+  const [bookingSubmitErrorByLineId, setBookingSubmitErrorByLineId] = useState<Record<string, string>>({});
+  /** After “Edit” from Step 4, scroll this cart line into view on Step 3. */
+  const [step3FocusLineId, setStep3FocusLineId] = useState<string | null>(null);
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState<string | undefined>(undefined);
@@ -327,9 +349,11 @@ export default function BookingPage() {
     return toLocalISODate(d);
   }, [today]);
 
-  /** Month currently shown in the step-3 date picker. */
+  /** Month currently shown in the step-3 date picker (reschedule flow only). */
   const [bookingCalendarMonth, setBookingCalendarMonth] = useState(() => startOfCalendarMonth(new Date()));
   const prevStepForCalendarRef = useRef<Step>(1);
+  /** Ignore stale availability responses when date/provider changes quickly per cart line. */
+  const cartSlotFetchGenRef = useRef<Record<string, number>>({});
 
   const fetchOptions = () => {
     setOptionsError("");
@@ -392,25 +416,25 @@ export default function BookingPage() {
     });
   }, [options]);
 
-  /** When opening date & time, focus the calendar on the month of the selected day. */
+  /** When opening date & time, focus the calendar on the month of the selected day (reschedule only). */
   useEffect(() => {
-    if (step === 3 && prevStepForCalendarRef.current !== 3) {
+    if (step === 3 && bookingFlow === "reschedule" && prevStepForCalendarRef.current !== 3) {
       setBookingCalendarMonth(startOfCalendarMonth(new Date(`${selectedDate}T12:00:00`)));
     }
     prevStepForCalendarRef.current = step;
-  }, [step, selectedDate]);
+  }, [step, bookingFlow, selectedDate]);
 
-  /** Keep selected day inside the allowed booking horizon. */
+  /** Reschedule: keep selected day inside the allowed booking horizon. */
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 3 || bookingFlow !== "reschedule") return;
     if (selectedDate > maxBookDateIso) {
       setSelectedDate(lastWeekdayOnOrBefore(maxBookDateIso));
     }
-  }, [step, selectedDate, maxBookDateIso]);
+  }, [step, bookingFlow, selectedDate, maxBookDateIso]);
 
-  /** Weekends are not bookable online — move to next Monday if we land on Sat/Sun (e.g. opened on a weekend). */
+  /** Reschedule: weekends not bookable online. */
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 3 || bookingFlow !== "reschedule") return;
     const d = new Date(`${selectedDate}T12:00:00`);
     const wd = d.getDay();
     if (wd !== 0 && wd !== 6) return;
@@ -422,28 +446,113 @@ export default function BookingPage() {
       return;
     }
     setSelectedDate(nextIso);
-  }, [step, selectedDate, maxBookDateIso]);
+  }, [step, bookingFlow, selectedDate, maxBookDateIso]);
 
-  const firstCartItem = cart[0] ?? null;
-  const firstProvider = firstCartItem?.provider ?? null;
-  const firstService = firstCartItem?.service ?? null;
-
-  /** For availability: same as cart head, or the visit being rescheduled. */
-  const effectiveSlotService = useMemo((): ServiceOption | null => {
-    if (bookingFlow === "reschedule" && reschedulePick && options) {
-      return options.services.find((s) => s.id === reschedulePick.service_id) ?? null;
-    }
-    return firstService;
-  }, [bookingFlow, reschedulePick, options, firstService]);
-
-  const effectiveSlotProvider = useMemo((): ProviderOption | null => {
-    if (bookingFlow === "reschedule" && reschedulePick) {
-      return { id: reschedulePick.provider_id, provider_name: reschedulePick.provider_name };
-    }
-    return firstProvider;
-  }, [bookingFlow, reschedulePick, firstProvider]);
+  /** New booking: ensure each cart line has slot picks; remove stale line keys. */
+  useEffect(() => {
+    const defaultDate = nextWeekdayOnOrAfter(today, maxBookDateIso);
+    setCartSlotPicksByLineId((prev) => {
+      const next: Record<string, CartSlotPick> = {};
+      for (const item of cart) {
+        next[item.lineId] = prev[item.lineId] ?? { date: defaultDate, time: "9:00 AM" };
+      }
+      return next;
+    });
+    setCartCalendarMonthByLineId((prev) => {
+      const next: Record<string, Date> = {};
+      for (const item of cart) {
+        if (prev[item.lineId]) next[item.lineId] = prev[item.lineId];
+      }
+      return next;
+    });
+  }, [cart, today, maxBookDateIso]);
 
   useEffect(() => {
+    const ids = new Set(cart.map((c) => c.lineId));
+    setCartSlotsByLineId((prev) => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) {
+        if (!ids.has(k)) delete next[k];
+      }
+      return next;
+    });
+    setCartSlotsLoadingByLineId((prev) => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) {
+        if (!ids.has(k)) delete next[k];
+      }
+      return next;
+    });
+    setBookingSubmitErrorByLineId((prev) => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) {
+        if (!ids.has(k)) delete next[k];
+      }
+      return next;
+    });
+  }, [cart]);
+
+  /** Step 4 → Step 3 “Edit”: scroll to the schedule card for that cart line. */
+  useEffect(() => {
+    if (step !== 3 || bookingFlow !== "new" || step3FocusLineId == null) return;
+    const id = `booking-schedule-${step3FocusLineId}`;
+    const run = () => {
+      const el = typeof document !== "undefined" ? document.getElementById(id) : null;
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setStep3FocusLineId(null);
+    };
+    const t = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(run);
+    });
+    return () => window.cancelAnimationFrame(t);
+  }, [step, bookingFlow, step3FocusLineId]);
+
+  /** New booking step 3: clamp each line's date to Mon–Fri and booking horizon. */
+  useEffect(() => {
+    if (step !== 3 || bookingFlow !== "new") return;
+    setCartSlotPicksByLineId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const item of cart) {
+        const p = next[item.lineId];
+        if (!p) continue;
+        let d = p.date;
+        if (d > maxBookDateIso) {
+          d = lastWeekdayOnOrBefore(maxBookDateIso);
+          changed = true;
+        }
+        const wd = new Date(`${d}T12:00:00`).getDay();
+        if (wd === 0 || wd === 6) {
+          d = nextWeekdayOnOrAfter(d, maxBookDateIso);
+          changed = true;
+        }
+        if (d < today) {
+          d = nextWeekdayOnOrAfter(today, maxBookDateIso);
+          changed = true;
+        }
+        if (d !== p.date) {
+          next[item.lineId] = { ...p, date: d };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [step, bookingFlow, cart, maxBookDateIso, today]);
+
+  const effectiveSlotService = useMemo((): ServiceOption | null => {
+    if (bookingFlow !== "reschedule" || !reschedulePick || !options) return null;
+    return options.services.find((s) => s.id === reschedulePick.service_id) ?? null;
+  }, [bookingFlow, reschedulePick, options]);
+
+  const effectiveSlotProvider = useMemo((): ProviderOption | null => {
+    if (bookingFlow !== "reschedule" || !reschedulePick) return null;
+    return { id: reschedulePick.provider_id, provider_name: reschedulePick.provider_name };
+  }, [bookingFlow, reschedulePick]);
+
+  useEffect(() => {
+    if (bookingFlow !== "reschedule") {
+      return;
+    }
     if (!effectiveSlotService || !effectiveSlotProvider || !selectedDate) {
       setAvailableSlots(null);
       return;
@@ -494,10 +603,83 @@ export default function BookingPage() {
   ]);
 
   useEffect(() => {
+    if (bookingFlow !== "reschedule") return;
     if (availableSlots && availableSlots.length > 0 && !availableSlots.includes(selectedTime)) {
       setSelectedTime(availableSlots[0]);
     }
-  }, [availableSlots]);
+  }, [bookingFlow, availableSlots, selectedTime]);
+
+  /** New booking step 3: fetch availability independently per cart line (own date, provider, service only). */
+  useEffect(() => {
+    if (bookingFlow !== "new" || step !== 3) return;
+    for (const item of cart) {
+      const lineId = item.lineId;
+      if (!item.provider) {
+        setCartSlotsByLineId((p) => ({ ...p, [lineId]: null }));
+        setCartSlotsLoadingByLineId((p) => ({ ...p, [lineId]: false }));
+        continue;
+      }
+      const pick = cartSlotPicksByLineId[lineId];
+      if (!pick?.date) continue;
+
+      cartSlotFetchGenRef.current[lineId] = (cartSlotFetchGenRef.current[lineId] ?? 0) + 1;
+      const gen = cartSlotFetchGenRef.current[lineId];
+      const dateSnapshot = pick.date;
+
+      setCartSlotsLoadingByLineId((p) => ({ ...p, [lineId]: true }));
+
+      const params = new URLSearchParams({
+        date: dateSnapshot,
+        provider_id: String(item.provider.id),
+        service_id: String(item.service.id),
+      });
+
+      apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
+        .then((res) => {
+          if (cartSlotFetchGenRef.current[lineId] !== gen) return;
+          let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
+          const spanForDayEnd = publicBookingCalendarSpanMinutes(item.service);
+          slots = slots.filter((slot) => slotChainFitsPublicDayEnd(dateSnapshot, slot, spanForDayEnd));
+          setCartSlotsByLineId((p) => ({ ...p, [lineId]: slots }));
+        })
+        .catch(() => {
+          if (cartSlotFetchGenRef.current[lineId] !== gen) return;
+          setCartSlotsByLineId((p) => ({
+            ...p,
+            [lineId]: buildFallbackTimeSlots(
+              dateSnapshot,
+              item.service.service_type,
+              Number(item.service.duration_minutes) || 30,
+            ),
+          }));
+        })
+        .finally(() => {
+          if (cartSlotFetchGenRef.current[lineId] === gen) {
+            setCartSlotsLoadingByLineId((p) => ({ ...p, [lineId]: false }));
+          }
+        });
+    }
+  }, [bookingFlow, step, cart, cartSlotPicksByLineId]);
+
+  /** When slots load for a line, move the pick to first open slot if the current time is not offered. */
+  useEffect(() => {
+    if (bookingFlow !== "new") return;
+    setCartSlotPicksByLineId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const item of cart) {
+        const slots = cartSlotsByLineId[item.lineId];
+        if (!Array.isArray(slots) || slots.length === 0) continue;
+        const p = next[item.lineId];
+        if (!p) continue;
+        if (!slots.includes(p.time)) {
+          next[item.lineId] = { ...p, time: slots[0] };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [bookingFlow, cart, cartSlotsByLineId]);
 
   useEffect(() => {
     // Phone-only lookup: run when reaching step 4 or when the cell number changes (do not send first/last name).
@@ -694,12 +876,6 @@ export default function BookingPage() {
     return cart.reduce((sum, item) => sum + parseFloat(item.service.price || "0"), 0);
   }, [bookingFlow, reschedulePick, cart]);
 
-  const totalDuration = useMemo(
-    () => cart.reduce((sum, item) => sum + item.service.duration_minutes, 0),
-    [cart],
-  );
-
-  const anyProviderSkipped = cart.every((c) => c.providerSkipped);
 
   const addServiceToCart = (service: ServiceOption) => {
     if (!options) {
@@ -739,6 +915,7 @@ export default function BookingPage() {
     const providers = options.providers_by_service[service.id] ?? [];
     const pick = providerPickForService(service, providers);
     const item: CartItem = {
+      lineId: newCartLineId(),
       service,
       provider: pick.provider,
       providerSkipped: pick.providerSkipped,
@@ -748,8 +925,8 @@ export default function BookingPage() {
     setAddingAnother(false);
   };
 
-  const removeFromCart = (serviceId: number) => {
-    setCart((prev) => prev.filter((c) => c.service.id !== serviceId));
+  const removeFromCart = (lineId: string) => {
+    setCart((prev) => prev.filter((c) => c.lineId !== lineId));
   };
 
   const needsProviderSelection = cart.some((c) => !c.provider && !c.providerSkipped);
@@ -796,6 +973,12 @@ export default function BookingPage() {
     setRescheduleListError("");
     setSmsConsent(false);
     setStep(1);
+    setCartSlotPicksByLineId({});
+    setCartCalendarMonthByLineId({});
+    setCartSlotsByLineId({});
+    setCartSlotsLoadingByLineId({});
+    setBookingSubmitErrorByLineId({});
+    setStep3FocusLineId(null);
   };
 
   const activateRescheduleFlow = () => {
@@ -811,6 +994,12 @@ export default function BookingPage() {
     setRescheduleSharedPhone(false);
     setSmsConsent(false);
     setStep(1);
+    setCartSlotPicksByLineId({});
+    setCartCalendarMonthByLineId({});
+    setCartSlotsByLineId({});
+    setCartSlotsLoadingByLineId({});
+    setBookingSubmitErrorByLineId({});
+    setStep3FocusLineId(null);
   };
 
   const loadMyAppointments = useCallback(async () => {
@@ -899,7 +1088,7 @@ export default function BookingPage() {
       } else {
         setStep(2);
       }
-    } else if (step === 4 && bookingResults.length === 0) {
+    } else if (step === 4 && (bookingFlow === "reschedule" || (bookingFlow === "new" && cart.length > 0))) {
       setSmsConsent(false);
       setStep(3);
     } else if (step > 1) {
@@ -914,14 +1103,37 @@ export default function BookingPage() {
     setCart([]);
     setAddingAnother(false);
     setChiroIntakeRule(null);
+    setCartSlotPicksByLineId({});
+    setCartCalendarMonthByLineId({});
+    setCartSlotsByLineId({});
+    setCartSlotsLoadingByLineId({});
+    setBookingSubmitErrorByLineId({});
+    setStep3FocusLineId(null);
     activateNewBookingFlow();
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  /** Step 4 recap → Step 3: keep other rows’ slots; scroll to this row’s calendar card. */
+  const goEditScheduleLine = useCallback(
+    (lineId: string) => {
+      const pick = cartSlotPicksByLineId[lineId];
+      if (pick?.date) {
+        setCartCalendarMonthByLineId((prev) => ({
+          ...prev,
+          [lineId]: startOfCalendarMonth(new Date(`${pick.date}T12:00:00`)),
+        }));
+      }
+      setStep3FocusLineId(lineId);
+      setStep(3);
+    },
+    [cartSlotPicksByLineId],
+  );
 
   const submitBooking = async () => {
     if (cart.length === 0) return;
     setBookingMessage("");
     setSlotWarning("");
+    setBookingSubmitErrorByLineId({});
     const nextErrors: FormErrors = {};
     if (!firstName.trim()) nextErrors.firstName = "First name is required.";
     if (!lastName.trim()) nextErrors.lastName = "Last name is required.";
@@ -950,55 +1162,102 @@ export default function BookingPage() {
       toast.error("This booking requires a new client chiropractic visit. Go back and change your selected visit type.");
       return;
     }
+
+    for (const item of cart) {
+      const pick = cartSlotPicksByLineId[item.lineId];
+      if (!item.provider) {
+        setBookingMessageKind("error");
+        setBookingMessage("Each visit needs a provider. Go back and finish provider selection.");
+        toast.error("Choose a provider for every service before confirming.");
+        setStep(2);
+        return;
+      }
+      if (!pick) {
+        setBookingMessageKind("error");
+        setBookingMessage("Pick a date and time for each service.");
+        setStep(3);
+        return;
+      }
+      const slots = cartSlotsByLineId[item.lineId];
+      if (cartSlotsLoadingByLineId[item.lineId]) {
+        setBookingMessageKind("error");
+        setBookingMessage("Still loading open times — wait a moment and try again.");
+        return;
+      }
+      if (!slots || slots.length === 0 || !slots.includes(pick.time)) {
+        setBookingMessageKind("error");
+        setBookingMessage("Pick a valid open time for each service.");
+        toast.error(`Choose an available time for ${item.service.name}.`);
+        setStep(3);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
-    const results: BookingResult[] = [];
-    let currentTime = selectedTime;
+    const succeeded: BookingResult[] = [];
+    const failedItems: CartItem[] = [];
+    const errByLine: Record<string, string> = {};
 
     try {
-      for (let i = 0; i < cart.length; i++) {
-        const item = cart[i];
-        const result = await apiPostPublic<BookingResult>("/appointments/book/", {
-          first_name: firstName,
-          last_name: lastName,
-          phone,
-          email,
-          sms_consent: smsConsent,
-          reason_for_visit: reasonForVisit.trim(),
-          service_id: item.service.id,
-          provider_id: item.provider?.id,
-          provider_name: item.provider?.provider_name ?? "",
-          service_name: item.service.name,
-          service_duration_minutes: item.service.duration_minutes,
-          service_price: item.service.price,
-          appointment_date: selectedDate,
-          start_time: currentTime,
-        });
-        results.push(result);
-        if (i < cart.length - 1) {
-          const blockMinutes =
-            Number(item.service.duration_minutes) + massageCalendarTailMinutes(item.service);
-          currentTime = addMinutesToTimeSlot(currentTime, blockMinutes);
+      for (const item of cart) {
+        const pick = cartSlotPicksByLineId[item.lineId];
+        if (!pick || !item.provider) continue;
+        try {
+          const result = await apiPostPublic<BookingResult>("/appointments/book/", {
+            first_name: firstName,
+            last_name: lastName,
+            phone,
+            email,
+            sms_consent: smsConsent,
+            reason_for_visit: reasonForVisit.trim(),
+            service_id: item.service.id,
+            provider_id: item.provider.id,
+            provider_name: item.provider.provider_name ?? "",
+            service_name: item.service.name,
+            service_duration_minutes: item.service.duration_minutes,
+            service_price: item.service.price,
+            appointment_date: pick.date,
+            start_time: pick.time,
+          });
+          succeeded.push(result);
+        } catch (error) {
+          failedItems.push(item);
+          const msg =
+            error instanceof ApiError ? error.message : "Could not complete booking. Please try again.";
+          errByLine[item.lineId] = msg;
         }
       }
-      setBookingResults(results);
-      setBookingMessageKind("success");
-      const ids = results.map((r) => `#${r.appointment_id}`).join(", ");
-      setBookingMessage(`Appointments booked successfully. IDs: ${ids}`);
-      toast.success(
-        results.length > 1
-          ? "Both appointments confirmed! Your confirmations are on screen."
-          : "Appointment confirmed! Your confirmation is on screen.",
-      );
-    } catch (error) {
-      setBookingMessageKind("error");
-      if (error instanceof ApiError && error.status === 409) {
+
+      if (succeeded.length > 0) {
+        setBookingResults((prev) => [...prev, ...succeeded]);
+      }
+      setBookingSubmitErrorByLineId(errByLine);
+
+      if (failedItems.length === 0) {
+        setCart([]);
+        setBookingMessageKind("success");
+        const ids = succeeded.map((r) => `#${r.appointment_id}`).join(", ");
+        setBookingMessage(`Appointments booked successfully. IDs: ${ids}`);
+        toast.success(
+          succeeded.length > 1
+            ? "Your appointments are confirmed! Your confirmations are on screen."
+            : "Appointment confirmed! Your confirmation is on screen.",
+        );
+      } else if (succeeded.length > 0) {
+        setCart(failedItems);
         setStep(3);
-        setSlotWarning(error.message);
-        setBookingMessage("Please select another available time slot.");
-        toast.info("That time is no longer available — please choose another slot.");
+        setBookingMessageKind("error");
+        setBookingMessage(
+          `${succeeded.length} visit(s) booked. Please pick another time for the visit(s) that could not be scheduled.`,
+        );
+        toast.success(`${succeeded.length} appointment(s) confirmed.`);
+        toast.error("Some visits could not be booked — choose a new time for those services.");
       } else {
-        setBookingMessage("Could not complete booking. Please check API/server setup and try again.");
-        toast.error(error instanceof ApiError ? error.message : "Could not complete booking. Please try again.");
+        setBookingMessageKind("error");
+        setBookingMessage("Could not complete booking. Pick another time or call the clinic.");
+        setStep(3);
+        const firstErr = Object.values(errByLine)[0];
+        toast.error(firstErr ?? "Could not complete booking.");
       }
     } finally {
       setIsSubmitting(false);
@@ -1115,7 +1374,7 @@ export default function BookingPage() {
     printWindow.document.close();
   };
 
-  // Schedule preview for cart items (sequential starts; massage includes post-visit calendar turnover), or reschedule
+  // Sidebar / summary: reschedule = one slot; new booking = each cart line uses its own date & time (no chaining).
   const cartSchedule = useMemo(() => {
     if (bookingFlow === "reschedule" && reschedulePick && options) {
       const svc = options.services.find((s) => s.id === reschedulePick.service_id);
@@ -1126,31 +1385,30 @@ export default function BookingPage() {
       };
       return [
         {
+          lineId: "reschedule",
           service: svc,
           provider: prov,
           providerSkipped: false,
-          startTime: selectedTime,
-          endTime: addMinutesToTimeSlot(selectedTime, svc.duration_minutes),
+          visitDate: selectedDate,
+          visitTime: selectedTime,
         },
       ];
     }
-    const rows: Array<
-      CartItem & { startTime: string; endTime: string; turnoverAfterMinutes: number }
-    > = [];
-    let time = selectedTime;
-    cart.forEach((item, idx) => {
-      const startTime = time;
-      const endTime = addMinutesToTimeSlot(time, item.service.duration_minutes);
-      const next = cart[idx + 1];
-      const turnoverAfterMinutes = massageCalendarTailMinutes(item.service);
-      rows.push({ ...item, startTime, endTime, turnoverAfterMinutes });
-      time = next ? addMinutesToTimeSlot(endTime, turnoverAfterMinutes) : endTime;
+    return cart.map((item) => {
+      const pick = cartSlotPicksByLineId[item.lineId];
+      return {
+        lineId: item.lineId,
+        service: item.service,
+        provider: item.provider,
+        providerSkipped: item.providerSkipped,
+        visitDate: pick?.date ?? "",
+        visitTime: pick?.time ?? "",
+      };
     });
-    return rows;
-  }, [bookingFlow, reschedulePick, options, cart, selectedTime]);
+  }, [bookingFlow, reschedulePick, options, cart, cartSlotPicksByLineId, selectedDate, selectedTime]);
 
   return (
-    <main className="content-fade-in min-h-[100dvh] min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
+    <main className="content-fade-in min-h-[100dvh] min-h-screen overflow-x-hidden bg-gradient-to-b from-background via-[#ecfdf5]/25 to-background">
       <div className="mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-4 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] md:p-8">
       <nav
         aria-label="Site sections"
@@ -1172,39 +1430,32 @@ export default function BookingPage() {
         </div>
       </nav>
       <section className="mb-8 overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-white to-primary/[0.06] shadow-sm shadow-slate-200/40 ring-1 ring-primary/10">
-        <div className="grid gap-0 md:grid-cols-2">
-          <div className="p-6 md:p-10">
+        <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
+          <div className="order-1 p-6 md:p-10">
             <p className="mb-3 inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold tracking-wide text-slate-800">
               Relief Chiropractic · Online booking
             </p>
-            <h1 className="leading-tight">
-              <span className="block text-4xl font-extrabold tracking-tight text-[#e9982f] md:text-5xl">Relief Chiropractic</span>
-              <span className="mt-2 block text-2xl font-bold text-foreground md:text-3xl">
-                Book your appointment with confidence
-              </span>
+            <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-[#e9982f] md:text-5xl">
+              Relief Chiropractic
             </h1>
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
               {bookingFlow === "reschedule" ? (
-                "Move a visit you already booked to another open time. We’ll verify your cell number and only show times that work for your doctor."
+                "Move a visit you already booked—we'll verify your cell number and show open times for your doctor."
               ) : (
                 <>
-                  Pick a service category, choose your visit, then select your time—you can book multiple services at once right here. Prefer to call? Book by phone at{" "}
-                  <a
-                    href="tel:+12694080303"
-                    className="font-medium text-[#0d5c2e] underline-offset-4 hover:underline"
-                  >
+                  Choose a service, pick your time, and you&apos;re done. Prefer to call?{" "}
+                  <a href="tel:+12694080303" className="font-medium text-[#0d5c2e] underline-offset-4 hover:underline">
                     +1 (269) 408-0303
                   </a>
-                  .
                 </>
               )}
             </p>
-            <div className="mt-4 flex max-w-lg flex-wrap gap-2">
+            <div className="mt-4 flex w-full max-w-lg flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => activateNewBookingFlow()}
                 className={cn(
-                  "rounded-xl px-4 py-2.5 text-sm font-semibold transition-all",
+                  "min-h-11 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-all sm:min-h-0 sm:w-auto sm:flex-1 sm:max-w-xs",
                   bookingFlow === "new"
                     ? "bg-[#16a349] text-white shadow-sm shadow-[#16a349]/20"
                     : "border border-border/80 bg-card text-foreground hover:border-primary/30",
@@ -1216,48 +1467,46 @@ export default function BookingPage() {
                 type="button"
                 onClick={() => activateRescheduleFlow()}
                 className={cn(
-                  "rounded-xl px-4 py-2.5 text-sm font-semibold transition-all",
+                  "min-h-11 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-all sm:min-h-0 sm:w-auto sm:flex-1 sm:max-w-xs",
                   bookingFlow === "reschedule"
-                    ? "bg-[#16a349] text-white shadow-sm shadow-[#16a349]/20"
+                    ? "border border-transparent bg-[#16a349] text-white shadow-sm shadow-[#16a349]/20"
                     : "border border-border/80 bg-card text-foreground hover:border-primary/30",
                 )}
               >
                 Reschedule a visit
               </button>
             </div>
-            {/* First thing visitors see: path to check-in without starting the booking steps */}
-            <div className="mt-5 flex max-w-lg flex-col gap-3 rounded-xl border border-primary/20 bg-primary/[0.06] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-3.5">
-              <p className="text-sm leading-snug text-foreground">
-                <span className="font-semibold text-[#0d5c2e]">Already have a visit today?</span>{" "}
-                <span className="text-muted-foreground">
-                  Check-in with the cell number on your phone, or at the office using the kiosk — no need to book again.
-                </span>
-              </p>
-              <Link
-                href="/kiosk"
-                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#16a349] px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm shadow-[#16a349]/20 transition hover:bg-[#13823d] active:scale-[0.99]"
-              >
-                Open check-in
+            <p className="mt-4 max-w-lg text-center text-xs text-muted-foreground sm:text-left">
+              Already have a visit?{" "}
+              <Link href="/kiosk" className="font-medium text-[#0d5c2e] underline-offset-4 hover:underline">
+                Check in here
               </Link>
-            </div>
+            </p>
           </div>
-          <div className="relative min-h-[14rem] md:min-h-full">
-            <Image src="/images/clinic-reception.png" alt="Clinic reception" fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" priority />
+          <div className="relative order-2 min-h-[180px] w-full overflow-hidden md:min-h-[min(56vh,22rem)]">
+            <Image
+              src="/images/clinic-reception.png"
+              alt="Clinic reception"
+              fill
+              className="object-cover"
+              sizes="(max-width: 768px) 100vw, 50vw"
+              priority
+            />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-900/20 to-transparent md:bg-gradient-to-l" aria-hidden />
           </div>
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <section className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80 md:p-6 space-y-5">
-          <div className="grid gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+        <section className="order-1 min-w-0 rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80 md:p-6 space-y-5">
+          <div className="grid grid-cols-4 gap-1 sm:gap-2">
             {([1, 2, 3, 4] as Step[]).map((item) => (
               <button
                 key={item}
                 type="button"
                 onClick={() => setStep(item)}
                 className={cn(
-                  "rounded-xl px-3 py-2.5 text-sm font-semibold transition-all",
+                  "min-h-11 shrink rounded-lg px-1.5 py-2 text-[11px] font-semibold leading-tight transition-all sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm",
                   step === item
                     ? "bg-[#e9982f] text-white shadow-md shadow-[#e9982f]/25 ring-2 ring-[#e9982f]/40"
                     : "border border-border/80 bg-muted/50 text-muted-foreground hover:border-primary/20 hover:bg-primary/[0.06] hover:text-foreground",
@@ -1408,15 +1657,12 @@ export default function BookingPage() {
                   <h2 className="text-lg font-semibold">Your selected services</h2>
                   {cart.some((c) => c.service.service_type === "chiropractic") && !chiroGapBlocksCart ? (
                     <p className="text-xs leading-snug text-slate-600">
-                      Chiropractic: new here or first chiro with us? Pick a <span className="font-medium text-slate-800">new office visit</span>.
-                      <span className="font-medium text-slate-800">Over 2 years</span> since last chiro? You&apos;ll need a{" "}
-                      <span className="font-medium text-slate-800">first-time-style</span> visit (new office / reactivation). We confirm
-                      when you enter your cell number.
+                      New or returning after 2+ years? Pick <span className="font-medium text-slate-800">New Office Visit</span> from the list.
                     </p>
                   ) : null}
                   <div className="space-y-2">
                     {cart.map((item) => (
-                      <div key={item.service.id} className="flex items-center justify-between rounded-xl border-2 border-primary/30 bg-primary/[0.06] p-4">
+                      <div key={item.lineId} className="flex items-center justify-between rounded-xl border-2 border-primary/30 bg-primary/[0.06] p-4">
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
@@ -1431,7 +1677,7 @@ export default function BookingPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => removeFromCart(item.service.id)}
+                          onClick={() => removeFromCart(item.lineId)}
                           className="rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50"
                         >
                           Remove
@@ -1464,7 +1710,7 @@ export default function BookingPage() {
               {bookingFlow === "new" && options && cart.length === 0 && !selectedCategory && (
                 <>
                   <h2 className="text-lg font-semibold">Choose a category</h2>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {chiroServices.length > 0 && (
                       <button
                         type="button"
@@ -1507,14 +1753,8 @@ export default function BookingPage() {
                     </h2>
                   </div>
                   {selectedCategory === "chiropractic" ? (
-                    <p className="rounded-lg border border-[#166534]/20 bg-[#ecfdf5]/80 px-3 py-2.5 text-xs leading-relaxed text-slate-700">
-                      <span className="font-semibold text-[#0d5c2e]">Chiropractic visits: </span>
-                      <strong className="text-slate-900">New to Relief</strong> or{" "}
-                      <strong className="text-slate-900">first chiropractic visit</strong> here? Choose a{" "}
-                      <strong className="text-slate-900">new patient</strong> or <strong className="text-slate-900">new office visit</strong>.
-                      Inactive <strong className="text-slate-900">over 2 years (24 months)</strong> for chiropractic? You&apos;ll be asked to
-                      book a <strong className="text-slate-900">first-time-style visit</strong> (new office / reactivation) before regular
-                      visits. Online booking checks your cell number and will guide you.
+                    <p className="rounded-lg border border-[#166534]/20 bg-[#ecfdf5]/80 px-3 py-2 text-xs text-slate-700">
+                      New or returning after 2+ years? Select <strong className="text-slate-900">New Office Visit</strong>.
                     </p>
                   ) : null}
                   <div className="space-y-2">
@@ -1604,7 +1844,7 @@ export default function BookingPage() {
               {cart.filter((c) => !c.provider && !c.providerSkipped).map((item) => {
                 const providers = options?.providers_by_service?.[item.service.id] ?? [];
                 return (
-                  <div key={item.service.id} className="space-y-2">
+                  <div key={item.lineId} className="space-y-2">
                     <p className="text-sm text-slate-600">
                       For <span className="font-medium text-slate-900">{item.service.name}</span>:
                     </p>
@@ -1619,7 +1859,7 @@ export default function BookingPage() {
                             onClick={() => {
                               setCart((prev) =>
                                 prev.map((c) =>
-                                  c.service.id === item.service.id ? { ...c, provider, providerSkipped: false } : c,
+                                  c.lineId === item.lineId ? { ...c, provider, providerSkipped: false } : c,
                                 ),
                               );
                             }}
@@ -1672,23 +1912,25 @@ export default function BookingPage() {
                 </div>
               )}
 
-              {/* Help visitors who already booked and only need check-in (kiosk) */}
-              <div className="flex flex-col gap-3 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.07] to-card px-4 py-4 ring-1 ring-primary/10 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground">Already have an appointment today?</p>
-                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    You don&apos;t need to pick a new time here. Check-in with the cell number on your phone, or at the
-                    office using the kiosk.
+              {bookingFlow === "new" && bookingResults.length > 0 && (
+                <div className="rounded-xl border border-[#16a349]/30 bg-[#f0fdf4] p-4 text-sm text-[#14532d]">
+                  <p className="font-semibold">Some visits are already confirmed</p>
+                  <ul className="mt-2 list-inside list-disc space-y-1">
+                    {bookingResults.map((r) => (
+                      <li key={r.appointment_id}>
+                        {r.service} · {formatWeekdayMonthDayYear(r.appointment_date)} at {r.start_time}{" "}
+                        (confirmation #{r.appointment_id})
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[13px] leading-relaxed">
+                    Choose new open times below for the remaining visit(s), then tap <strong>Next</strong>.
                   </p>
                 </div>
-                <Link
-                  href="/kiosk"
-                  className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#16a349] px-5 py-3 text-center text-sm font-semibold text-white shadow-md shadow-[#16a349]/20 transition hover:bg-[#13823d] active:scale-[0.99]"
-                >
-                  Open check-in
-                </Link>
-              </div>
+              )}
 
+              {bookingFlow === "reschedule" && (
+              <>
               {/* Month calendar: up to 6 months ahead */}
               <div className="rounded-xl border-2 border-primary/25 bg-primary/[0.06] p-4 ring-1 ring-primary/10">
                 <label className="mb-1 block text-sm font-semibold text-foreground">Pick a date</label>
@@ -1821,34 +2063,11 @@ export default function BookingPage() {
 
               {/* Time slots grouped by period */}
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Available time{" "}
-                  {bookingFlow === "new" && cart.length > 1
-                    ? "(first service on this date; other visits are scheduled in order after it)"
-                    : ""}
-                </label>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
                   if (slotsLoading) {
                     return null;
-                  }
-                  if (bookingFlow === "new" && effectiveSlotService && !effectiveSlotProvider) {
-                    if (optionsLoading || !options) {
-                      return (
-                        <p className="text-sm text-slate-500">Loading provider info so we can show open times…</p>
-                      );
-                    }
-                    const plist = options.providers_by_service[effectiveSlotService.id] ?? [];
-                    if (plist.length === 1) {
-                      return (
-                        <p className="text-sm text-slate-500">Preparing your schedule…</p>
-                      );
-                    }
-                    return (
-                      <p className="text-sm text-slate-500">
-                        Taking you back to finish provider selection…
-                      </p>
-                    );
                   }
                   if (availableSlots === null) {
                     return (
@@ -1911,18 +2130,265 @@ export default function BookingPage() {
                   );
                 })()}
               </div>
+              {slotWarning && <p className="text-sm font-medium text-rose-700">{slotWarning}</p>}
+              </>
+              )}
 
-              {/* Multi-service: sequential times; massage includes built-in calendar turnover after the visit */}
-              {bookingFlow === "new" && cart.length > 1 && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-sm text-blue-900">
-                  <p className="font-medium">Multiple visits</p>
-                  <p className="mt-1 text-blue-700">
-                    Open times are checked for your first visit. Later visits are placed right after the previous one on
-                    the schedule (massage visits include a short room turnover on our calendar after the booked time).
+              {bookingFlow === "new" && (
+                <div className="space-y-8">
+                  {cart.map((item) => {
+                    const pick = cartSlotPicksByLineId[item.lineId];
+                    if (!pick) return null;
+                    const lineErr = bookingSubmitErrorByLineId[item.lineId];
+                    const monthStored = cartCalendarMonthByLineId[item.lineId];
+                    const monthStartCal = startOfCalendarMonth(
+                      monthStored ?? new Date(`${pick.date}T12:00:00`),
+                    );
+                    const slotsLine = cartSlotsByLineId[item.lineId];
+                    const loadingLine = cartSlotsLoadingByLineId[item.lineId];
+                    const parseHour = (s: string) => {
+                      const m = s.match(/^(\d+):.*\s*(AM|PM)$/i);
+                      if (!m) return 12;
+                      let h = parseInt(m[1], 10);
+                      if (m[2].toUpperCase() === "PM" && h !== 12) h += 12;
+                      if (m[2].toUpperCase() === "AM" && h === 12) h = 0;
+                      return h;
+                    };
+                    const morning = (slotsLine ?? []).filter((s) => parseHour(s) < 12);
+                    const afternoon = (slotsLine ?? []).filter((s) => {
+                      const h = parseHour(s);
+                      return h >= 12 && h < 17;
+                    });
+                    const evening = (slotsLine ?? []).filter((s) => parseHour(s) >= 17);
+                    const groups = [
+                      { label: "Morning", slots: morning, icon: "☀️" },
+                      { label: "Afternoon", slots: afternoon, icon: "🌤" },
+                      { label: "Evening", slots: evening, icon: "🌙" },
+                    ].filter((g) => g.slots.length > 0);
+                    const firstDowCal = monthStartCal.getDay();
+                    const daysInMonthCal = new Date(
+                      monthStartCal.getFullYear(),
+                      monthStartCal.getMonth() + 1,
+                      0,
+                      12,
+                      0,
+                      0,
+                      0,
+                    ).getDate();
+                    const todayMonthStartCal = startOfCalendarMonth(new Date(`${today}T12:00:00`));
+                    const canPrevMonthCal =
+                      monthStartCal.getFullYear() > todayMonthStartCal.getFullYear() ||
+                      (monthStartCal.getFullYear() === todayMonthStartCal.getFullYear() &&
+                        monthStartCal.getMonth() > todayMonthStartCal.getMonth());
+                    const nextMonthFirstIsoCal = toLocalISODate(addCalendarMonths(monthStartCal, 1));
+                    const canNextMonthCal = nextMonthFirstIsoCal <= maxBookDateIso;
+                    const cellsCal: (Date | null)[] = [];
+                    for (let i = 0; i < firstDowCal; i++) cellsCal.push(null);
+                    for (let day = 1; day <= daysInMonthCal; day++) {
+                      cellsCal.push(
+                        new Date(monthStartCal.getFullYear(), monthStartCal.getMonth(), day, 12, 0, 0, 0),
+                      );
+                    }
+                    while (cellsCal.length % 7 !== 0) cellsCal.push(null);
+
+                    return (
+                      <div
+                        key={item.lineId}
+                        id={`booking-schedule-${item.lineId}`}
+                        className="rounded-2xl border-2 border-primary/20 bg-primary/[0.04] p-4 ring-1 ring-primary/10 scroll-mt-24"
+                      >
+                        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                          <div>
+                            <p className="text-base font-bold text-slate-900">{item.service.name}</p>
+                            <p className="text-sm text-slate-600">
+                              {item.service.duration_minutes} min · {formatBookingPrice(item.service.price)}
+                              {item.provider && !item.providerSkipped
+                                ? ` · ${item.provider.provider_name}`
+                                : ""}
+                            </p>
+                          </div>
+                          <p className="text-sm font-semibold text-[#166534]">
+                            {formatWeekdayMonthDayYear(pick.date)} at {pick.time}
+                          </p>
+                        </div>
+                        {lineErr ? (
+                          <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                            {lineErr}
+                          </p>
+                        ) : null}
+
+                        <div className="rounded-xl border-2 border-primary/25 bg-white p-4 ring-1 ring-primary/10">
+                          <label className="mb-1 block text-sm font-semibold text-foreground">Pick a date</label>
+                          <p className="mb-3 text-xs leading-relaxed text-slate-600">
+                            Book up to <strong className="font-medium text-slate-800">6 months</strong> ahead. Use the
+                            arrows to change month.
+                          </p>
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              aria-label="Previous month"
+                              disabled={!canPrevMonthCal}
+                              onClick={() =>
+                                setCartCalendarMonthByLineId((p) => ({
+                                  ...p,
+                                  [item.lineId]: addCalendarMonths(monthStartCal, -1),
+                                }))
+                              }
+                              className={cn(
+                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50",
+                                !canPrevMonthCal && "cursor-not-allowed opacity-40",
+                              )}
+                            >
+                              <IconChevronLeft className="h-4 w-4" />
+                            </button>
+                            <p className="min-w-0 flex-1 text-center text-sm font-semibold text-slate-900 sm:text-base">
+                              {formatMonthDayYear(monthStartCal.toISOString().slice(0, 10))}
+                            </p>
+                            <button
+                              type="button"
+                              aria-label="Next month"
+                              disabled={!canNextMonthCal}
+                              onClick={() =>
+                                setCartCalendarMonthByLineId((p) => ({
+                                  ...p,
+                                  [item.lineId]: addCalendarMonths(monthStartCal, 1),
+                                }))
+                              }
+                              className={cn(
+                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50",
+                                !canNextMonthCal && "cursor-not-allowed opacity-40",
+                              )}
+                            >
+                              <IconChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-7 gap-1 text-center sm:gap-1.5">
+                            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                              <div
+                                key={`${item.lineId}-${d}`}
+                                className="pb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400 sm:text-[11px] sm:tracking-wider"
+                              >
+                                {d}
+                              </div>
+                            ))}
+                            {cellsCal.map((d, idx) => {
+                              if (!d) {
+                                return <div key={`pad-${item.lineId}-${idx}`} className="h-9 sm:h-11" aria-hidden />;
+                              }
+                              const iso = toLocalISODate(d);
+                              const isPast = iso < today;
+                              const isAfterMax = iso > maxBookDateIso;
+                              const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                              const isDisabled = isPast || isWeekend || isAfterMax;
+                              const isSelected = iso === pick.date;
+                              const isTodayCell = iso === today;
+                              return (
+                                <button
+                                  key={iso}
+                                  type="button"
+                                  disabled={isDisabled}
+                                  onClick={() => {
+                                    setCartSlotPicksByLineId((p) => ({
+                                      ...p,
+                                      [item.lineId]: { ...p[item.lineId], date: iso },
+                                    }));
+                                    setBookingSubmitErrorByLineId((e) => {
+                                      const n = { ...e };
+                                      delete n[item.lineId];
+                                      return n;
+                                    });
+                                  }}
+                                  className={cn(
+                                    "relative flex h-9 w-full items-center justify-center rounded-lg text-xs font-medium transition-all sm:h-11 sm:text-sm",
+                                    isDisabled
+                                      ? "cursor-not-allowed text-slate-300"
+                                      : isSelected
+                                        ? "bg-[#16a349] font-bold text-white shadow-md shadow-[#16a349]/25"
+                                        : "hover:bg-primary/10 text-slate-700",
+                                    isTodayCell && !isSelected && "ring-2 ring-[#16a349]/40",
+                                  )}
+                                >
+                                  {d.getDate()}
+                                  {isTodayCell && (
+                                    <span
+                                      className={cn(
+                                        "absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full",
+                                        isSelected ? "bg-white" : "bg-[#16a349]",
+                                      )}
+                                      aria-hidden
+                                    />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-3 text-sm text-slate-600">
+                            Selected:{" "}
+                            <strong className="text-[#166534]">{formatWeekdayMonthDayYear(pick.date)}</strong>
+                          </p>
+                        </div>
+
+                        <div className="mt-4">
+                          <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
+                          {loadingLine && (
+                            <Loader variant="dots" label="Checking availability…" className="mb-2" />
+                          )}
+                          {!item.provider ? (
+                            <p className="text-sm text-slate-500">Choose a provider in Step 2 to see open times.</p>
+                          ) : loadingLine ? null : !Array.isArray(slotsLine) ? (
+                            <p className="text-sm text-slate-500">Loading open times…</p>
+                          ) : slotsLine.length === 0 ? (
+                            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                              No open times on this day — try another date or call the clinic.
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+                              {groups.map((group) => (
+                                <div key={group.label}>
+                                  <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+                                    {group.icon} {group.label} · {group.slots.length}{" "}
+                                    {group.slots.length === 1 ? "slot" : "slots"}
+                                  </p>
+                                  <div className="grid gap-2 sm:grid-cols-3">
+                                    {group.slots.map((slot) => (
+                                      <button
+                                        key={slot}
+                                        type="button"
+                                        onClick={() => {
+                                          setCartSlotPicksByLineId((p) => ({
+                                            ...p,
+                                            [item.lineId]: { ...p[item.lineId], time: slot },
+                                          }));
+                                          setBookingSubmitErrorByLineId((e) => {
+                                            const n = { ...e };
+                                            delete n[item.lineId];
+                                            return n;
+                                          });
+                                        }}
+                                        className={cn(
+                                          "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                                          pick.time === slot
+                                            ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
+                                            : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
+                                        )}
+                                      >
+                                        {slot}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-slate-500">
+                    Mon–Fri only · Chiro from 8:00 AM · Massage from 9:00 AM · Fri closes 4:00 PM
                   </p>
                 </div>
               )}
-              {slotWarning && <p className="text-sm font-medium text-rose-700">{slotWarning}</p>}
             </div>
           )}
 
@@ -1991,19 +2457,79 @@ export default function BookingPage() {
             </div>
           )}
 
-          {step === 4 && bookingResults.length === 0 && bookingFlow === "new" && (
-            <div className="animate-fade-in-up space-y-3">
+          {step === 4 && bookingFlow === "new" && cart.length > 0 && (
+            <div className="animate-fade-in-up space-y-5">
+              <div className="space-y-3">
+                <h2 className="text-lg font-semibold text-slate-900">Review your appointments</h2>
+                <p className="text-sm leading-relaxed text-slate-600">
+                  {cart.length > 1 ? (
+                    <>
+                      Each block below is a <strong className="font-semibold text-slate-800">separate appointment</strong>
+                      —not one combined visit. You can edit one date or time without changing the others.
+                    </>
+                  ) : (
+                    <>
+                      Confirm the visit below matches what you want before you enter your contact info—this books{" "}
+                      <strong className="font-semibold text-slate-800">one independent appointment</strong>.
+                    </>
+                  )}
+                </p>
+                <div className="space-y-3">
+                  {cart.map((item) => {
+                    const pick = cartSlotPicksByLineId[item.lineId];
+                    const providerLabel = item.provider?.provider_name ?? "—";
+                    return (
+                      <div
+                        key={item.lineId}
+                        className="rounded-xl border border-border/90 bg-card p-4 shadow-sm ring-1 ring-slate-100/80"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <p className="text-base font-bold text-slate-900">{item.service.name}</p>
+                            <dl className="grid gap-1.5 text-sm text-slate-700">
+                              <div className="flex flex-wrap gap-x-2">
+                                <dt className="font-semibold text-slate-600">Provider</dt>
+                                <dd>{providerLabel}</dd>
+                              </div>
+                              <div className="flex flex-wrap gap-x-2">
+                                <dt className="font-semibold text-slate-600">Date</dt>
+                                <dd>
+                                  {pick?.date ? formatWeekdayMonthDayYear(pick.date) : "—"}
+                                </dd>
+                              </div>
+                              <div className="flex flex-wrap gap-x-2">
+                                <dt className="font-semibold text-slate-600">Time</dt>
+                                <dd>{pick?.time ?? "—"}</dd>
+                              </div>
+                              <div className="flex flex-wrap gap-x-2">
+                                <dt className="font-semibold text-slate-600">Duration &amp; price</dt>
+                                <dd>
+                                  {item.service.duration_minutes} min · {formatBookingPrice(item.service.price)}
+                                </dd>
+                              </div>
+                            </dl>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => goEditScheduleLine(item.lineId)}
+                            className="shrink-0 rounded-xl border border-[#16a349]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] shadow-sm transition hover:bg-[#f0fdf4]"
+                          >
+                            Edit date &amp; time
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="border-t border-border/80 pt-5 space-y-3">
               <h2 className="text-lg font-semibold">Your details</h2>
               <p className="text-sm text-slate-600">
-                Cell number is required. Email is optional (used for confirmation if you have one). Enter your cell
-                number first—we&apos;ll look up your info if you&apos;ve visited before. If you share a number with a
-                parent or guardian, use the <strong>patient who is coming in</strong> as the name below (we can keep
-                several people on the same phone).
+                Cell required; email optional. We&apos;ll look up your info when you enter your number.
               </p>
-              <p className="rounded-xl border border-[#16a349]/20 bg-[#f0fdf4]/70 px-3 py-2.5 text-sm leading-relaxed text-[#14532d]">
-                Booking for a child or someone else? Use their <strong className="text-[#0d5c2e]">legal name</strong> in
-                the name fields; the number can be a parent&apos;s or family member&apos;s phone—we&apos;ll text that
-                line with appointment details.
+              <p className="rounded-xl border border-[#16a349]/20 bg-[#f0fdf4]/70 px-3 py-2 text-sm text-[#14532d]">
+                Booking for someone else? Use their legal name—the phone number can be a parent or guardian&apos;s.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="sm:col-span-2">
@@ -2129,11 +2655,12 @@ export default function BookingPage() {
               {bookingMessage && (
                 <p className={`text-sm font-medium ${bookingMessageKind === "success" ? "text-[#166534]" : "text-rose-700"}`}>{bookingMessage}</p>
               )}
+              </div>
             </div>
           )}
 
           {/* ─── STEP 4: Confirmation ─── */}
-          {step === 4 && bookingResults.length > 0 && (
+          {step === 4 && bookingResults.length > 0 && cart.length === 0 && (
             <div className="animate-fade-in-up rounded-2xl border border-[#16a349]/25 bg-gradient-to-b from-[#f0fdf4] to-white p-6 sm:p-8">
               <div className="flex flex-col items-center text-center">
                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#16a349] text-white shadow-md shadow-[#16a349]/25" aria-hidden>
@@ -2239,9 +2766,9 @@ export default function BookingPage() {
               type="button" variant="outline" onClick={goToPreviousStep}
               disabled={
                 (step === 1 && !selectedCategory && cart.length === 0 && !addingAnother && bookingFlow !== "reschedule") ||
-                (step === 4 && bookingResults.length > 0)
+                (step === 4 && bookingResults.length > 0 && cart.length === 0)
               }
-              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
+              className="h-auto min-h-11 rounded-xl px-4 py-2.5 text-sm font-semibold sm:min-h-0"
             >
               Back
             </Button>
@@ -2269,26 +2796,61 @@ export default function BookingPage() {
                   setStep(3);
                   return;
                 }
+                if (step === 3 && bookingFlow === "new") {
+                  for (const item of cart) {
+                    const pick = cartSlotPicksByLineId[item.lineId];
+                    if (!item.provider) {
+                      toast.error("Each visit needs a provider. Go back to Step 2.");
+                      setStep(2);
+                      return;
+                    }
+                    if (!pick?.date) {
+                      toast.error("Pick a date for each service.");
+                      return;
+                    }
+                    if (cartSlotsLoadingByLineId[item.lineId]) {
+                      toast.error("Still loading open times — wait a moment.");
+                      return;
+                    }
+                    const slots = cartSlotsByLineId[item.lineId];
+                    if (!slots || slots.length === 0) {
+                      toast.error(
+                        `No open times for ${item.service.name} on the day you picked — choose another date.`,
+                      );
+                      return;
+                    }
+                    if (!slots.includes(pick.time)) {
+                      toast.error(`Pick an open time for ${item.service.name}.`);
+                      return;
+                    }
+                  }
+                  setStep(4);
+                  return;
+                }
+                if (step === 3 && bookingFlow === "reschedule") {
+                  setStep(4);
+                  return;
+                }
                 if (step < 4) {
                   setStep((step + 1) as Step);
                 }
               }}
               disabled={
                 step === 4 ||
-                bookingResults.length > 0 ||
+                (bookingResults.length > 0 && cart.length === 0) ||
                 (step === 1 && bookingFlow === "new" && cart.length === 0) ||
                 (step === 1 && bookingFlow === "reschedule") ||
                 (step === 2 && bookingFlow === "new" && needsProviderSelection)
               }
-              className="h-auto rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90"
+              className="h-auto min-h-11 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90 sm:min-h-0"
             >
               Next
             </Button>
           </div>
         </section>
 
-        {/* ─── Sidebar: Booking summary ─── */}
-        <aside className="space-y-4 lg:pt-1">
+        {/* ─── Sidebar: Booking summary (below steps on mobile) ─── */}
+        <aside className="order-2 min-w-0 space-y-4 lg:order-2 lg:pt-1">
           <div className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80">
             <h3 className="text-lg font-bold tracking-tight text-foreground">
               {bookingFlow === "reschedule" ? "Reschedule summary" : "Booking summary"}
@@ -2296,86 +2858,77 @@ export default function BookingPage() {
 
             <div className="mt-4 rounded-xl border border-border/80 bg-muted/40 p-3">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Appointment date & time</p>
-              <p className="font-semibold text-foreground">
-                {formatWeekdayMonthDayYear(selectedDate)} at {selectedTime}
-              </p>
+              {bookingFlow === "reschedule" ? (
+                step >= 3 ? (
+                  <p className="font-semibold text-foreground">
+                    {formatWeekdayMonthDayYear(selectedDate)} at {selectedTime}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No date selected yet</p>
+                )
+              ) : cart.length === 1 ? (
+                step >= 3 && cartSlotPicksByLineId[cart[0].lineId]?.date ? (
+                  <p className="font-semibold text-foreground">
+                    {formatWeekdayMonthDayYear(cartSlotPicksByLineId[cart[0].lineId].date)} at{" "}
+                    {cartSlotPicksByLineId[cart[0].lineId].time}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No date selected yet</p>
+                )
+              ) : cart.length > 1 ? (
+                step >= 3 ? (
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Each service below has its own date and time — they do not have to be the same day.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No date selected yet</p>
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">No date selected yet</p>
+              )}
             </div>
 
             {cart.length === 0 && !(bookingFlow === "reschedule" && reschedulePick) && (
               <div className="mt-4 rounded-xl border border-border/80 bg-background p-4">
-                <p className="text-sm text-muted-foreground">No services selected yet. Choose a service in Step 1.</p>
+                <p className="text-sm text-muted-foreground">No services selected yet</p>
               </div>
             )}
 
-            {/* Visual timeline for multi-service, or simple card for single */}
-            {cart.length > 1 ? (
-              <div className="mt-4 rounded-xl border border-border/80 bg-background p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your visit timeline</p>
-                <div className="relative ml-3 border-l-2 border-[#16a349]/30 pl-5">
-                  {cartSchedule.map((item, idx) => (
-                    <div key={item.service.id}>
-                      <div className="relative pb-4">
-                        <div className="absolute -left-[27px] top-0.5 h-3 w-3 rounded-full border-2 border-[#16a349] bg-white" />
-                        <p className="text-xs font-bold text-[#16a349]">{item.startTime}</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-900">{item.service.name}</p>
-                        <p className="text-xs text-slate-500">{item.service.duration_minutes} min · {formatBookingPrice(item.service.price)}</p>
-                        {item.provider && !item.providerSkipped && (
-                          <p className="text-xs text-slate-400">with {item.provider.provider_name}</p>
-                        )}
-                      </div>
-                      {idx < cartSchedule.length - 1 && (
-                        <div className="relative pb-4">
-                          <div className="absolute -left-[25px] top-0.5 h-2 w-2 rounded-full bg-amber-400" />
-                          <p className="text-xs font-medium text-amber-600">{item.endTime}</p>
-                          {"turnoverAfterMinutes" in item && item.turnoverAfterMinutes > 0 ? (
-                            <p className="text-[11px] text-amber-500">
-                              {item.turnoverAfterMinutes} min room turnover on schedule
-                            </p>
-                          ) : (
-                            <p className="text-[11px] text-slate-500">Back-to-back</p>
-                          )}
-                        </div>
-                      )}
+            {cartSchedule.map((item) => (
+              <div key={item.lineId} className="mt-4 rounded-xl border border-border/80 bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected visit</p>
+                <div className="mt-3 space-y-2 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500">Service</span>
+                    <span className="text-right font-medium text-slate-900">{item.service.name}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500">Duration</span>
+                    <span className="font-medium text-slate-900">{item.service.duration_minutes} min</span>
+                  </div>
+                  {item.provider && !item.providerSkipped && (
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-slate-500">Provider</span>
+                      <span className="text-right font-medium text-slate-900">{item.provider.provider_name}</span>
                     </div>
-                  ))}
-                  <div className="relative">
-                    <div className="absolute -left-[27px] top-0.5 h-3 w-3 rounded-full border-2 border-slate-400 bg-white" />
-                    <p className="text-xs font-bold text-slate-400">{cartSchedule[cartSchedule.length - 1]?.endTime}</p>
-                    <p className="text-[11px] text-slate-400">Done</p>
+                  )}
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500">Date & time</span>
+                    <span className="text-right font-medium text-slate-900">
+                      {step >= 3 && item.visitDate ? (
+                        `${formatWeekdayMonthDayYear(item.visitDate)} at ${item.visitTime}`
+                      ) : (
+                        <span className="font-normal text-muted-foreground">No date selected yet</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500">Price</span>
+                    <span className="font-medium text-slate-900">{formatBookingPrice(item.service.price)}</span>
                   </div>
                 </div>
               </div>
-            ) : (
-              cartSchedule.map((item) => (
-                <div key={item.service.id} className="mt-4 rounded-xl border border-border/80 bg-background p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Selected visit</p>
-                  <div className="mt-3 space-y-2 text-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-slate-500">Service</span>
-                      <span className="text-right font-medium text-slate-900">{item.service.name}</span>
-                    </div>
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-slate-500">Duration</span>
-                      <span className="font-medium text-slate-900">{item.service.duration_minutes} min</span>
-                    </div>
-                    {item.provider && !item.providerSkipped && (
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="text-slate-500">Doctor</span>
-                        <span className="text-right font-medium text-slate-900">{item.provider.provider_name}</span>
-                      </div>
-                    )}
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-slate-500">Time</span>
-                      <span className="font-medium text-slate-900">{item.startTime}</span>
-                    </div>
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-slate-500">Price</span>
-                      <span className="font-medium text-slate-900">{formatBookingPrice(item.service.price)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+            ))}
 
             <div className="mt-4 rounded-xl border border-[#e9982f]/30 bg-[#e9982f]/10 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Total due at visit</p>
@@ -2384,9 +2937,7 @@ export default function BookingPage() {
                 Please note payment is due at time of service.
               </p>
               {cart.length > 1 && (
-                <p className="mt-1 text-xs text-[#9a6700]">
-                  {cart.length} services · {totalDuration} min combined visit time
-                </p>
+                <p className="mt-1 text-xs text-[#9a6700]">{cart.length} separate visits in your cart</p>
               )}
             </div>
           </div>
