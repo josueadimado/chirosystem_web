@@ -129,6 +129,9 @@ function AppointmentBlockDecor({ status }: { status: string }) {
 /** Total height for 7am–7pm grid (taller = more readable; ~107px per hour at 1280). */
 const GRID_PX = 1280;
 
+/** Header row above the time grid — must match provider/day column headers so times line up with blocks. */
+const SCHEDULE_GRID_HEADER_MIN_PX = 52;
+
 /** Minimum width per lane when multiple appointments overlap in time. */
 const MIN_LANE_WIDTH_PX = 104;
 const LANE_GAP_PX = 3;
@@ -413,22 +416,31 @@ function TimeLabelsColumn() {
     rows.push(m);
   }
   return (
-    <div
-      className="relative w-[4.25rem] shrink-0 border-r border-slate-200 bg-slate-50/50 text-[13px] font-medium leading-none text-slate-600"
-      style={{ height: GRID_PX }}
-    >
-      {rows.map((m) => {
-        const pct = ((m - SCHEDULE_DAY_START_MIN) / SCHEDULE_TOTAL_MIN) * 100;
-        return (
-          <span
-            key={m}
-            className="absolute left-0 right-1.5 -translate-y-1/2 text-right tabular-nums tracking-tight"
-            style={{ top: `${pct}%` }}
-          >
-            {minutesToLabel(m).replace(" ", "\u00a0")}
-          </span>
-        );
-      })}
+    <div className="flex w-[4.5rem] shrink-0 flex-col border-r border-slate-200 bg-slate-50/50">
+      <div
+        className="flex shrink-0 items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5"
+        style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
+        aria-hidden
+      >
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Time</span>
+      </div>
+      <div
+        className="relative text-[13px] font-medium leading-none text-slate-600"
+        style={{ height: GRID_PX, minHeight: GRID_PX }}
+      >
+        {rows.map((m) => {
+          const pct = ((m - SCHEDULE_DAY_START_MIN) / SCHEDULE_TOTAL_MIN) * 100;
+          return (
+            <span
+              key={m}
+              className="absolute left-0 right-1.5 -translate-y-1/2 text-right tabular-nums tracking-tight"
+              style={{ top: `${pct}%` }}
+            >
+              {minutesToLabel(m).replace(" ", "\u00a0")}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -555,7 +567,10 @@ function DayProviderColumn({
 
   return (
     <div className="relative border-l border-slate-100">
-      <div className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center">
+      <div
+        className="flex min-h-0 shrink-0 items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
+        style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
+      >
         <p className="text-[15px] font-semibold leading-snug text-slate-800">{provider.provider_name}</p>
       </div>
       <div ref={stackRef} className="relative bg-white" style={{ height: GRID_PX }}>
@@ -567,12 +582,20 @@ function DayProviderColumn({
             backgroundSize: `100% ${100 / hours}%`,
           }}
         />
-        {/* Minor half-hour lines */}
+        {/* Half-hour lines */}
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.2]"
           style={{
             backgroundImage: `linear-gradient(to bottom, rgb(203 213 225) 1px, transparent 1px)`,
             backgroundSize: `100% ${100 / (hours * 2)}%`,
+          }}
+        />
+        {/* Quarter-hour (15 min) lines — four slots per hour */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.12]"
+          style={{
+            backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
+            backgroundSize: `100% ${100 / (hours * 4)}%`,
           }}
         />
 
@@ -734,11 +757,14 @@ function WeekGrid({
                   isToday && "bg-emerald-50/40",
                 )}
               >
-                <div className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2 text-center">
+                <div
+                  className="flex shrink-0 flex-col items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
+                  style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
+                >
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     {d.toLocaleDateString(undefined, { weekday: "short" })}
                   </p>
-                  <p className="text-[15px] font-bold text-slate-900">{d.getDate()}</p>
+                  <p className="text-[15px] font-bold leading-none text-slate-900">{d.getDate()}</p>
                 </div>
                 <div className="relative bg-white" style={{ height: GRID_PX }}>
                   <div
@@ -753,6 +779,13 @@ function WeekGrid({
                     style={{
                       backgroundImage: `linear-gradient(to bottom, rgb(203 213 225) 1px, transparent 1px)`,
                       backgroundSize: `100% ${100 / (hours * 2)}%`,
+                    }}
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-0 opacity-[0.1]"
+                    style={{
+                      backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
+                      backgroundSize: `100% ${100 / (hours * 4)}%`,
                     }}
                   />
                   {/* stacked appointments + blocks for all providers in this day */}

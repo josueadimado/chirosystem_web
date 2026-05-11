@@ -23,12 +23,32 @@ export function providerColorForId(providerId: number): string {
   return PROVIDER_COLOR_PALETTE[idx];
 }
 
-/** Minutes from midnight from API time "HH:MM:SS" or "HH:MM". */
+/**
+ * Minutes from midnight from API time strings.
+ * Supports: "HH:MM", "HH:MM:SS", ISO fragments like "1970-01-01T08:30:00Z", and "H:MM AM/PM".
+ */
 export function parseTimeToMinutes(t: string): number {
   if (!t) return 0;
-  const m = t.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  let s = t.trim();
+  const tIdx = s.indexOf("T");
+  if (tIdx !== -1) s = s.slice(tIdx + 1);
+  s = s.replace(/[Zz]$/, "");
+  const dot = s.indexOf(".");
+  if (dot !== -1) s = s.slice(0, dot);
+
+  const ampm = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])\s*$/);
+  if (ampm) {
+    let h = parseInt(ampm[1], 10);
+    const min = parseInt(ampm[2], 10);
+    const ap = ampm[4].toUpperCase();
+    if (ap === "PM" && h !== 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+    return h * 60 + min;
+  }
+
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (!m) return 0;
-  let h = parseInt(m[1], 10);
+  const h = parseInt(m[1], 10);
   const min = parseInt(m[2], 10);
   return h * 60 + min;
 }
