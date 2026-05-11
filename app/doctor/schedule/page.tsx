@@ -668,7 +668,7 @@ function DoctorSchedulePageInner() {
             <Loader variant="page" label="Loading schedule" sublabel="Fetching your calendar…" />
           </div>
         ) : (
-          <div className="doctor-panel overflow-hidden p-4">
+          <div className="doctor-panel min-w-0 overflow-x-auto p-4">
             <AdminScheduleCalendar
               view={view}
               focusDate={focusDate}

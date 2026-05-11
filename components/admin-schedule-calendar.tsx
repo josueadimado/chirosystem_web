@@ -126,12 +126,12 @@ function AppointmentBlockDecor({ status }: { status: string }) {
   return null;
 }
 
-const GRID_PX = 640;
+/** Total height for 7am–7pm grid (taller = more readable; ~107px per hour at 1280). */
+const GRID_PX = 1280;
 
-/** Minimum CSS px height so two lines (name + time) always fit */
-const MIN_APPOINTMENT_BLOCK_PX = 52;
-const MIN_LANE_WIDTH_PX = 90;
-const LANE_GAP_PX = 2;
+/** Minimum width per lane when multiple appointments overlap in time. */
+const MIN_LANE_WIDTH_PX = 104;
+const LANE_GAP_PX = 3;
 
 function formatPatientNameShort(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -176,12 +176,12 @@ function PatientNameLine({
     <div ref={rowRef} className="min-w-0 px-1.5 pt-1">
       <span
         ref={measureRef}
-        className={cn("pointer-events-none invisible absolute whitespace-nowrap font-semibold text-[12px]", textClassName)}
+        className={cn("pointer-events-none invisible absolute whitespace-nowrap font-semibold text-[13px]", textClassName)}
         aria-hidden
       >
         {fullName}
       </span>
-      <span className={cn("block font-semibold leading-tight text-[12px]", textClassName)}>{display}</span>
+      <span className={cn("block font-semibold leading-snug text-[13px]", textClassName)}>{display}</span>
     </div>
   );
 }
@@ -381,13 +381,13 @@ export function AdminScheduleCalendar({
 
 function ProviderLegend({ providers }: { providers: ProviderRow[] }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-2xl border border-slate-200/90 bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-slate-100/80">
       <span className="font-semibold text-slate-500">Providers</span>
       {providers.map((p) => {
         const c = providerColorForId(p.id);
         return (
           <span key={p.id} className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-sm shadow-sm" style={{ backgroundColor: c }} />
+            <span className="h-3 w-3 shrink-0 rounded-sm shadow-sm" style={{ backgroundColor: c }} />
             <span className="font-medium text-slate-800">{p.provider_name}</span>
           </span>
         );
@@ -414,7 +414,7 @@ function TimeLabelsColumn() {
   }
   return (
     <div
-      className="relative w-12 shrink-0 border-r border-slate-200 text-xs leading-none text-slate-500"
+      className="relative w-[4.25rem] shrink-0 border-r border-slate-200 bg-slate-50/50 text-[13px] font-medium leading-none text-slate-600"
       style={{ height: GRID_PX }}
     >
       {rows.map((m) => {
@@ -422,7 +422,7 @@ function TimeLabelsColumn() {
         return (
           <span
             key={m}
-            className="absolute left-0 right-1 -translate-y-1/2 text-right tabular-nums"
+            className="absolute left-0 right-1.5 -translate-y-1/2 text-right tabular-nums tracking-tight"
             style={{ top: `${pct}%` }}
           >
             {minutesToLabel(m).replace(" ", "\u00a0")}
@@ -453,10 +453,10 @@ function DayGrid({
   const iso = toIsoDate(focusDate);
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex min-w-[720px]">
+    <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
+      <div className="flex min-w-[840px]">
         <TimeLabelsColumn />
-        <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${providers.length}, minmax(120px, 1fr))` }}>
+        <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${providers.length}, minmax(140px, 1fr))` }}>
           {providers.map((p) => (
             <DayProviderColumn
               key={p.id}
@@ -477,7 +477,7 @@ function DayGrid({
 
 function DayProviderColumn({
   provider,
-  isoDate,
+  isoDate: _isoDate,
   appointments,
   blocks,
   selectedId,
@@ -493,6 +493,44 @@ function DayProviderColumn({
   nowPct: number | null;
 }) {
   const base = providerColorForId(provider.id);
+
+  const apptLaneItems = useMemo(() => {
+    return appointments
+      .map((a) => ({
+        key: `a-${a.id}`,
+        start: parseTimeToMinutes(a.start_time),
+        end: parseTimeToMinutes(a.end_time),
+      }))
+      .filter((x) => x.end > x.start)
+      .sort((a, b) => a.start - b.start);
+  }, [appointments]);
+
+  const { laneByKey, laneCount } = useMemo(
+    () => computeLanesForTimedItems(apptLaneItems),
+    [apptLaneItems],
+  );
+
+  const stackRef = useRef<HTMLDivElement>(null);
+  const [colWidth, setColWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = stackRef.current;
+    if (!el) return;
+    const apply = () => setColWidth(el.clientWidth);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const innerMinW = Math.max(
+    colWidth,
+    laneCount * MIN_LANE_WIDTH_PX + Math.max(0, laneCount - 1) * LANE_GAP_PX,
+  );
+  const laneW =
+    laneCount > 0
+      ? (innerMinW - Math.max(0, laneCount - 1) * LANE_GAP_PX) / laneCount
+      : MIN_LANE_WIDTH_PX;
 
   const busyIntervals: TimeInterval[] = useMemo(() => {
     const ap = appointments.map((a) => ({
@@ -513,18 +551,28 @@ function DayProviderColumn({
 
   const openGaps = useMemo(() => computeOpenGaps(busyIntervals), [busyIntervals]);
 
+  const hours = (SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN) / 60;
+
   return (
     <div className="relative border-l border-slate-100">
-      <div className="border-b border-slate-200 bg-slate-50/90 px-2 py-2 text-center">
-                <p className="text-sm font-semibold leading-snug text-slate-800">{provider.provider_name}</p>
+      <div className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center">
+        <p className="text-[15px] font-semibold leading-snug text-slate-800">{provider.provider_name}</p>
       </div>
-      <div className="relative bg-slate-50/30" style={{ height: GRID_PX }}>
-        {/* hour lines */}
+      <div ref={stackRef} className="relative bg-white" style={{ height: GRID_PX }}>
+        {/* Major hour grid */}
         <div
-          className="pointer-events-none absolute inset-0 opacity-40"
+          className="pointer-events-none absolute inset-0 opacity-[0.38]"
           style={{
-            backgroundImage: `linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)`,
-            backgroundSize: `100% ${100 / ((SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN) / 60)}%`,
+            backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
+            backgroundSize: `100% ${100 / hours}%`,
+          }}
+        />
+        {/* Minor half-hour lines */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.2]"
+          style={{
+            backgroundImage: `linear-gradient(to bottom, rgb(203 213 225) 1px, transparent 1px)`,
+            backgroundSize: `100% ${100 / (hours * 2)}%`,
           }}
         />
 
@@ -533,7 +581,7 @@ function DayProviderColumn({
             return (
               <div
                 key={b.id}
-                className="pointer-events-none absolute left-0 right-0 z-[1] rounded border border-slate-300"
+                className="pointer-events-none absolute left-0 right-0 z-[1] rounded-md border border-slate-300"
                 style={{
                   top: 0,
                   height: "100%",
@@ -551,7 +599,7 @@ function DayProviderColumn({
           return (
             <div
               key={b.id}
-              className="pointer-events-none absolute left-0.5 right-0.5 z-[1] rounded border border-slate-300"
+              className="pointer-events-none absolute left-1 right-1 z-[1] rounded-md border border-slate-300"
               style={{
                 top: `${topPct}%`,
                 height: `${heightPct}%`,
@@ -570,11 +618,11 @@ function DayProviderColumn({
           return (
             <div
               key={`gap-${i}`}
-              className="group absolute left-0.5 right-0.5 z-[2] cursor-default"
+              className="group absolute left-1 right-1 z-[2] cursor-default"
               style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
               title={`Open · ${formatIntervalLabel(g.startMin, g.endMin)} · ${dur} min available`}
             >
-              <div className="h-full w-full rounded-sm bg-emerald-500/0 transition group-hover:bg-emerald-500/10" />
+              <div className="h-full w-full rounded-md bg-emerald-500/0 transition group-hover:bg-emerald-500/[0.07]" />
               <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block">
                 Open · {formatIntervalLabel(g.startMin, g.endMin)} · {dur} min available
               </div>
@@ -582,50 +630,58 @@ function DayProviderColumn({
           );
         })}
 
-        {appointments.map((a) => {
-          const st = parseTimeToMinutes(a.start_time);
-          const dur = appointmentDurationMinutes(a.start_time, a.end_time);
-          const { topPct, heightPct } = timePositionPercent(st, dur);
-          const styles = statusBlockStyles(a.status, base);
-          const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
-          const selected = selectedId === a.id;
-          const startShown = a.start_time_display || formatTimeShort(a.start_time);
-          const endShown = a.end_time_display || formatTimeShort(a.end_time);
-          return (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => onSelect(a)}
-              className={cn(
-                "absolute left-0.5 right-0.5 z-[3] flex flex-col overflow-hidden rounded-md border text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
-                styles.wrap,
-                selected && "ring-2 ring-[#16a349] ring-offset-1",
-              )}
-              style={{
-                top: `${topPct}%`,
-                height: `${heightPct}%`,
-                minHeight: MIN_APPOINTMENT_BLOCK_PX,
-                background: bg,
-                borderColor: a.status === "cancelled" ? "#fecaca" : selected ? "#16a349" : "rgba(255,255,255,0.35)",
-              }}
-            >
-              <AppointmentBlockDecor status={a.status} />
-              <AppointmentBlockTooltip
-                patientName={a.patient_name}
-                serviceName={a.service_name || ""}
-                startLabel={startShown}
-                endLabel={endShown}
-                providerName={a.provider_name}
-                status={a.status}
-              >
-                <PatientNameLine fullName={a.patient_name} textClassName={styles.text} />
-                <span className="mt-auto block shrink-0 px-1.5 pb-1 text-[11px] leading-tight opacity-90 tabular-nums">
-                  {startShown} – {endShown}
-                </span>
-              </AppointmentBlockTooltip>
-            </button>
-          );
-        })}
+        <div className="absolute inset-0 z-[3] overflow-x-auto overflow-y-hidden">
+          <div className="relative h-full min-w-full" style={{ width: innerMinW }}>
+            {appointments.map((a) => {
+              const key = `a-${a.id}`;
+              const st = parseTimeToMinutes(a.start_time);
+              const dur = appointmentDurationMinutes(a.start_time, a.end_time);
+              const { topPct, heightPct } = timePositionPercent(st, dur);
+              const styles = statusBlockStyles(a.status, base);
+              const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
+              const selected = selectedId === a.id;
+              const startShown = a.start_time_display || formatTimeShort(a.start_time);
+              const endShown = a.end_time_display || formatTimeShort(a.end_time);
+              const lane = laneByKey.get(key) ?? 0;
+              const leftPx = lane * (laneW + LANE_GAP_PX);
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => onSelect(a)}
+                  className={cn(
+                    "absolute flex flex-col overflow-hidden rounded-lg border px-1 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
+                    styles.wrap,
+                    selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
+                  )}
+                  style={{
+                    top: `${topPct}%`,
+                    height: `${heightPct}%`,
+                    left: leftPx,
+                    width: laneW,
+                    background: bg,
+                    borderColor: a.status === "cancelled" ? "#fecaca" : selected ? "#16a349" : "rgba(255,255,255,0.35)",
+                  }}
+                >
+                  <AppointmentBlockDecor status={a.status} />
+                  <AppointmentBlockTooltip
+                    patientName={a.patient_name}
+                    serviceName={a.service_name || ""}
+                    startLabel={startShown}
+                    endLabel={endShown}
+                    providerName={a.provider_name}
+                    status={a.status}
+                  >
+                    <PatientNameLine fullName={a.patient_name} textClassName={styles.text} />
+                    <span className="mt-auto block shrink-0 pb-1.5 pl-0.5 pr-0.5 text-[11px] leading-tight opacity-95 tabular-nums">
+                      {startShown} – {endShown}
+                    </span>
+                  </AppointmentBlockTooltip>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {nowPct != null && (
           <div
@@ -656,9 +712,10 @@ function WeekGrid({
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
 }) {
+  const hours = (SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN) / 60;
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex min-w-[900px]">
+    <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
+      <div className="flex min-w-[980px]">
         <TimeLabelsColumn />
         <div
           className="grid flex-1"
@@ -677,18 +734,25 @@ function WeekGrid({
                   isToday && "bg-emerald-50/40",
                 )}
               >
-                <div className="border-b border-slate-200 bg-slate-50/90 px-2 py-2 text-center">
+                <div className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2 text-center">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     {d.toLocaleDateString(undefined, { weekday: "short" })}
                   </p>
-                  <p className="text-sm font-bold text-slate-900">{d.getDate()}</p>
+                  <p className="text-[15px] font-bold text-slate-900">{d.getDate()}</p>
                 </div>
-                <div className="relative" style={{ height: GRID_PX }}>
+                <div className="relative bg-white" style={{ height: GRID_PX }}>
                   <div
-                    className="pointer-events-none absolute inset-0 opacity-30"
+                    className="pointer-events-none absolute inset-0 opacity-[0.32]"
                     style={{
-                      backgroundImage: `linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)`,
-                      backgroundSize: `100% ${100 / 12}%`,
+                      backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
+                      backgroundSize: `100% ${100 / hours}%`,
+                    }}
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-0 opacity-[0.16]"
+                    style={{
+                      backgroundImage: `linear-gradient(to bottom, rgb(203 213 225) 1px, transparent 1px)`,
+                      backgroundSize: `100% ${100 / (hours * 2)}%`,
                     }}
                   />
                   {/* stacked appointments + blocks for all providers in this day */}
@@ -752,10 +816,12 @@ function buildWeekStackEntries(
   return out.sort((x, y) => x.start - y.start);
 }
 
-function computeLanes(entries: WeekStackEntry[]): { laneByKey: Map<string, number>; laneCount: number } {
+function computeLanesForTimedItems(
+  items: Array<{ key: string; start: number; end: number }>,
+): { laneByKey: Map<string, number>; laneCount: number } {
   const laneEnds: number[] = [];
   const laneByKey = new Map<string, number>();
-  for (const e of entries) {
+  for (const e of items) {
     let lane = 0;
     while (lane < laneEnds.length && laneEnds[lane] > e.start) lane++;
     if (lane === laneEnds.length) laneEnds.push(e.end);
@@ -763,6 +829,10 @@ function computeLanes(entries: WeekStackEntry[]): { laneByKey: Map<string, numbe
     laneByKey.set(e.key, lane);
   }
   return { laneByKey, laneCount: Math.max(1, laneEnds.length) };
+}
+
+function computeLanes(entries: WeekStackEntry[]): { laneByKey: Map<string, number>; laneCount: number } {
+  return computeLanesForTimedItems(entries.map((e) => ({ key: e.key, start: e.start, end: e.end })));
 }
 
 function WeekDayStack({
@@ -850,18 +920,17 @@ function WeekDayStack({
               type="button"
               onClick={() => onSelect(a)}
               className={cn(
-                "absolute z-[3] flex flex-col overflow-hidden rounded border text-left shadow-sm transition",
+                "absolute z-[3] flex flex-col overflow-hidden rounded-lg border px-0.5 text-left shadow-sm transition",
                 styles.wrap,
-                selected && "ring-2 ring-[#16a349] ring-offset-1",
+                selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
               )}
               style={{
                 top: `${topPct}%`,
                 height: `${heightPct}%`,
-                minHeight: MIN_APPOINTMENT_BLOCK_PX,
                 left: leftPx,
                 width: laneW,
                 background: bg,
-                borderColor: a.status === "cancelled" ? "#fecaca" : "rgba(255,255,255,0.35)",
+                borderColor: a.status === "cancelled" ? "#fecaca" : selected ? "#16a349" : "rgba(255,255,255,0.35)",
               }}
             >
               <AppointmentBlockDecor status={a.status} />
