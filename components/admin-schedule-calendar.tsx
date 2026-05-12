@@ -19,7 +19,16 @@ import {
   type TimeInterval,
 } from "@/lib/admin-schedule-utils";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type Ref,
+} from "react";
 /** Mirrors API fields used by the admin schedule (names unchanged). */
 export type ScheduleAppointment = {
   id: number;
@@ -136,6 +145,76 @@ const SCHEDULE_GRID_HEADER_MIN_PX = 52;
 const MIN_LANE_WIDTH_PX = 104;
 const LANE_GAP_PX = 3;
 
+function scheduleGridHours(): number {
+  return (SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN) / 60;
+}
+
+/** Snap Y position inside grid to nearest 15 min for hover readout. */
+function scheduleHoverFromClientY(
+  clientY: number,
+  rectTop: number,
+  rectHeight: number,
+): { topPct: number; label: string } | null {
+  if (rectHeight <= 0) return null;
+  const y = clientY - rectTop;
+  const pctRaw = (y / rectHeight) * 100;
+  const pctClamped = Math.max(0, Math.min(100, pctRaw));
+  const minsFloat = SCHEDULE_DAY_START_MIN + (pctClamped / 100) * SCHEDULE_TOTAL_MIN;
+  const snapped = Math.round(minsFloat / 15) * 15;
+  const clampedM = Math.max(SCHEDULE_DAY_START_MIN, Math.min(SCHEDULE_DAY_END_MIN - 1, snapped));
+  const topPct = ((clampedM - SCHEDULE_DAY_START_MIN) / SCHEDULE_TOTAL_MIN) * 100;
+  return { topPct, label: minutesToLabel(clampedM) };
+}
+
+/** Hour (strong), half-hour, quarter-hour lines + alternating hour wash. */
+function ScheduleGridBackground({ hours }: { hours: number }) {
+  const hourPct = 100 / hours;
+  return (
+    <>
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `repeating-linear-gradient(
+            to bottom,
+            rgb(248 250 252 / 0.65) 0,
+            rgb(248 250 252 / 0.65) ${hourPct}%,
+            transparent ${hourPct}%,
+            transparent ${hourPct * 2}%
+          )`,
+        }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `linear-gradient(to bottom, rgb(71 85 105) 1px, transparent 1px)`,
+          backgroundSize: `100% ${hourPct}%`,
+          opacity: 0.55,
+        }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
+          backgroundSize: `100% ${hourPct / 2}%`,
+          opacity: 0.38,
+        }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `linear-gradient(to bottom, rgb(203 213 225) 1px, transparent 1px)`,
+          backgroundSize: `100% ${hourPct / 4}%`,
+          opacity: 0.22,
+        }}
+        aria-hidden
+      />
+    </>
+  );
+}
+
 function formatPatientNameShort(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   if (parts.length <= 1) return fullName.trim();
@@ -152,9 +231,12 @@ function appointmentTooltipStatus(status: string): string {
 function PatientNameLine({
   fullName,
   textClassName,
+  wrapperClassName,
 }: {
   fullName: string;
   textClassName?: string;
+  /** Outer row padding (e.g. tighter when a time line sits above the name). */
+  wrapperClassName?: string;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
@@ -176,7 +258,7 @@ function PatientNameLine({
   const display = compact ? formatPatientNameShort(fullName) : fullName;
 
   return (
-    <div ref={rowRef} className="min-w-0 px-1.5 pt-1">
+    <div ref={rowRef} className={cn("min-w-0 px-1.5 pt-1", wrapperClassName)}>
       <span
         ref={measureRef}
         className={cn("pointer-events-none invisible absolute whitespace-nowrap font-semibold text-[13px]", textClassName)}
@@ -382,9 +464,57 @@ export function AdminScheduleCalendar({
   );
 }
 
+function HoverTimeChip({ label, topPct }: { label: string; topPct: number }) {
+  const top = Math.max(2, Math.min(98, topPct));
+  return (
+    <div
+      className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-300 bg-white/95 px-2 py-0.5 text-[11px] font-semibold text-slate-800 shadow-md"
+      style={{ top: `${top}%`, transform: "translate(-50%, -50%)" }}
+      role="status"
+      aria-live="polite"
+    >
+      {label}
+    </div>
+  );
+}
+
+/** Day/week time grid: background lines, optional ref for width measure, hover time (capture phase). */
+function ScheduleGridColumnBody({
+  children,
+  className,
+  outerRef,
+}: {
+  children: ReactNode;
+  className?: string;
+  outerRef?: Ref<HTMLDivElement>;
+}) {
+  const [hover, setHover] = useState<{ label: string; topPct: number } | null>(null);
+  const hours = scheduleGridHours();
+  return (
+    <div
+      ref={outerRef}
+      className={cn("relative bg-white", className)}
+      style={{ height: GRID_PX }}
+      onMouseMoveCapture={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const h = scheduleHoverFromClientY(e.clientY, r.top, r.height);
+        if (h) setHover(h);
+      }}
+      onMouseLeave={() => setHover(null)}
+    >
+      <ScheduleGridBackground hours={hours} />
+      {hover ? <HoverTimeChip label={hover.label} topPct={hover.topPct} /> : null}
+      {children}
+    </div>
+  );
+}
+
 function ProviderLegend({ providers }: { providers: ProviderRow[] }) {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-2xl border border-slate-200/90 bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-slate-100/80">
+      <span className="w-full text-xs text-slate-500 sm:w-auto sm:flex-none">
+        Colors = provider; chip on each block = status.
+      </span>
       <span className="font-semibold text-slate-500">Providers</span>
       {providers.map((p) => {
         const c = providerColorForId(p.id);
@@ -412,11 +542,11 @@ function ProviderLegend({ providers }: { providers: ProviderRow[] }) {
 
 function TimeLabelsColumn() {
   const rows: number[] = [];
-  for (let m = SCHEDULE_DAY_START_MIN; m < SCHEDULE_DAY_END_MIN; m += 60) {
+  for (let m = SCHEDULE_DAY_START_MIN; m < SCHEDULE_DAY_END_MIN; m += 30) {
     rows.push(m);
   }
   return (
-    <div className="flex w-[4.5rem] shrink-0 flex-col border-r border-slate-200 bg-slate-50/50">
+    <div className="flex w-[5.25rem] shrink-0 flex-col border-r border-slate-200 bg-slate-50/50">
       <div
         className="flex shrink-0 items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5"
         style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
@@ -430,10 +560,14 @@ function TimeLabelsColumn() {
       >
         {rows.map((m) => {
           const pct = ((m - SCHEDULE_DAY_START_MIN) / SCHEDULE_TOTAL_MIN) * 100;
+          const onHour = m % 60 === 0;
           return (
             <span
               key={m}
-              className="absolute left-0 right-1.5 -translate-y-1/2 text-right tabular-nums tracking-tight"
+              className={cn(
+                "absolute left-0 right-1 -translate-y-1/2 text-right tabular-nums tracking-tight",
+                onHour ? "text-[13px] font-medium text-slate-600" : "text-[10px] font-normal text-slate-400",
+              )}
               style={{ top: `${pct}%` }}
             >
               {minutesToLabel(m).replace(" ", "\u00a0")}
@@ -563,8 +697,6 @@ function DayProviderColumn({
 
   const openGaps = useMemo(() => computeOpenGaps(busyIntervals), [busyIntervals]);
 
-  const hours = (SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN) / 60;
-
   return (
     <div className="relative border-l border-slate-100">
       <div
@@ -573,32 +705,7 @@ function DayProviderColumn({
       >
         <p className="text-[15px] font-semibold leading-snug text-slate-800">{provider.provider_name}</p>
       </div>
-      <div ref={stackRef} className="relative bg-white" style={{ height: GRID_PX }}>
-        {/* Major hour grid */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.38]"
-          style={{
-            backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
-            backgroundSize: `100% ${100 / hours}%`,
-          }}
-        />
-        {/* Half-hour lines */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.2]"
-          style={{
-            backgroundImage: `linear-gradient(to bottom, rgb(203 213 225) 1px, transparent 1px)`,
-            backgroundSize: `100% ${100 / (hours * 2)}%`,
-          }}
-        />
-        {/* Quarter-hour (15 min) lines — four slots per hour */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.12]"
-          style={{
-            backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
-            backgroundSize: `100% ${100 / (hours * 4)}%`,
-          }}
-        />
-
+      <ScheduleGridColumnBody outerRef={stackRef}>
         {blocks.map((b) => {
           if (b.all_day) {
             return (
@@ -683,7 +790,12 @@ function DayProviderColumn({
                     left: leftPx,
                     width: laneW,
                     background: bg,
-                    borderColor: a.status === "cancelled" ? "#fecaca" : selected ? "#16a349" : "rgba(255,255,255,0.35)",
+                    borderColor:
+                      a.status === "cancelled"
+                        ? "#fecaca"
+                        : selected
+                          ? "#16a349"
+                          : "rgb(148 163 184 / 0.9)",
                   }}
                 >
                   <AppointmentBlockDecor status={a.status} />
@@ -695,10 +807,25 @@ function DayProviderColumn({
                     providerName={a.provider_name}
                     status={a.status}
                   >
-                    <PatientNameLine fullName={a.patient_name} textClassName={styles.text} />
-                    <span className="mt-auto block shrink-0 pb-1.5 pl-0.5 pr-0.5 text-[11px] leading-tight opacity-95 tabular-nums">
-                      {startShown} – {endShown}
-                    </span>
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div
+                        className={cn(
+                          "shrink-0 border-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
+                          a.status === "cancelled" && "border-rose-800/20 text-rose-950",
+                          a.status === "no_show" && "border-amber-900/20 text-amber-950",
+                          a.status === "completed" && "border-slate-400/40 text-slate-900",
+                          !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
+                          a.status !== "cancelled" && styles.text,
+                        )}
+                      >
+                        {startShown} – {endShown}
+                      </div>
+                      <PatientNameLine
+                        fullName={a.patient_name}
+                        textClassName={styles.text}
+                        wrapperClassName="min-w-0 px-1.5 pb-1.5 pt-0.5"
+                      />
+                    </div>
                   </AppointmentBlockTooltip>
                 </button>
               );
@@ -715,7 +842,7 @@ function DayProviderColumn({
             <div className="h-0.5 bg-red-500 shadow-sm" />
           </div>
         )}
-      </div>
+      </ScheduleGridColumnBody>
     </div>
   );
 }
@@ -735,7 +862,6 @@ function WeekGrid({
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
 }) {
-  const hours = (SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN) / 60;
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
       <div className="flex min-w-[980px]">
@@ -766,29 +892,7 @@ function WeekGrid({
                   </p>
                   <p className="text-[15px] font-bold leading-none text-slate-900">{d.getDate()}</p>
                 </div>
-                <div className="relative bg-white" style={{ height: GRID_PX }}>
-                  <div
-                    className="pointer-events-none absolute inset-0 opacity-[0.32]"
-                    style={{
-                      backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
-                      backgroundSize: `100% ${100 / hours}%`,
-                    }}
-                  />
-                  <div
-                    className="pointer-events-none absolute inset-0 opacity-[0.16]"
-                    style={{
-                      backgroundImage: `linear-gradient(to bottom, rgb(203 213 225) 1px, transparent 1px)`,
-                      backgroundSize: `100% ${100 / (hours * 2)}%`,
-                    }}
-                  />
-                  <div
-                    className="pointer-events-none absolute inset-0 opacity-[0.1]"
-                    style={{
-                      backgroundImage: `linear-gradient(to bottom, rgb(148 163 184) 1px, transparent 1px)`,
-                      backgroundSize: `100% ${100 / (hours * 4)}%`,
-                    }}
-                  />
-                  {/* stacked appointments + blocks for all providers in this day */}
+                <ScheduleGridColumnBody>
                   <WeekDayStack
                     appointments={dayAppts}
                     blocks={dayBlocks}
@@ -796,7 +900,7 @@ function WeekGrid({
                     selectedId={selectedId}
                     onSelect={onSelect}
                   />
-                </div>
+                </ScheduleGridColumnBody>
               </div>
             );
           })}
@@ -953,7 +1057,7 @@ function WeekDayStack({
               type="button"
               onClick={() => onSelect(a)}
               className={cn(
-                "absolute z-[3] flex flex-col overflow-hidden rounded-lg border px-0.5 text-left shadow-sm transition",
+                "absolute z-[3] flex flex-col overflow-hidden rounded-lg border px-0.5 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                 styles.wrap,
                 selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
               )}
@@ -963,7 +1067,12 @@ function WeekDayStack({
                 left: leftPx,
                 width: laneW,
                 background: bg,
-                borderColor: a.status === "cancelled" ? "#fecaca" : selected ? "#16a349" : "rgba(255,255,255,0.35)",
+                borderColor:
+                  a.status === "cancelled"
+                    ? "#fecaca"
+                    : selected
+                      ? "#16a349"
+                      : "rgb(148 163 184 / 0.9)",
               }}
             >
               <AppointmentBlockDecor status={a.status} />
@@ -975,10 +1084,25 @@ function WeekDayStack({
                 providerName={a.provider_name}
                 status={a.status}
               >
-                <PatientNameLine fullName={a.patient_name} textClassName={styles.text} />
-                <span className="mt-auto block shrink-0 px-1 pb-1 text-[11px] leading-tight opacity-90 tabular-nums">
-                  {startShown} – {endShown}
-                </span>
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div
+                    className={cn(
+                      "shrink-0 border-b px-1 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
+                      a.status === "cancelled" && "border-rose-800/20 text-rose-950",
+                      a.status === "no_show" && "border-amber-900/20 text-amber-950",
+                      a.status === "completed" && "border-slate-400/40 text-slate-900",
+                      !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
+                      a.status !== "cancelled" && styles.text,
+                    )}
+                  >
+                    {startShown} – {endShown}
+                  </div>
+                  <PatientNameLine
+                    fullName={a.patient_name}
+                    textClassName={styles.text}
+                    wrapperClassName="min-w-0 px-1 pb-1 pt-0.5"
+                  />
+                </div>
               </AppointmentBlockTooltip>
             </button>
           );
