@@ -355,15 +355,15 @@ export function PatientDetailModal({
         : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
     }`;
 
-  const tabs: { id: Tab; label: string; hint: string }[] = isDoctorChart
+  const tabs: { id: Tab; label: string; shortLabel: string; hint: string }[] = isDoctorChart
     ? [
-        { id: "overview", label: "Overview", hint: "Summary & demographics" },
-        { id: "intake", label: "Patient intake", hint: "Address & contacts" },
+        { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary & contacts" },
+        { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Address, DOB, emergency" },
       ]
     : [
-        { id: "overview", label: "Overview", hint: "Summary & demographics" },
-        { id: "intake", label: "Patient intake", hint: "Address & contacts" },
-        { id: "history", label: "Record history", hint: "Visits, chart notes & billing" },
+        { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary & contacts" },
+        { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Address, DOB, emergency" },
+        { id: "history", label: "Visit history", shortLabel: "Visits", hint: "Notes & billing by visit" },
       ];
 
   const displayInitial = (d: PatientDetail) =>
@@ -385,15 +385,17 @@ export function PatientDetailModal({
         <div className="sticky top-0 z-10 border-b border-emerald-100/60 bg-gradient-to-br from-white via-white to-emerald-50/40 px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#13823d]">Medical record</p>
-              <h2 id="patient-modal-title" className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#13823d]/90">Medical record</p>
+              <h2 id="patient-modal-title" className="mt-0.5 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                 Patient chart
               </h2>
               {detail && (
-                <p className="mt-1 truncate text-sm text-slate-600">
-                  {detail.first_name} {detail.last_name}
-                  <span className="text-slate-400"> · </span>
-                  <span className="font-medium text-slate-500">ID #{detail.id}</span>
+                <p className="mt-1.5 truncate text-sm text-slate-600">
+                  <span className="font-semibold text-slate-900">
+                    {detail.first_name} {detail.last_name}
+                  </span>
+                  <span className="text-slate-300"> · </span>
+                  <span className="tabular-nums text-slate-500">ID {detail.id}</span>
                 </p>
               )}
             </div>
@@ -421,9 +423,7 @@ export function PatientDetailModal({
                   }`}
                 >
                   <span className="hidden sm:inline">{t.label}</span>
-                  <span className="sm:hidden">
-                    {t.id === "overview" ? "Info" : t.id === "intake" ? "Intake" : "History"}
-                  </span>
+                  <span className="sm:hidden">{t.shortLabel}</span>
                 </button>
               ))}
             </div>
@@ -464,12 +464,32 @@ export function PatientDetailModal({
                     </div>
                   </div>
 
+                  {(!detail.date_of_birth ||
+                    !(detail.address_line1 || "").trim() ||
+                    !(detail.city_state_zip || "").trim()) && (
+                    <div className="flex flex-col gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm leading-snug text-sky-950">
+                        <span className="font-semibold">Demographics incomplete.</span>{" "}
+                        <span className="text-sky-900/90">Add date of birth, address, or emergency contact when you can.</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTab("intake")}
+                        className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm ring-1 ring-sky-200/80 transition hover:bg-sky-100/80"
+                      >
+                        Open demographics →
+                      </button>
+                    </div>
+                  )}
+
                   <div>
                     <DoctorSectionLabel>Demographics & billing</DoctorSectionLabel>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
                         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date of birth</p>
-                        <p className="mt-1.5 font-semibold text-slate-900">{detail.date_of_birth || "—"}</p>
+                        <p className="mt-1.5 font-semibold text-slate-900">
+                          {detail.date_of_birth ? formatMonthDayYear(detail.date_of_birth) : "—"}
+                        </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
                         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Card on file</p>
@@ -497,7 +517,7 @@ export function PatientDetailModal({
                         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Address</p>
                         <p className="mt-1.5 leading-relaxed text-slate-800">
                           {[detail.address_line1, detail.address_line2, detail.city_state_zip].filter(Boolean).join(", ") ||
-                            "Not on file — add under Patient intake."}
+                            "Not on file — add under Demographics."}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
@@ -505,7 +525,7 @@ export function PatientDetailModal({
                         <p className="mt-1.5 text-slate-800">
                           {detail.emergency_contact_name || detail.emergency_contact_phone
                             ? `${detail.emergency_contact_name}${detail.emergency_contact_phone ? ` · ${detail.emergency_contact_phone}` : ""}`
-                            : "Not on file — add under Patient intake."}
+                            : "Not on file — add under Demographics."}
                         </p>
                       </div>
                     </div>
@@ -535,9 +555,9 @@ export function PatientDetailModal({
 
               {tab === "intake" && (
                 <div className="animate-fade-in space-y-5">
-                  <div className="rounded-2xl border border-emerald-100/80 bg-emerald-50/40 px-4 py-3 text-sm leading-relaxed text-slate-700 ring-1 ring-emerald-100/50">
-                    Update demographics and emergency contacts to match the clinic intake form. Use the quick sections
-                    below, then save when done.
+                  <div className="rounded-xl border border-emerald-100/80 bg-emerald-50/35 px-4 py-3 text-sm leading-relaxed text-slate-700 ring-1 ring-emerald-100/40">
+                    Edit fields below, then <span className="font-semibold text-slate-900">Save demographics</span> at the
+                    bottom.
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm">
@@ -688,11 +708,10 @@ export function PatientDetailModal({
                         className="mt-0.5"
                       />
                       <label htmlFor="online-chiro-intake-waived" className="cursor-pointer text-sm leading-relaxed text-slate-700">
-                        <span className="font-semibold text-slate-900">Waive “intake first” for online chiropractic booking</span>
+                        <span className="font-semibold text-slate-900">Skip “intake first” for online chiro booking</span>
                         <span className="mt-1 block font-normal text-slate-600">
-                          Turn this on for established or imported patients who should be allowed to book regular (non-intake)
-                          chiropractic visits online even though this system has no completed chiropractic visit on file yet.
-                          Owner and staff only.
+                          For established or imported patients who may book regular (non-intake) chiropractic online
+                          before this system shows a completed chiro visit. Staff only.
                         </span>
                       </label>
                     </div>
@@ -728,7 +747,7 @@ export function PatientDetailModal({
                             disabled={savingIntake || !intakeDirty}
                             className="rounded-xl bg-[#16a349] px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50"
                           >
-                            {savingIntake ? "Saving…" : "Save intake"}
+                            {savingIntake ? "Saving…" : "Save demographics"}
                           </button>
                           {intakeMsg ? (
                             <span
@@ -747,7 +766,7 @@ export function PatientDetailModal({
               {tab === "history" && !isDoctorChart && (
                 <div className="animate-fade-in space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <DoctorSectionLabel>Patient record history</DoctorSectionLabel>
+                    <DoctorSectionLabel>Visit history</DoctorSectionLabel>
                     {fullHistoryHref ? (
                       <button
                         type="button"
@@ -762,8 +781,7 @@ export function PatientDetailModal({
                     ) : null}
                   </div>
                   <p className="text-sm leading-relaxed text-slate-600">
-                    Select an appointment on the left to read everything in one clear panel. This keeps notes, diagnosis,
-                    procedures, and billing visible without opening and closing multiple cards.
+                    Pick a visit on the left to see notes, diagnosis, services, and billing in one place.
                   </p>
                   {handoffMsg ? (
                     <p

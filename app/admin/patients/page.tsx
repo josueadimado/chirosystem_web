@@ -95,6 +95,15 @@ export default function AdminPatientsPage() {
   const [addEmail, setAddEmail] = useState("");
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [addError, setAddError] = useState("");
+  /** Optional fields also shown on the patient chart (intake / demographics). */
+  const [addDob, setAddDob] = useState("");
+  const [addAddress1, setAddAddress1] = useState("");
+  const [addAddress2, setAddAddress2] = useState("");
+  const [addCityStateZip, setAddCityStateZip] = useState("");
+  const [addEmergName, setAddEmergName] = useState("");
+  const [addEmergPhone, setAddEmergPhone] = useState<string | undefined>(undefined);
+  const [addShowExtras, setAddShowExtras] = useState(false);
+  const [addOnlineChiroWaived, setAddOnlineChiroWaived] = useState(false);
   const [page, setPage] = useState(1);
   const [sortMode, setSortMode] = useState<SortMode>("name_asc");
   const [balanceOnly, setBalanceOnly] = useState(false);
@@ -183,6 +192,14 @@ export default function AdminPatientsPage() {
     setAddPhone(undefined);
     setAddEmail("");
     setAddError("");
+    setAddDob("");
+    setAddAddress1("");
+    setAddAddress2("");
+    setAddCityStateZip("");
+    setAddEmergName("");
+    setAddEmergPhone(undefined);
+    setAddShowExtras(false);
+    setAddOnlineChiroWaived(false);
   }, []);
 
   useEffect(() => {
@@ -219,14 +236,27 @@ export default function AdminPatientsPage() {
       setAddError("Enter a valid phone number.");
       return;
     }
+    if (addEmergPhone && !isValidPhoneNumber(addEmergPhone)) {
+      setAddError("Emergency contact phone doesn’t look valid. Clear it or enter a full number.");
+      return;
+    }
     setAddSubmitting(true);
     try {
-      const created = await apiPost<{ id: number }>("/patients/", {
+      const payload: Record<string, string | boolean> = {
         first_name: fn,
         last_name: ln,
         phone: addPhone,
         email: addEmail.trim(),
-      });
+      };
+      if (addDob.trim()) payload.date_of_birth = addDob.trim();
+      if (addAddress1.trim()) payload.address_line1 = addAddress1.trim();
+      if (addAddress2.trim()) payload.address_line2 = addAddress2.trim();
+      if (addCityStateZip.trim()) payload.city_state_zip = addCityStateZip.trim();
+      if (addEmergName.trim()) payload.emergency_contact_name = addEmergName.trim();
+      if (addEmergPhone?.trim()) payload.emergency_contact_phone = addEmergPhone.trim();
+      if (addOnlineChiroWaived) payload.online_chiro_intake_waived = true;
+
+      const created = await apiPost<{ id: number }>("/patients/", payload);
       setShowAddModal(false);
       resetAddForm();
       await loadPatients();
@@ -536,7 +566,7 @@ export default function AdminPatientsPage() {
           }}
         >
           <div
-            className="flex max-h-[90vh] w-full max-w-[420px] flex-col overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xl ring-1 ring-slate-200/60"
+            className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xl ring-1 ring-slate-200/60"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="border-b border-slate-100 px-5 pb-4 pt-5">
@@ -544,11 +574,13 @@ export default function AdminPatientsPage() {
                 Add patient
               </h2>
               <p id="add-patient-hint" className="mt-1 text-xs leading-relaxed text-slate-500">
-                Shared phone is fine—use different names per person.
+                Same phone for family is OK—each person needs a different name. Anything below “Optional” can be added
+                later in the chart.
               </p>
             </div>
 
             <div className="space-y-4 px-5 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Required</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block min-w-0">
                   <span className="mb-1.5 block text-sm font-medium text-slate-700">First name</span>
@@ -599,6 +631,117 @@ export default function AdminPatientsPage() {
                   placeholder="name@example.com"
                 />
               </label>
+
+              <div className="border-t border-slate-100 pt-2">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-xl py-2 text-left text-sm font-semibold text-[#0d5c2e] transition hover:bg-emerald-50/60"
+                  aria-expanded={addShowExtras}
+                  onClick={() => setAddShowExtras((v) => !v)}
+                >
+                  <span>Optional: address, date of birth, emergency contact</span>
+                  <span className={cn("text-slate-400 transition", addShowExtras && "rotate-180")} aria-hidden>
+                    ▼
+                  </span>
+                </button>
+
+                {addShowExtras ? (
+                  <div className="mt-3 space-y-4 border-t border-slate-100 pt-4">
+                    <label className="block">
+                      <span className="mb-1.5 block text-sm font-medium text-slate-700">Date of birth</span>
+                      <input
+                        type="date"
+                        className={`${inputClass} max-w-xs`}
+                        value={addDob}
+                        onChange={(e) => setAddDob(e.target.value)}
+                      />
+                    </label>
+
+                    <div>
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Home address</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block sm:col-span-2">
+                          <span className="mb-1.5 block text-sm font-medium text-slate-700">Street</span>
+                          <input
+                            className={inputClass}
+                            value={addAddress1}
+                            onChange={(e) => setAddAddress1(e.target.value)}
+                            autoComplete="street-address"
+                          />
+                        </label>
+                        <label className="block sm:col-span-2">
+                          <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                            Apt / suite <span className="font-normal text-slate-400">· optional</span>
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={addAddress2}
+                            onChange={(e) => setAddAddress2(e.target.value)}
+                            autoComplete="address-line2"
+                          />
+                        </label>
+                        <label className="block sm:col-span-2">
+                          <span className="mb-1.5 block text-sm font-medium text-slate-700">City, state, ZIP</span>
+                          <input
+                            className={inputClass}
+                            placeholder="St Joseph, MI 49085"
+                            value={addCityStateZip}
+                            onChange={(e) => setAddCityStateZip(e.target.value)}
+                            autoComplete="address-level2"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Emergency contact
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block sm:col-span-1">
+                          <span className="mb-1.5 block text-sm font-medium text-slate-700">Name</span>
+                          <input
+                            className={inputClass}
+                            value={addEmergName}
+                            onChange={(e) => setAddEmergName(e.target.value)}
+                            autoComplete="name"
+                          />
+                        </label>
+                        <label className="block sm:col-span-1">
+                          <span className="mb-1.5 block text-sm font-medium text-slate-700">Phone</span>
+                          <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm focus-within:border-[#16a349]/40 focus-within:ring-2 focus-within:ring-[#16a349]/15">
+                            <PhoneInput
+                              international
+                              defaultCountry="US"
+                              countryCallingCodeEditable={false}
+                              value={addEmergPhone}
+                              onChange={setAddEmergPhone}
+                              placeholder="Same or different number"
+                              className="phone-field text-sm"
+                            />
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    <label className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]/30"
+                        checked={addOnlineChiroWaived}
+                        onChange={(e) => setAddOnlineChiroWaived(e.target.checked)}
+                      />
+                      <span className="text-sm leading-snug text-slate-700">
+                        <span className="font-semibold text-slate-900">Established chiropractic patient</span>
+                        <span className="mt-0.5 block text-xs font-normal text-slate-600">
+                          Allow booking regular (non-intake) chiropractic online before a completed chiro visit exists in
+                          this system—use for imports or long-time patients.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {addError ? (
