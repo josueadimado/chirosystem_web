@@ -5,6 +5,7 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -68,6 +69,8 @@ export default function AdminServicesPage() {
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
+  type QuickFilter = "all" | "active" | "inactive" | "chiropractic" | "massage";
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
 
   const load = async () => {
     setLoading(true);
@@ -100,16 +103,32 @@ export default function AdminServicesPage() {
   const inactiveCount = services.length - activeCount;
 
   const filtered = useMemo(() => {
+    let list = services;
+    if (quickFilter === "active") list = list.filter((s) => s.is_active !== false);
+    else if (quickFilter === "inactive") list = list.filter((s) => s.is_active === false);
+    else if (quickFilter === "chiropractic") list = list.filter((s) => s.service_type !== "massage");
+    else if (quickFilter === "massage") list = list.filter((s) => s.service_type === "massage");
+
     const q = search.trim().toLowerCase();
-    if (!q) return services;
-    return services.filter(
+    if (!q) return list;
+    return list.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         (s.public_booking_name || "").toLowerCase().includes(q) ||
         (s.billing_code || "").toLowerCase().includes(q) ||
         (s.description || "").toLowerCase().includes(q),
     );
-  }, [services, search]);
+  }, [services, search, quickFilter]);
+
+  const listSummary = useMemo(() => {
+    const total = services.length;
+    const n = filtered.length;
+    if (total === 0) return null;
+    if (n === total && !search.trim() && quickFilter === "all") {
+      return `Showing all ${total} visit type${total === 1 ? "" : "s"}`;
+    }
+    return `Showing ${n} of ${total} visit type${total === 1 ? "" : "s"}`;
+  }, [services.length, filtered.length, search, quickFilter]);
 
   const startNew = () => {
     setEditing(null);
@@ -217,7 +236,7 @@ export default function AdminServicesPage() {
     <div className="space-y-6">
       <AdminPageIntro
         title="Services & codes"
-        description="Add or edit visit types, prices, and billing codes. Use Service name for doctors and schedules; optional Patient-facing name for what appears on the public booking site and patient messages. Use Add visit type for new rows. Turn Active off to hide a visit from online booking and from the provider grid — or delete when nothing should reference it anymore."
+        description="Manage visit types: duration, price, billing code, and where each one appears (booking site, doctor bill, chiro vs massage)."
         pageHelp={
           <>
             These records power the public booking flow and invoices. <strong>Billing code</strong> is the identifier your clinic uses
@@ -268,10 +287,10 @@ export default function AdminServicesPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_min(26rem,100%)]">
         {/* List */}
         <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 ring-1 ring-slate-100/80">
-          <div className="border-b border-slate-200/90 bg-gradient-to-r from-slate-50/90 via-white to-[#ecfdf5]/25 px-5 py-4">
+          <div className="sticky top-0 z-10 border-b border-slate-200/90 bg-white/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/85">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <AdminSectionLabel help="Search filters the list. Click Edit to load a service into the form, or Add for a blank form.">
-                All visit types
+              <AdminSectionLabel help="Use filters and search to narrow the list. Edit loads the row into the form on the right (or below on small screens). Add service starts a blank form.">
+                Visit types
               </AdminSectionLabel>
               <button
                 type="button"
@@ -281,16 +300,58 @@ export default function AdminServicesPage() {
                 Add service
               </button>
             </div>
-            <div className="mt-3">
+            <div className="relative mt-3 max-w-lg">
               <input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name, code, or description…"
-                className="admin-input w-full max-w-md py-2.5 text-sm"
+                placeholder="Search name, patient label, code…"
+                className="admin-input w-full py-2.5 pr-10 text-sm"
                 aria-label="Filter services"
               />
+              {search.trim() ? (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                  aria-label="Clear search"
+                  onClick={() => setSearch("")}
+                >
+                  <span className="text-lg leading-none" aria-hidden>
+                    ×
+                  </span>
+                </button>
+              ) : null}
             </div>
+            {services.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(
+                  [
+                    { id: "all" as const, label: "All" },
+                    { id: "active" as const, label: "Active" },
+                    { id: "inactive" as const, label: "Inactive" },
+                    { id: "chiropractic" as const, label: "Chiropractic" },
+                    { id: "massage" as const, label: "Massage" },
+                  ] as const
+                ).map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setQuickFilter(id)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                      quickFilter === id
+                        ? "border-[#16a349] bg-[#ecfdf5] text-[#0d5c2e] ring-1 ring-[#16a349]/25"
+                        : "border-slate-200 bg-slate-50/80 text-slate-600 hover:border-slate-300 hover:bg-white",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {listSummary ? (
+              <p className="mt-2 text-xs font-medium text-slate-500">{listSummary}</p>
+            ) : null}
           </div>
           <div className="p-4 sm:p-5">
             {loading ? (
@@ -310,10 +371,22 @@ export default function AdminServicesPage() {
                 </button>
               </div>
             ) : filtered.length === 0 ? (
-              <p className="py-8 text-center text-sm text-slate-500">No services match your search.</p>
+              <div className="py-10 text-center">
+                <p className="text-sm font-medium text-slate-600">No visit types match filters or search.</p>
+                <button
+                  type="button"
+                  className="mt-3 text-sm font-semibold text-[#16a349] hover:text-[#13823d]"
+                  onClick={() => {
+                    setSearch("");
+                    setQuickFilter("all");
+                  }}
+                >
+                  Clear filters & search
+                </button>
+              </div>
             ) : (
               <ul className="space-y-2">
-                {filtered.map((s) => {
+                {filtered.map((s, idx) => {
                   const selected = editing?.id === s.id;
                   const st = s.service_type === "massage" ? "Massage" : "Chiropractic";
                   const visChiro = s.visible_to_chiropractic_staff !== false;
@@ -323,11 +396,15 @@ export default function AdminServicesPage() {
                   return (
                     <li key={s.id}>
                       <div
-                        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3.5 transition ${
+                        className={cn(
+                          "flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3.5 transition",
                           selected
                             ? "border-[#16a349]/45 bg-[#ecfdf5]/50 ring-1 ring-[#16a349]/20"
-                            : "border-slate-200/90 bg-white hover:border-slate-300/90 hover:bg-slate-50/50"
-                        }`}
+                            : "border-slate-200/90 hover:border-slate-300/90",
+                          !selected && idx % 2 === 1 && "bg-slate-50/50",
+                          !selected && idx % 2 === 0 && "bg-white",
+                          !selected && "hover:bg-slate-50/80",
+                        )}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
@@ -416,7 +493,7 @@ export default function AdminServicesPage() {
         </div>
 
         {/* Form */}
-        <div className="xl:sticky xl:top-4 xl:self-start">
+        <div className="xl:sticky xl:top-24 xl:z-[5] xl:self-start">
           <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-lg shadow-slate-200/30 ring-1 ring-slate-100/80">
             <div className="border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 sm:px-6">
               <div className="flex items-start justify-between gap-3">
@@ -428,7 +505,12 @@ export default function AdminServicesPage() {
                     {isNew ? "New visit type" : editing?.name ?? "Service"}
                   </h2>
                   {!isNew && (
-                    <p className="mt-1 text-xs text-slate-500">ID #{editing?.id} · save to update the live booking catalog</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      ID {editing?.id} · Save updates booking and billing everywhere this type is used.
+                    </p>
+                  )}
+                  {isNew && (
+                    <p className="mt-1 text-xs text-slate-500">Fill in at least the name, then save. You can refine flags after.</p>
                   )}
                 </div>
                 <HelpTip label="Form overview" align="center">
