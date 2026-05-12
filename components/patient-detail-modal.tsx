@@ -371,7 +371,7 @@ export function PatientDetailModal({
 
   return createPortal(
     <div
-      className="animate-overlay-enter fixed inset-0 z-[200] overflow-y-auto bg-slate-900/45 backdrop-blur-[2px]"
+      className="animate-overlay-enter fixed inset-0 z-[400] overflow-y-auto bg-slate-900/45 backdrop-blur-[2px]"
       onClick={onClose}
       role="dialog"
       aria-modal="true"

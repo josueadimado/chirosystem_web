@@ -7,7 +7,11 @@ import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
+
+/** Must sit above admin chrome (`sticky` header ~ z-30). Portaling to `document.body` avoids ancestor stacking contexts. */
+const ADD_PATIENT_MODAL_Z = "z-[400]";
 
 type Patient = {
   id: number;
@@ -104,7 +108,12 @@ export default function AdminPatientsPage() {
   const [addEmergPhone, setAddEmergPhone] = useState<string | undefined>(undefined);
   const [addShowExtras, setAddShowExtras] = useState(false);
   const [addOnlineChiroWaived, setAddOnlineChiroWaived] = useState(false);
+  const [documentBodyReady, setDocumentBodyReady] = useState(false);
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setDocumentBodyReady(true);
+  }, []);
   const [sortMode, setSortMode] = useState<SortMode>("name_asc");
   const [balanceOnly, setBalanceOnly] = useState(false);
 
@@ -551,24 +560,26 @@ export default function AdminPatientsPage() {
         />
       )}
 
-      {showAddModal && (
-        <div
-          className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="add-patient-title"
-          aria-describedby="add-patient-hint"
-          onClick={() => {
-            if (!addSubmitting) {
-              setShowAddModal(false);
-              resetAddForm();
-            }
-          }}
-        >
+      {documentBodyReady &&
+        showAddModal &&
+        createPortal(
           <div
-            className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xl ring-1 ring-slate-200/60"
-            onClick={(e) => e.stopPropagation()}
+            className={`fixed inset-0 ${ADD_PATIENT_MODAL_Z} flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-patient-title"
+            aria-describedby="add-patient-hint"
+            onClick={() => {
+              if (!addSubmitting) {
+                setShowAddModal(false);
+                resetAddForm();
+              }
+            }}
           >
+            <div
+              className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xl ring-1 ring-slate-200/60"
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="border-b border-slate-100 px-5 pb-4 pt-5">
               <h2 id="add-patient-title" className="text-lg font-semibold tracking-tight text-slate-900">
                 Add patient
@@ -773,7 +784,8 @@ export default function AdminPatientsPage() {
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
