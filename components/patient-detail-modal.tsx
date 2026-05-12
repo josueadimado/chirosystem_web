@@ -202,6 +202,18 @@ export function PatientDetailModal({
   }, [patientId]);
 
   useEffect(() => {
+    if (patientId === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [patientId, onClose]);
+
+  useEffect(() => {
     if (!patientId) {
       setDetail(null);
       setError("");
