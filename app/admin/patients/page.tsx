@@ -65,7 +65,7 @@ function patientDirectoryName(p: Patient): { last: string; first: string } {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
 
 /** Rows per page — keeps the list scannable instead of one endless page */
 const PATIENTS_PAGE_SIZE = 25;
@@ -177,13 +177,26 @@ export default function AdminPatientsPage() {
   const rangeStart = totalFiltered === 0 ? 0 : (page - 1) * PATIENTS_PAGE_SIZE + 1;
   const rangeEnd = Math.min(page * PATIENTS_PAGE_SIZE, totalFiltered);
 
-  const resetAddForm = () => {
+  const resetAddForm = useCallback(() => {
     setAddFirstName("");
     setAddLastName("");
     setAddPhone(undefined);
     setAddEmail("");
     setAddError("");
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!showAddModal || addSubmitting) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowAddModal(false);
+        resetAddForm();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showAddModal, addSubmitting, resetAddForm]);
 
   const openAddModal = () => {
     resetAddForm();
@@ -203,7 +216,7 @@ export default function AdminPatientsPage() {
       return;
     }
     if (!addPhone || !isValidPhoneNumber(addPhone)) {
-      setAddError("Enter a valid cell or primary phone number.");
+      setAddError("Enter a valid phone number.");
       return;
     }
     setAddSubmitting(true);
@@ -510,10 +523,11 @@ export default function AdminPatientsPage() {
 
       {showAddModal && (
         <div
-          className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-labelledby="add-patient-title"
+          aria-describedby="add-patient-hint"
           onClick={() => {
             if (!addSubmitting) {
               setShowAddModal(false);
@@ -522,52 +536,59 @@ export default function AdminPatientsPage() {
           }}
         >
           <div
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
+            className="flex max-h-[90vh] w-full max-w-[420px] flex-col overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xl ring-1 ring-slate-200/60"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="add-patient-title" className="text-lg font-bold text-slate-900">
-              Add patient
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Creates a chart record so they can be booked, checked in, and billed. Family members may share a phone—
-              names must differ.
-            </p>
-            <div className="mt-4 space-y-3">
+            <div className="border-b border-slate-100 px-5 pb-4 pt-5">
+              <h2 id="add-patient-title" className="text-lg font-semibold tracking-tight text-slate-900">
+                Add patient
+              </h2>
+              <p id="add-patient-hint" className="mt-1 text-xs leading-relaxed text-slate-500">
+                Shared phone is fine—use different names per person.
+              </p>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block min-w-0">
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">First name</span>
+                  <input
+                    className={inputClass}
+                    value={addFirstName}
+                    onChange={(e) => setAddFirstName(e.target.value)}
+                    autoComplete="given-name"
+                    autoFocus
+                  />
+                </label>
+                <label className="block min-w-0">
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">Last name</span>
+                  <input
+                    className={inputClass}
+                    value={addLastName}
+                    onChange={(e) => setAddLastName(e.target.value)}
+                    autoComplete="family-name"
+                  />
+                </label>
+              </div>
+
               <label className="block">
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">First name</span>
-                <input
-                  className={inputClass}
-                  value={addFirstName}
-                  onChange={(e) => setAddFirstName(e.target.value)}
-                  autoComplete="given-name"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Last name</span>
-                <input
-                  className={inputClass}
-                  value={addLastName}
-                  onChange={(e) => setAddLastName(e.target.value)}
-                  autoComplete="family-name"
-                />
-              </label>
-              <div>
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Phone</span>
-                <div className="rounded-lg border border-slate-200 bg-white p-2">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Phone</span>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm focus-within:border-[#16a349]/40 focus-within:ring-2 focus-within:ring-[#16a349]/15">
                   <PhoneInput
                     international
                     defaultCountry="US"
                     countryCallingCodeEditable={false}
                     value={addPhone}
                     onChange={setAddPhone}
-                    placeholder="Cell or primary number"
+                    placeholder="(555) 555-0100"
                     className="phone-field text-sm"
                   />
                 </div>
-              </div>
+              </label>
+
               <label className="block">
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">
-                  Email <span className="font-normal normal-case text-slate-400">(optional)</span>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Email <span className="font-normal text-slate-400">· optional</span>
                 </span>
                 <input
                   type="email"
@@ -575,13 +596,18 @@ export default function AdminPatientsPage() {
                   value={addEmail}
                   onChange={(e) => setAddEmail(e.target.value)}
                   autoComplete="email"
+                  placeholder="name@example.com"
                 />
               </label>
             </div>
-            {addError && (
-              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{addError}</p>
-            )}
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
+
+            {addError ? (
+              <div className="px-5 pb-2">
+                <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{addError}</p>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
               <Button
                 type="button"
                 variant="outline"
@@ -590,7 +616,7 @@ export default function AdminPatientsPage() {
                   setShowAddModal(false);
                   resetAddForm();
                 }}
-                className="rounded-xl"
+                className="rounded-xl border-slate-200"
               >
                 Cancel
               </Button>
@@ -598,9 +624,9 @@ export default function AdminPatientsPage() {
                 type="button"
                 disabled={addSubmitting}
                 onClick={() => void submitNewPatient()}
-                className="rounded-xl bg-[#16a349] font-semibold text-white hover:bg-[#13823d]"
+                className="rounded-xl bg-[#16a349] px-5 font-semibold text-white hover:bg-[#13823d]"
               >
-                {addSubmitting ? "Saving…" : "Create patient"}
+                {addSubmitting ? "Saving…" : "Save"}
               </Button>
             </div>
           </div>
