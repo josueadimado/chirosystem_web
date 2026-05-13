@@ -66,6 +66,9 @@ type RescheduleAppointmentRow = {
 
 type BookingFlowMode = "new" | "reschedule";
 
+/** One row from GET /booking-options/availability/ when ``slot_grid`` is present (full 15-min list + bookable). */
+type SlotGridEntry = { label: string; bookable: boolean };
+
 type CartItem = {
   /** Stable id for this cart row (date/time picks and availability are keyed by this). */
   lineId: string;
@@ -252,6 +255,38 @@ function slotChainFitsPublicDayEnd(dateIso: string, slot: string, durationMinute
   return start + duration <= dayEnd;
 }
 
+type AvailabilityApiResponse = {
+  available_slots?: string[];
+  slot_grid?: Array<{ label?: string; bookable?: boolean }>;
+};
+
+/**
+ * Prefer ``slot_grid`` from the API (full 15-min list through 5:45 / Fri 3:45 with ``bookable`` flags).
+ * Otherwise filter legacy ``available_slots`` with ``slotChainFitsPublicDayEnd``.
+ */
+function normalizeAvailabilityFromResponse(
+  res: AvailabilityApiResponse,
+  dateIso: string,
+  visitDurationMin: number,
+): { bookableLabels: string[]; slotGrid: SlotGridEntry[] | null } {
+  const raw = Array.isArray(res.slot_grid) ? res.slot_grid : [];
+  const parsed: SlotGridEntry[] = [];
+  for (const row of raw) {
+    if (row && typeof row.label === "string" && typeof row.bookable === "boolean") {
+      parsed.push({ label: row.label, bookable: row.bookable });
+    }
+  }
+  if (parsed.length > 0) {
+    return {
+      bookableLabels: parsed.filter((x) => x.bookable).map((x) => x.label),
+      slotGrid: parsed,
+    };
+  }
+  let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
+  slots = slots.filter((slot) => slotChainFitsPublicDayEnd(dateIso, slot, visitDurationMin));
+  return { bookableLabels: slots, slotGrid: null };
+}
+
 /**
  * Last-resort slots if the availability API errors — same rules as the server: 15-min grid through 5:45 Mon–Thu
  * (3:45 Fri); a slot is listed only if the visit ends by closing (duration × 15-min blocks).
@@ -364,6 +399,8 @@ export default function BookingPage() {
   const [cartSlotPicksByLineId, setCartSlotPicksByLineId] = useState<Record<string, CartSlotPick>>({});
   const [cartCalendarMonthByLineId, setCartCalendarMonthByLineId] = useState<Record<string, Date>>({});
   const [cartSlotsByLineId, setCartSlotsByLineId] = useState<Record<string, string[] | null>>({});
+  /** When the API returns ``slot_grid``, full 15-min rows (some not bookable) for that cart line. */
+  const [cartSlotGridByLineId, setCartSlotGridByLineId] = useState<Record<string, SlotGridEntry[] | null>>({});
   const [cartSlotsLoadingByLineId, setCartSlotsLoadingByLineId] = useState<Record<string, boolean>>({});
   const [bookingSubmitErrorByLineId, setBookingSubmitErrorByLineId] = useState<Record<string, string>>({});
   /** After “Edit” from Step 4, scroll this cart line into view on Step 3. */
@@ -381,6 +418,8 @@ export default function BookingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingResults, setBookingResults] = useState<BookingResult[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[] | null>(null);
+  /** Reschedule: optional full 15-min grid from API (``slot_grid``) with bookable flags. */
+  const [scheduleSlotGrid, setScheduleSlotGrid] = useState<SlotGridEntry[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [patientLookup, setPatientLookup] = useState<"idle" | "loading" | "returning" | "new" | "ambiguous">("idle");
   /** From patient-lookup when several people share one number — quick-fill name buttons */
@@ -540,6 +579,13 @@ export default function BookingPage() {
       }
       return next;
     });
+    setCartSlotGridByLineId((prev) => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) {
+        if (!ids.has(k)) delete next[k];
+      }
+      return next;
+    });
     setCartSlotsLoadingByLineId((prev) => {
       const next = { ...prev };
       for (const k of Object.keys(next)) {
@@ -619,10 +665,12 @@ export default function BookingPage() {
     }
     if (!effectiveSlotService || !effectiveSlotProvider || !selectedDate) {
       setAvailableSlots(null);
+      setScheduleSlotGrid(null);
       return;
     }
     setSlotsLoading(true);
     setAvailableSlots(null);
+    setScheduleSlotGrid(null);
     const params = new URLSearchParams({
       date: selectedDate,
       provider_id: String(effectiveSlotProvider.id),
@@ -632,27 +680,31 @@ export default function BookingPage() {
       params.set("exclude_appointment_id", String(reschedulePick.id));
       params.set("phone", phone);
     }
-    apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
+    apiGet<AvailabilityApiResponse>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
-        let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
-        // Enforce public closing client-side (visit end by close; massage buffer does not trim last starts).
         const visitDurationMin = Number(effectiveSlotService.duration_minutes) || 30;
-        slots = slots.filter((slot) => slotChainFitsPublicDayEnd(selectedDate, slot, visitDurationMin));
-        setAvailableSlots(slots);
+        const { bookableLabels, slotGrid } = normalizeAvailabilityFromResponse(
+          res,
+          selectedDate,
+          visitDurationMin,
+        );
+        setScheduleSlotGrid(slotGrid);
+        setAvailableSlots(bookableLabels);
         setSlotWarning("");
       })
       .catch(() => {
         if (!effectiveSlotService) {
           setAvailableSlots([]);
+          setScheduleSlotGrid(null);
           return;
         }
-        setAvailableSlots(
-          buildFallbackTimeSlots(
-            selectedDate,
-            effectiveSlotService.service_type,
-            Number(effectiveSlotService.duration_minutes) || 30,
-          ),
+        const fb = buildFallbackTimeSlots(
+          selectedDate,
+          effectiveSlotService.service_type,
+          Number(effectiveSlotService.duration_minutes) || 30,
         );
+        setScheduleSlotGrid(fb.map((label) => ({ label, bookable: true })));
+        setAvailableSlots(fb);
       })
       .finally(() => setSlotsLoading(false));
   }, [
@@ -680,6 +732,7 @@ export default function BookingPage() {
       const lineId = item.lineId;
       if (!item.provider) {
         setCartSlotsByLineId((p) => ({ ...p, [lineId]: null }));
+        setCartSlotGridByLineId((p) => ({ ...p, [lineId]: null }));
         setCartSlotsLoadingByLineId((p) => ({ ...p, [lineId]: false }));
         continue;
       }
@@ -698,24 +751,30 @@ export default function BookingPage() {
         service_id: String(item.service.id),
       });
 
-      apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
+      apiGet<AvailabilityApiResponse>(`/booking-options/availability/?${params.toString()}`)
         .then((res) => {
           if (cartSlotFetchGenRef.current[lineId] !== gen) return;
-          let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
           const visitDurationMin = Number(item.service.duration_minutes) || 30;
-          slots = slots.filter((slot) => slotChainFitsPublicDayEnd(dateSnapshot, slot, visitDurationMin));
-          setCartSlotsByLineId((p) => ({ ...p, [lineId]: slots }));
+          const { bookableLabels, slotGrid } = normalizeAvailabilityFromResponse(
+            res,
+            dateSnapshot,
+            visitDurationMin,
+          );
+          setCartSlotGridByLineId((p) => ({ ...p, [lineId]: slotGrid }));
+          setCartSlotsByLineId((p) => ({ ...p, [lineId]: bookableLabels }));
         })
         .catch(() => {
           if (cartSlotFetchGenRef.current[lineId] !== gen) return;
-          setCartSlotsByLineId((p) => ({
+          const fb = buildFallbackTimeSlots(
+            dateSnapshot,
+            item.service.service_type,
+            Number(item.service.duration_minutes) || 30,
+          );
+          setCartSlotGridByLineId((p) => ({
             ...p,
-            [lineId]: buildFallbackTimeSlots(
-              dateSnapshot,
-              item.service.service_type,
-              Number(item.service.duration_minutes) || 30,
-            ),
+            [lineId]: fb.map((label) => ({ label, bookable: true })),
           }));
+          setCartSlotsByLineId((p) => ({ ...p, [lineId]: fb }));
         })
         .finally(() => {
           if (cartSlotFetchGenRef.current[lineId] === gen) {
@@ -1037,9 +1096,12 @@ export default function BookingPage() {
     setRescheduleListError("");
     setSmsConsent(false);
     setStep(1);
+    setAvailableSlots(null);
+    setScheduleSlotGrid(null);
     setCartSlotPicksByLineId({});
     setCartCalendarMonthByLineId({});
     setCartSlotsByLineId({});
+    setCartSlotGridByLineId({});
     setCartSlotsLoadingByLineId({});
     setBookingSubmitErrorByLineId({});
     setStep3FocusLineId(null);
@@ -1058,9 +1120,12 @@ export default function BookingPage() {
     setRescheduleSharedPhone(false);
     setSmsConsent(false);
     setStep(1);
+    setAvailableSlots(null);
+    setScheduleSlotGrid(null);
     setCartSlotPicksByLineId({});
     setCartCalendarMonthByLineId({});
     setCartSlotsByLineId({});
+    setCartSlotGridByLineId({});
     setCartSlotsLoadingByLineId({});
     setBookingSubmitErrorByLineId({});
     setStep3FocusLineId(null);
@@ -1172,6 +1237,7 @@ export default function BookingPage() {
     setCartSlotPicksByLineId({});
     setCartCalendarMonthByLineId({});
     setCartSlotsByLineId({});
+    setCartSlotGridByLineId({});
     setCartSlotsLoadingByLineId({});
     setBookingSubmitErrorByLineId({});
     setStep3FocusLineId(null);
@@ -2135,15 +2201,17 @@ export default function BookingPage() {
                       </p>
                     );
                   }
-                  const slotsToShow = availableSlots;
-                  if (slotsToShow.length === 0) {
+                  const displayGrid: SlotGridEntry[] =
+                    scheduleSlotGrid ??
+                    (availableSlots ?? []).map((label) => ({ label, bookable: true }));
+                  if (displayGrid.length === 0) {
                     return (
                       <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                         No open times on this day — try another date or call the clinic.
                       </p>
                     );
                   }
-                  const parseHour = (s: string) => {
+                  const parseHourFromSlot = (s: string) => {
                     const m = s.match(/^(\d+):.*\s*(AM|PM)$/i);
                     if (!m) return 12;
                     let h = parseInt(m[1], 10);
@@ -2151,9 +2219,12 @@ export default function BookingPage() {
                     if (m[2].toUpperCase() === "AM" && h === 12) h = 0;
                     return h;
                   };
-                  const morning = slotsToShow.filter((s) => parseHour(s) < 12);
-                  const afternoon = slotsToShow.filter((s) => { const h = parseHour(s); return h >= 12 && h < 17; });
-                  const evening = slotsToShow.filter((s) => parseHour(s) >= 17);
+                  const morning = displayGrid.filter((e) => parseHourFromSlot(e.label) < 12);
+                  const afternoon = displayGrid.filter((e) => {
+                    const h = parseHourFromSlot(e.label);
+                    return h >= 12 && h < 17;
+                  });
+                  const evening = displayGrid.filter((e) => parseHourFromSlot(e.label) >= 17);
                   const groups = [
                     { label: "Morning", slots: morning, icon: "☀️" },
                     { label: "Afternoon", slots: afternoon, icon: "🌤" },
@@ -2164,10 +2235,12 @@ export default function BookingPage() {
                       {groups.map((group) => (
                         <div key={group.label}>
                           <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
-                            {group.icon} {group.label} · {group.slots.length} {group.slots.length === 1 ? "slot" : "slots"}
+                            {group.icon} {group.label} · {group.slots.length}{" "}
+                            {group.slots.length === 1 ? "slot" : "slots"}
                           </p>
                           <div className="grid gap-2 sm:grid-cols-3">
-                            {group.slots.map((slot) => {
+                            {group.slots.map((entry) => {
+                              const slot = entry.label;
                               const massagePastClose =
                                 effectiveSlotService != null &&
                                 massageReservedBlockExtendsPastPublicClose(
@@ -2179,21 +2252,29 @@ export default function BookingPage() {
                               <button
                                 key={slot}
                                 type="button"
+                                disabled={!entry.bookable}
+                                title={
+                                  !entry.bookable
+                                    ? "This time is not available for this visit length or the schedule is busy — pick another time or the next open day."
+                                    : undefined
+                                }
                                 onClick={() => {
+                                  if (!entry.bookable) return;
                                   setSelectedTime(slot);
                                   setSlotWarning("");
                                   setStep(4);
                                 }}
                                 className={cn(
                                   "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                                  !entry.bookable && "cursor-not-allowed opacity-45",
                                   selectedTime === slot
                                     ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
                                     : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
-                                  massagePastClose && "border-l-4 border-l-amber-500",
+                                  massagePastClose && entry.bookable && "border-l-4 border-l-amber-500",
                                 )}
                               >
                                 <span className="block">{slot}</span>
-                                {massagePastClose ? (
+                                {massagePastClose && entry.bookable ? (
                                   <span className="mt-1 block text-[11px] font-normal leading-snug text-amber-900/90">
                                     Schedule runs past closing
                                   </span>
@@ -2238,7 +2319,10 @@ export default function BookingPage() {
                       monthStored ?? new Date(`${pick.date}T12:00:00`),
                     );
                     const slotsLine = cartSlotsByLineId[item.lineId];
+                    const slotGridLine = cartSlotGridByLineId[item.lineId];
                     const loadingLine = cartSlotsLoadingByLineId[item.lineId];
+                    const displayGridCart: SlotGridEntry[] =
+                      slotGridLine ?? (slotsLine ?? []).map((label) => ({ label, bookable: true }));
                     const parseHour = (s: string) => {
                       const m = s.match(/^(\d+):.*\s*(AM|PM)$/i);
                       if (!m) return 12;
@@ -2247,12 +2331,12 @@ export default function BookingPage() {
                       if (m[2].toUpperCase() === "AM" && h === 12) h = 0;
                       return h;
                     };
-                    const morning = (slotsLine ?? []).filter((s) => parseHour(s) < 12);
-                    const afternoon = (slotsLine ?? []).filter((s) => {
-                      const h = parseHour(s);
+                    const morning = displayGridCart.filter((e) => parseHour(e.label) < 12);
+                    const afternoon = displayGridCart.filter((e) => {
+                      const h = parseHour(e.label);
                       return h >= 12 && h < 17;
                     });
-                    const evening = (slotsLine ?? []).filter((s) => parseHour(s) >= 17);
+                    const evening = displayGridCart.filter((e) => parseHour(e.label) >= 17);
                     const groups = [
                       { label: "Morning", slots: morning, icon: "☀️" },
                       { label: "Afternoon", slots: afternoon, icon: "🌤" },
@@ -2430,7 +2514,7 @@ export default function BookingPage() {
                             <p className="text-sm text-slate-500">Choose a provider in Step 2 to see open times.</p>
                           ) : loadingLine ? null : !Array.isArray(slotsLine) ? (
                             <p className="text-sm text-slate-500">Loading open times…</p>
-                          ) : slotsLine.length === 0 ? (
+                          ) : displayGridCart.length === 0 ? (
                             <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                               No open times on this day — try another date or call the clinic.
                             </p>
@@ -2443,7 +2527,8 @@ export default function BookingPage() {
                                     {group.slots.length === 1 ? "slot" : "slots"}
                                   </p>
                                   <div className="grid gap-2 sm:grid-cols-3">
-                                    {group.slots.map((slot) => {
+                                    {group.slots.map((entry) => {
+                                      const slot = entry.label;
                                       const massagePastClose = massageReservedBlockExtendsPastPublicClose(
                                         pick.date,
                                         slot,
@@ -2453,7 +2538,14 @@ export default function BookingPage() {
                                         <button
                                           key={slot}
                                           type="button"
+                                          disabled={!entry.bookable}
+                                          title={
+                                            !entry.bookable
+                                              ? "This time is not available for this visit length or the schedule is busy — pick another time or the next open day."
+                                              : undefined
+                                          }
                                           onClick={() => {
+                                            if (!entry.bookable) return;
                                             setCartSlotPicksByLineId((p) => ({
                                               ...p,
                                               [item.lineId]: { ...p[item.lineId], time: slot },
@@ -2466,14 +2558,15 @@ export default function BookingPage() {
                                           }}
                                           className={cn(
                                             "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                                            !entry.bookable && "cursor-not-allowed opacity-45",
                                             pick.time === slot
                                               ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
                                               : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
-                                            massagePastClose && "border-l-4 border-l-amber-500",
+                                            massagePastClose && entry.bookable && "border-l-4 border-l-amber-500",
                                           )}
                                         >
                                           <span className="block">{slot}</span>
-                                          {massagePastClose ? (
+                                          {massagePastClose && entry.bookable ? (
                                             <span className="mt-1 block text-[11px] font-normal leading-snug text-amber-900/90">
                                               Schedule runs past closing
                                             </span>
