@@ -26,6 +26,14 @@ function formatBlockLabel(b: BlockRow): string {
   return `${s} – ${e}`;
 }
 
+/** Inclusive day count from YYYY-MM-DD to YYYY-MM-DD (same day = 1). */
+function inclusiveDayCount(fromIso: string, toIso: string): number {
+  const a = new Date(`${fromIso}T12:00:00`);
+  const b = new Date(`${toIso}T12:00:00`);
+  if (b < a) return 0;
+  return Math.round((b.getTime() - a.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+}
+
 export default function AdminBookingBlocksPage() {
   const { runWithFeedback, toast } = useAppFeedback();
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -41,10 +49,13 @@ export default function AdminBookingBlocksPage() {
     return d.toISOString().slice(0, 10);
   }, []);
 
-  const [formDate, setFormDate] = useState(today);
+  const [formDateFrom, setFormDateFrom] = useState(today);
+  const [formDateTo, setFormDateTo] = useState(today);
   const [allDay, setAllDay] = useState(true);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("12:00");
+  /** When adding a range, skip Saturday & Sunday (useful for “every weekday this month”). */
+  const [weekdaysOnly, setWeekdaysOnly] = useState(false);
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
@@ -89,26 +100,46 @@ export default function AdminBookingBlocksPage() {
       toast.error("Choose a provider first.");
       return;
     }
+    if (formDateFrom > formDateTo) {
+      toast.error("End date must be on or after the start date.");
+      return;
+    }
+    if (!allDay && startTime >= endTime) {
+      toast.error("“Until” time must be after “From” time.");
+      return;
+    }
     setAdding(true);
     await runWithFeedback(
       async () => {
+        const pad = (t: string) => (t.length === 5 ? `${t}:00` : t);
         const body: Record<string, unknown> = {
           provider: Number(providerId),
-          block_date: formDate,
+          date_from: formDateFrom,
+          date_to: formDateTo,
           all_day: allDay,
+          weekdays_only: weekdaysOnly,
         };
         if (!allDay) {
-          const pad = (t: string) => (t.length === 5 ? `${t}:00` : t);
           body.start_time = pad(startTime);
           body.end_time = pad(endTime);
         }
-        await apiPost("/provider-unavailability/", body);
+        const result = await apiPost<{ created?: number }>("/provider-unavailability/bulk/", body);
         await loadBlocks();
+        return result;
       },
       {
-        loadingMessage: "Saving block…",
-        successMessage: "Online booking updated for that date.",
-        errorFallback: "Could not add block (owner or staff only).",
+        loadingMessage: "Saving blocks…",
+        successMessage: (result) => {
+          const n = result && typeof result.created === "number" ? result.created : 0;
+          if (n === 0) {
+            return "No days matched (e.g. weekdays-only over a weekend-only range). Nothing was added.";
+          }
+          if (formDateFrom === formDateTo) {
+            return n === 1 ? "Online booking updated for that date." : `Added ${n} block(s) for that date.`;
+          }
+          return `Added ${n} block(s) for the date range.`;
+        },
+        errorFallback: "Could not add blocks (owner or staff only).",
       },
     );
     setAdding(false);
@@ -131,6 +162,8 @@ export default function AdminBookingBlocksPage() {
     );
   };
 
+  const rangeDayCount = inclusiveDayCount(formDateFrom, formDateTo);
+
   return (
     <div className="space-y-6">
       <AdminPageIntro
@@ -138,11 +171,17 @@ export default function AdminBookingBlocksPage() {
         description="By default every provider can be booked on the public site whenever a slot is free. Add blocks here to mark specific dates or hours as unavailable for online booking—patients will only see open times."
         pageHelp={
           <>
-            <strong>Whole day off:</strong> check “Block entire day” so no standard times show for that doctor on that date.
+            <strong>Date range:</strong> set <em>From</em> and <em>To</em> to the same day for a single block, or spread
+            across weeks to repeat the same window every day (e.g. lunch 9:00–9:30 for a month). Use{" "}
+            <strong>Weekdays only</strong> to skip Saturdays and Sundays.
             <br />
             <br />
-            <strong>Part of the day:</strong> uncheck and set start/end times (desk appointments can still be added from the
-            schedule if your workflow allows).
+            <strong>Whole day off:</strong> check “Block entire day” so no standard times show for that doctor on each
+            date in the range.
+            <br />
+            <br />
+            <strong>Part of the day:</strong> uncheck and set start/end times (desk appointments can still be added from
+            the schedule if your workflow allows).
             <br />
             <br />
             Only <strong>owner</strong> and <strong>staff</strong> accounts can change this list.
@@ -174,16 +213,50 @@ export default function AdminBookingBlocksPage() {
         {providerId ? (
           <>
             <div className="rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4">
-              <p className="text-sm font-semibold text-slate-800">Add a block</p>
+              <p className="text-sm font-semibold text-slate-800">Add a block (single day or date range)</p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <label className="sm:col-span-2">
-                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Date</span>
+                <label>
+                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    From date
+                  </span>
                   <input
                     type="date"
-                    value={formDate}
-                    onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full max-w-xs rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    value={formDateFrom}
+                    onChange={(e) => setFormDateFrom(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    To date
+                  </span>
+                  <input
+                    type="date"
+                    value={formDateTo}
+                    min={formDateFrom}
+                    onChange={(e) => setFormDateTo(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <p className="text-xs text-slate-500 sm:col-span-2">
+                  Same start and end = one day. Different dates = one identical block per calendar day (max 400 days).
+                  {formDateFrom <= formDateTo ? (
+                    <span className="ml-1 font-medium text-slate-700">
+                      Selected span: {rangeDayCount} calendar day{rangeDayCount === 1 ? "" : "s"}.
+                    </span>
+                  ) : null}
+                </p>
+                <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={weekdaysOnly}
+                    onChange={(e) => setWeekdaysOnly(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-[#16a349]"
+                  />
+                  <span className="text-sm font-medium text-slate-800">Weekdays only (Mon–Fri)</span>
+                  <HelpTip label="Weekdays only">
+                    Skips Saturday and Sunday in the range. Handy for “every weekday for a month” without weekend rows.
+                  </HelpTip>
                 </label>
                 <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
                   <input
@@ -194,7 +267,7 @@ export default function AdminBookingBlocksPage() {
                   />
                   <span className="text-sm font-medium text-slate-800">Block entire day for online booking</span>
                   <HelpTip label="All day">
-                    Hides every standard booking time for this provider on that calendar date.
+                    Hides every standard booking time for this provider on each calendar date in the range.
                   </HelpTip>
                 </label>
                 {!allDay && (
@@ -230,7 +303,7 @@ export default function AdminBookingBlocksPage() {
                 onClick={() => void addBlock()}
                 className="mt-4 rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
               >
-                {adding ? "Saving…" : "Add block"}
+                {adding ? "Saving…" : formDateFrom === formDateTo ? "Add block" : "Add blocks for date range"}
               </button>
             </div>
 
