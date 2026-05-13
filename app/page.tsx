@@ -167,46 +167,90 @@ function lastWeekdayOnOrBefore(maxIso: string): string {
   return toLocalISODate(d);
 }
 
-/** Closing minute for online booking (visits must end by this time): Friday 4:00 PM, else 6:00 PM — matches server policy. */
+/** First bookable minute for online booking (matches API policy). Friday 7:00 both lines; else chiro 8 / massage 9. */
+function publicBookingOpenMinutes(dateIso: string, serviceType: "chiropractic" | "massage" | undefined): number {
+  const d = new Date(`${dateIso}T12:00:00`);
+  if (d.getDay() === 5) return 7 * 60;
+  return serviceType === "massage" ? 9 * 60 : 8 * 60;
+}
+
+/** Closing minute for online booking (visit must *end* by this time): Friday 4:00 PM, else 6:00 PM — matches server. */
 function publicBookingDayEndMinutes(dateIso: string): number {
   const d = new Date(`${dateIso}T12:00:00`);
   return d.getDay() === 5 ? 16 * 60 : 18 * 60;
 }
 
-/** True if a slot start + visit length (minutes) ends by public closing (same rule as API: start + span <= dayEnd). */
-function slotChainFitsPublicDayEnd(dateIso: string, slot: string, spanMinutes: number): boolean {
-  // Coerce: JSON or state can surface duration as a string; mixing string + number in JS can concatenate and break comparisons.
-  const span = Number(spanMinutes);
-  if (!Number.isFinite(span) || span < 0) return true;
-  const dayEnd = publicBookingDayEndMinutes(dateIso);
+/** Parses labels like "9:00 AM" / "5:45 PM" from the API into minutes from midnight (local policy day). */
+function parsePublicSlotLabelToMinutes(slot: string): number | null {
   const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!m) return true;
+  if (!m) return null;
   let h = parseInt(m[1], 10);
   const min = parseInt(m[2], 10);
   const ap = m[3].toUpperCase();
   if (ap === "PM" && h !== 12) h += 12;
   if (ap === "AM" && h === 12) h = 0;
-  return h * 60 + min + span <= dayEnd;
+  return h * 60 + min;
+}
+
+/** Human-readable closing time for messages (matches `publicBookingDayEndMinutes`). */
+function formatPublicClosingLabel(dateIso: string): string {
+  const total = publicBookingDayEndMinutes(dateIso);
+  const h24 = Math.floor(total / 60);
+  const min = total % 60;
+  const isPm = h24 >= 12;
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(min).padStart(2, "0")} ${isPm ? "PM" : "AM"}`;
 }
 
 /**
- * Last-resort slots if the availability API errors — same Fri 4 PM / Mon–Thu 6 PM rule as the server.
- * All service types: 15-minute start grid; massage spans duration + post-visit buffer on the calendar.
+ * Massage only: the calendar holds visit length plus a short tail after you leave.
+ * If that full block runs past our posted closing, we warn the patient (visit still ends on time; tail is turnover).
+ */
+function massageReservedBlockExtendsPastPublicClose(
+  dateIso: string,
+  slot: string,
+  service: Pick<ServiceOption, "service_type" | "duration_minutes">,
+): boolean {
+  if (service.service_type !== "massage") return false;
+  const start = parsePublicSlotLabelToMinutes(slot);
+  if (start === null) return false;
+  const span = Number(service.duration_minutes) + MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES;
+  return start + span > publicBookingDayEndMinutes(dateIso);
+}
+
+function massagePastClosingScheduleMessage(dateIso: string): string {
+  const close = formatPublicClosingLabel(dateIso);
+  return (
+    `This start time keeps the room and therapist on the schedule until after ${close} (we add ${MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes after massages for cleanup). ` +
+    `If you need to be fully finished before closing, pick an earlier time today or book on our next open day.`
+  );
+}
+
+/** True if slot start + visit duration ends by public closing (treatment end only; not massage calendar buffer). */
+function slotChainFitsPublicDayEnd(dateIso: string, slot: string, durationMinutes: number): boolean {
+  const duration = Math.max(5, Number(durationMinutes) || 30);
+  const dayEnd = publicBookingDayEndMinutes(dateIso);
+  const start = parsePublicSlotLabelToMinutes(slot);
+  if (start === null) return true;
+  return start + duration <= dayEnd;
+}
+
+/**
+ * Last-resort slots if the availability API errors — same rules as the server (Fri 7–4 both; Mon–Thu chiro 8 / massage 9 to 6).
+ * Last start uses visit duration only (massage buffer does not shorten the day).
  */
 function buildFallbackTimeSlots(
   dateIso: string,
   serviceType: "chiropractic" | "massage" | undefined,
   durationMinutes: number,
 ): string[] {
-  const openMin = serviceType === "massage" ? 9 * 60 : 8 * 60;
+  const openMin = publicBookingOpenMinutes(dateIso, serviceType);
   const closeMin = publicBookingDayEndMinutes(dateIso);
   const duration = Math.max(5, Number(durationMinutes) || 30);
   const step = 15;
-  const span =
-    duration + (serviceType === "massage" ? MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES : 0);
   if (openMin >= closeMin) return [];
   const out: string[] = [];
-  for (let t = openMin; t + span <= closeMin; t += step) {
+  for (let t = openMin; t + duration <= closeMin; t += step) {
     const h24 = Math.floor(t / 60);
     const m = t % 60;
     const suffix = h24 < 12 ? "AM" : "PM";
@@ -311,6 +355,7 @@ export default function BookingPage() {
   const [phone, setPhone] = useState<string | undefined>(undefined);
   const [email, setEmail] = useState("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
+  /** Reschedule: server conflict (e.g. slot taken) when sent back to step 3 — not used for massage closing hints (those are derived). */
   const [slotWarning, setSlotWarning] = useState("");
   const [bookingMessage, setBookingMessage] = useState("");
   const [bookingMessageKind, setBookingMessageKind] = useState<"success" | "error">("success");
@@ -571,9 +616,9 @@ export default function BookingPage() {
     apiGet<{ available_slots: string[] }>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
         let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
-        // Enforce public closing client-side; span matches API (massage includes post-visit calendar buffer).
-        const spanForDayEnd = publicBookingCalendarSpanMinutes(effectiveSlotService);
-        slots = slots.filter((slot) => slotChainFitsPublicDayEnd(selectedDate, slot, spanForDayEnd));
+        // Enforce public closing client-side (visit end by close; massage buffer does not trim last starts).
+        const visitDurationMin = Number(effectiveSlotService.duration_minutes) || 30;
+        slots = slots.filter((slot) => slotChainFitsPublicDayEnd(selectedDate, slot, visitDurationMin));
         setAvailableSlots(slots);
         setSlotWarning("");
       })
@@ -638,8 +683,8 @@ export default function BookingPage() {
         .then((res) => {
           if (cartSlotFetchGenRef.current[lineId] !== gen) return;
           let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
-          const spanForDayEnd = publicBookingCalendarSpanMinutes(item.service);
-          slots = slots.filter((slot) => slotChainFitsPublicDayEnd(dateSnapshot, slot, spanForDayEnd));
+          const visitDurationMin = Number(item.service.duration_minutes) || 30;
+          slots = slots.filter((slot) => slotChainFitsPublicDayEnd(dateSnapshot, slot, visitDurationMin));
           setCartSlotsByLineId((p) => ({ ...p, [lineId]: slots }));
         })
         .catch(() => {
@@ -2009,7 +2054,10 @@ export default function BookingPage() {
                               key={iso}
                               type="button"
                               disabled={isDisabled}
-                              onClick={() => setSelectedDate(iso)}
+                              onClick={() => {
+                                setSelectedDate(iso);
+                                setSlotWarning("");
+                              }}
                               className={cn(
                                 "relative flex h-9 w-full items-center justify-center rounded-lg text-xs font-medium transition-all sm:h-11 sm:text-sm",
                                 isDisabled
@@ -2045,7 +2093,9 @@ export default function BookingPage() {
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
                   Online booking is <strong className="font-medium text-slate-700">Monday–Friday</strong> only (closed
-                  weekends). Chiropractic: 8:00 AM–6:00 PM; massage: 9:00 AM–6:00 PM;{" "}
+                  weekends). Chiropractic: 8:00 AM–6:00 PM (start times every 15 minutes; your visit ends by 6:00 PM);
+                  massage: 9:00 AM–6:00 PM (same 15-minute starts; we also block{" "}
+                  {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes after massages on the schedule).{" "}
                   <strong className="font-medium text-slate-700">Friday we close at 4:00 PM</strong>. Times shown match
                   your visit type and the schedule.
                 </p>
@@ -2054,6 +2104,15 @@ export default function BookingPage() {
               {/* Time slots grouped by period */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
+                {effectiveSlotService?.service_type === "massage" && (
+                  <p className="mb-2 text-xs leading-relaxed text-slate-600">
+                    <strong className="font-medium text-slate-800">Massage:</strong> start times are every 15 minutes.
+                    We also block {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes <em>after</em> your visit on the schedule
+                    (cleanup). Any slot that says <strong className="font-medium text-slate-800">Schedule runs past closing</strong>{" "}
+                    keeps the room on the books until after {formatPublicClosingLabel(selectedDate)} — choose an earlier
+                    time or another day if you need to be fully done before closing.
+                  </p>
+                )}
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
                   if (slotsLoading) {
@@ -2098,29 +2157,63 @@ export default function BookingPage() {
                             {group.icon} {group.label} · {group.slots.length} {group.slots.length === 1 ? "slot" : "slots"}
                           </p>
                           <div className="grid gap-2 sm:grid-cols-3">
-                            {group.slots.map((slot) => (
+                            {group.slots.map((slot) => {
+                              const massagePastClose =
+                                effectiveSlotService != null &&
+                                massageReservedBlockExtendsPastPublicClose(
+                                  selectedDate,
+                                  slot,
+                                  effectiveSlotService,
+                                );
+                              return (
                               <button
                                 key={slot}
                                 type="button"
-                                onClick={() => { setSelectedTime(slot); setSlotWarning(""); setStep(4); }}
+                                onClick={() => {
+                                  setSelectedTime(slot);
+                                  setSlotWarning("");
+                                  setStep(4);
+                                }}
                                 className={cn(
                                   "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
                                   selectedTime === slot
                                     ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
                                     : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
+                                  massagePastClose && "border-l-4 border-l-amber-500",
                                 )}
                               >
-                                {slot}
+                                <span className="block">{slot}</span>
+                                {massagePastClose ? (
+                                  <span className="mt-1 block text-[11px] font-normal leading-snug text-amber-900/90">
+                                    Schedule runs past closing
+                                  </span>
+                                ) : null}
                               </button>
-                            ))}
+                            );
+                            })}
                           </div>
                         </div>
                       ))}
                     </div>
                   );
                 })()}
+                {effectiveSlotService &&
+                  !slotsLoading &&
+                  Array.isArray(availableSlots) &&
+                  availableSlots.includes(selectedTime) &&
+                  massageReservedBlockExtendsPastPublicClose(
+                    selectedDate,
+                    selectedTime,
+                    effectiveSlotService,
+                  ) && (
+                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+                      {massagePastClosingScheduleMessage(selectedDate)}
+                    </p>
+                  )}
+                {slotWarning ? (
+                  <p className="mt-3 text-sm font-medium text-rose-700">{slotWarning}</p>
+                ) : null}
               </div>
-              {slotWarning && <p className="text-sm font-medium text-rose-700">{slotWarning}</p>}
               </>
               )}
 
@@ -2320,6 +2413,15 @@ export default function BookingPage() {
 
                         <div className="mt-4">
                           <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
+                          {item.service.service_type === "massage" && (
+                            <p className="mb-2 text-xs leading-relaxed text-slate-600">
+                              <strong className="font-medium text-slate-800">Massage:</strong> 15-minute start times; we
+                              also block {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes after your visit on the schedule.
+                              Slots marked <strong className="font-medium text-slate-800">Schedule runs past closing</strong>{" "}
+                              use time after {formatPublicClosingLabel(pick.date)} — pick an earlier time or another day
+                              if you need to be finished before closing.
+                            </p>
+                          )}
                           {loadingLine && (
                             <Loader variant="dots" label="Checking availability…" className="mb-2" />
                           )}
@@ -2340,42 +2442,64 @@ export default function BookingPage() {
                                     {group.slots.length === 1 ? "slot" : "slots"}
                                   </p>
                                   <div className="grid gap-2 sm:grid-cols-3">
-                                    {group.slots.map((slot) => (
-                                      <button
-                                        key={slot}
-                                        type="button"
-                                        onClick={() => {
-                                          setCartSlotPicksByLineId((p) => ({
-                                            ...p,
-                                            [item.lineId]: { ...p[item.lineId], time: slot },
-                                          }));
-                                          setBookingSubmitErrorByLineId((e) => {
-                                            const n = { ...e };
-                                            delete n[item.lineId];
-                                            return n;
-                                          });
-                                        }}
-                                        className={cn(
-                                          "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
-                                          pick.time === slot
-                                            ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
-                                            : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
-                                        )}
-                                      >
-                                        {slot}
-                                      </button>
-                                    ))}
+                                    {group.slots.map((slot) => {
+                                      const massagePastClose = massageReservedBlockExtendsPastPublicClose(
+                                        pick.date,
+                                        slot,
+                                        item.service,
+                                      );
+                                      return (
+                                        <button
+                                          key={slot}
+                                          type="button"
+                                          onClick={() => {
+                                            setCartSlotPicksByLineId((p) => ({
+                                              ...p,
+                                              [item.lineId]: { ...p[item.lineId], time: slot },
+                                            }));
+                                            setBookingSubmitErrorByLineId((e) => {
+                                              const n = { ...e };
+                                              delete n[item.lineId];
+                                              return n;
+                                            });
+                                          }}
+                                          className={cn(
+                                            "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                                            pick.time === slot
+                                              ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
+                                              : "border-border/90 hover:border-primary/30 hover:bg-muted/40",
+                                            massagePastClose && "border-l-4 border-l-amber-500",
+                                          )}
+                                        >
+                                          <span className="block">{slot}</span>
+                                          {massagePastClose ? (
+                                            <span className="mt-1 block text-[11px] font-normal leading-snug text-amber-900/90">
+                                              Schedule runs past closing
+                                            </span>
+                                          ) : null}
+                                        </button>
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               ))}
                             </div>
                           )}
+                          {item.service.service_type === "massage" &&
+                            Array.isArray(slotsLine) &&
+                            slotsLine.includes(pick.time) &&
+                            massageReservedBlockExtendsPastPublicClose(pick.date, pick.time, item.service) && (
+                              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+                                {massagePastClosingScheduleMessage(pick.date)}
+                              </p>
+                            )}
                         </div>
                       </div>
                     );
                   })}
                   <p className="text-xs text-slate-500">
-                    Mon–Fri only · Chiro from 8:00 AM · Massage from 9:00 AM · Fri closes 4:00 PM
+                    Mon–Fri only · Chiro 8:00 AM (15-min starts, visit ends by close) · Massage 9:00 AM (+{" "}
+                    {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} min after on schedule) · Fri closes 4:00 PM
                   </p>
                 </div>
               )}
@@ -2403,6 +2527,12 @@ export default function BookingPage() {
                   {formatWeekdayMonthDayYear(reschedulePick.appointment_date)} at {reschedulePick.start_time}
                 </p>
               </div>
+              {effectiveSlotService &&
+                massageReservedBlockExtendsPastPublicClose(selectedDate, selectedTime, effectiveSlotService) && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+                    {massagePastClosingScheduleMessage(selectedDate)}
+                  </div>
+                )}
               <div className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
                 <Checkbox
                   id="sms-consent-reschedule"
@@ -2498,6 +2628,13 @@ export default function BookingPage() {
                                 </dd>
                               </div>
                             </dl>
+                            {pick?.date &&
+                              pick?.time &&
+                              massageReservedBlockExtendsPastPublicClose(pick.date, pick.time, item.service) && (
+                                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-relaxed text-amber-950">
+                                  {massagePastClosingScheduleMessage(pick.date)}
+                                </p>
+                              )}
                           </div>
                           <button
                             type="button"

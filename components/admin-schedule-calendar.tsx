@@ -135,8 +135,12 @@ function AppointmentBlockDecor({ status }: { status: string }) {
   return null;
 }
 
-/** Total height for 7am–7pm grid (taller = more readable; ~107px per hour at 1280). */
-const GRID_PX = 1280;
+/**
+ * Total pixel height for the 7am–7pm grid (12 hours). Larger = taller blocks.
+ * At 2688px, a 15-minute slot is ~56px tall so time range + patient name match longer visits.
+ * (Previously 1280px → ~27px per 15 min, which hid the name row.)
+ */
+const GRID_PX = 2688;
 
 /** Header row above the time grid — must match provider/day column headers so times line up with blocks. */
 const SCHEDULE_GRID_HEADER_MIN_PX = 52;
