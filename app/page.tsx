@@ -180,6 +180,23 @@ function publicBookingDayEndMinutes(dateIso: string): number {
   return d.getDay() === 5 ? 16 * 60 : 18 * 60;
 }
 
+/** 15-minute public start grid (matches API `CHIRO_PUBLIC_BOOKING_SLOT_STEP_MINUTES`). */
+const PUBLIC_BOOKING_SLOT_STEP_MIN = 15;
+
+/**
+ * Inclusive last 15-minute *start* on the public grid: 5:45 PM Mon–Thu, 3:45 PM Fri — capped by close − one step.
+ * Matches `public_booking_last_slot_start_minute` in the API.
+ */
+function publicBookingLastSlotStartMinutes(dateIso: string): number {
+  const d = new Date(`${dateIso}T12:00:00`);
+  const dow = d.getDay();
+  const closeMin = publicBookingDayEndMinutes(dateIso);
+  const capByClose = closeMin - PUBLIC_BOOKING_SLOT_STEP_MIN;
+  if (dow === 0 || dow === 6) return capByClose;
+  const policyLast = dow === 5 ? 15 * 60 + 45 : 17 * 60 + 45;
+  return Math.min(policyLast, capByClose);
+}
+
 /** Parses labels like "9:00 AM" / "5:45 PM" from the API into minutes from midnight (local policy day). */
 function parsePublicSlotLabelToMinutes(slot: string): number | null {
   const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
@@ -236,8 +253,8 @@ function slotChainFitsPublicDayEnd(dateIso: string, slot: string, durationMinute
 }
 
 /**
- * Last-resort slots if the availability API errors — same rules as the server (Fri 7–4 both; Mon–Thu chiro 8 / massage 9 to 6).
- * Last start uses visit duration only (massage buffer does not shorten the day).
+ * Last-resort slots if the availability API errors — same rules as the server: 15-min grid through 5:45 Mon–Thu
+ * (3:45 Fri); a slot is listed only if the visit ends by closing (duration × 15-min blocks).
  */
 function buildFallbackTimeSlots(
   dateIso: string,
@@ -247,10 +264,12 @@ function buildFallbackTimeSlots(
   const openMin = publicBookingOpenMinutes(dateIso, serviceType);
   const closeMin = publicBookingDayEndMinutes(dateIso);
   const duration = Math.max(5, Number(durationMinutes) || 30);
-  const step = 15;
-  if (openMin >= closeMin) return [];
+  const step = PUBLIC_BOOKING_SLOT_STEP_MIN;
+  const lastSlotStart = publicBookingLastSlotStartMinutes(dateIso);
+  if (openMin >= closeMin || openMin > lastSlotStart) return [];
   const out: string[] = [];
-  for (let t = openMin; t + duration <= closeMin; t += step) {
+  for (let t = openMin; t <= lastSlotStart; t += step) {
+    if (t + duration > closeMin) continue;
     const h24 = Math.floor(t / 60);
     const m = t % 60;
     const suffix = h24 < 12 ? "AM" : "PM";
@@ -2104,15 +2123,6 @@ export default function BookingPage() {
               {/* Time slots grouped by period */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
-                {effectiveSlotService?.service_type === "massage" && (
-                  <p className="mb-2 text-xs leading-relaxed text-slate-600">
-                    <strong className="font-medium text-slate-800">Massage:</strong> start times are every 15 minutes.
-                    We also block {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes <em>after</em> your visit on the schedule
-                    (cleanup). Any slot that says <strong className="font-medium text-slate-800">Schedule runs past closing</strong>{" "}
-                    keeps the room on the books until after {formatPublicClosingLabel(selectedDate)} — choose an earlier
-                    time or another day if you need to be fully done before closing.
-                  </p>
-                )}
                 {slotsLoading && <Loader variant="dots" label="Checking availability…" className="mb-2" />}
                 {(() => {
                   if (slotsLoading) {
@@ -2413,15 +2423,6 @@ export default function BookingPage() {
 
                         <div className="mt-4">
                           <label className="mb-2 block text-sm font-semibold text-slate-700">Available time</label>
-                          {item.service.service_type === "massage" && (
-                            <p className="mb-2 text-xs leading-relaxed text-slate-600">
-                              <strong className="font-medium text-slate-800">Massage:</strong> 15-minute start times; we
-                              also block {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes after your visit on the schedule.
-                              Slots marked <strong className="font-medium text-slate-800">Schedule runs past closing</strong>{" "}
-                              use time after {formatPublicClosingLabel(pick.date)} — pick an earlier time or another day
-                              if you need to be finished before closing.
-                            </p>
-                          )}
                           {loadingLine && (
                             <Loader variant="dots" label="Checking availability…" className="mb-2" />
                           )}
@@ -2497,10 +2498,6 @@ export default function BookingPage() {
                       </div>
                     );
                   })}
-                  <p className="text-xs text-slate-500">
-                    Mon–Fri only · Chiro 8:00 AM (15-min starts, visit ends by close) · Massage 9:00 AM (+{" "}
-                    {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} min after on schedule) · Fri closes 4:00 PM
-                  </p>
                 </div>
               )}
             </div>
