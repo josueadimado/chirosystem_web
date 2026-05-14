@@ -223,8 +223,9 @@ function formatPublicClosingLabel(dateIso: string): string {
 }
 
 /**
- * Massage only: the calendar holds visit length plus a short tail after you leave.
- * If that full block runs past our posted closing, we warn the patient (visit still ends on time; tail is turnover).
+ * Massage only: true when the **patient visit** (hands-on minutes only) would end after posted online closing.
+ * Staff turnover after massages is kept on the calendar for overlap checks, but it must not block or warn a slot
+ * that still finishes by closing (e.g. 5:00 PM + 60 min → 6:00 PM when we close at 6:00 PM).
  */
 function massageReservedBlockExtendsPastPublicClose(
   dateIso: string,
@@ -234,16 +235,13 @@ function massageReservedBlockExtendsPastPublicClose(
   if (service.service_type !== "massage") return false;
   const start = parsePublicSlotLabelToMinutes(slot);
   if (start === null) return false;
-  const span = Number(service.duration_minutes) + MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES;
-  return start + span > publicBookingDayEndMinutes(dateIso);
+  const duration = Math.max(5, Number(service.duration_minutes) || 30);
+  return start + duration > publicBookingDayEndMinutes(dateIso);
 }
 
 function massagePastClosingScheduleMessage(dateIso: string): string {
   const close = formatPublicClosingLabel(dateIso);
-  return (
-    `This start time keeps the room and therapist on the schedule until after ${close} (we add ${MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes after massages for cleanup). ` +
-    `If you need to be fully finished before closing, pick an earlier time today or book on our next open day.`
-  );
+  return `This visit would end after our ${close} closing time for online booking. Pick an earlier start time or another open day.`;
 }
 
 /** True if slot start + visit duration ends by public closing (treatment end only; not massage calendar buffer). */
@@ -2179,8 +2177,8 @@ export default function BookingPage() {
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
                   Online booking is <strong className="font-medium text-slate-700">Monday–Friday</strong> only (closed
                   weekends). Chiropractic: 8:00 AM–6:00 PM (start times every 15 minutes; your visit ends by 6:00 PM);
-                  massage: 9:00 AM–6:00 PM (same 15-minute starts; we also block{" "}
-                  {MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES} minutes after massages on the schedule).{" "}
+                  massage: 9:00 AM–6:00 PM (same 15-minute starts; your visit ends by closing — extra minutes after
+                  massages are for staff scheduling only, not added to your visit length for booking).{" "}
                   <strong className="font-medium text-slate-700">Friday we close at 4:00 PM</strong>. Times shown match
                   your visit type and the schedule.
                 </p>
