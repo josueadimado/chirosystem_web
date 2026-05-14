@@ -774,51 +774,6 @@ function DayProviderColumn({
           );
         })}
 
-        {openGaps.map((g, i) => {
-          const dur = g.endMin - g.startMin;
-          const { topPct, heightPct } = timePositionPercent(g.startMin, dur);
-          const labelRange = formatIntervalLabel(g.startMin, g.endMin);
-          if (onPickOpenSlot) {
-            return (
-              <button
-                key={`gap-${i}`}
-                type="button"
-                className="group absolute left-1 right-1 z-[2] cursor-pointer rounded-md border border-transparent text-left transition hover:border-emerald-300/60 hover:bg-emerald-500/[0.09] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]"
-                style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
-                title={`Book here · ${labelRange} · ${dur} min free`}
-                aria-label={`Book appointment in open time ${labelRange}`}
-                onClick={(e) => {
-                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                  const startMinute = snapOpenSlotStartMinute(e.clientY, r, g.startMin, g.endMin);
-                  onPickOpenSlot({
-                    providerId: provider.id,
-                    providerName: provider.provider_name,
-                    dateIso: _isoDate,
-                    startMinute,
-                  });
-                }}
-              >
-                <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block group-focus-visible:block">
-                  Click to book · {labelRange}
-                </span>
-              </button>
-            );
-          }
-          return (
-            <div
-              key={`gap-${i}`}
-              className="group absolute left-1 right-1 z-[2] cursor-default"
-              style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
-              title={`Open · ${labelRange} · ${dur} min available`}
-            >
-              <div className="h-full w-full rounded-md bg-emerald-500/0 transition group-hover:bg-emerald-500/[0.07]" />
-              <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block">
-                Open · {labelRange} · {dur} min available
-              </div>
-            </div>
-          );
-        })}
-
         <div className="absolute inset-0 z-[3] overflow-x-auto overflow-y-hidden">
           <div className="relative h-full min-w-full" style={{ width: innerMinW }}>
             {appointments.map((a) => {
@@ -892,9 +847,54 @@ function DayProviderColumn({
           </div>
         </div>
 
+        {openGaps.map((g, i) => {
+          const dur = g.endMin - g.startMin;
+          const { topPct, heightPct } = timePositionPercent(g.startMin, dur);
+          const labelRange = formatIntervalLabel(g.startMin, g.endMin);
+          if (onPickOpenSlot) {
+            return (
+              <button
+                key={`gap-${i}`}
+                type="button"
+                className="group absolute left-1 right-1 z-[6] cursor-pointer rounded-md border border-transparent text-left transition hover:border-emerald-300/60 hover:bg-emerald-500/[0.09] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]"
+                style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
+                title={`Book here · ${labelRange} · ${dur} min free`}
+                aria-label={`Book appointment in open time ${labelRange}`}
+                onClick={(e) => {
+                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                  const startMinute = snapOpenSlotStartMinute(e.clientY, r, g.startMin, g.endMin);
+                  onPickOpenSlot({
+                    providerId: provider.id,
+                    providerName: provider.provider_name,
+                    dateIso: _isoDate,
+                    startMinute,
+                  });
+                }}
+              >
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block group-focus-visible:block">
+                  Click to book · {labelRange}
+                </span>
+              </button>
+            );
+          }
+          return (
+            <div
+              key={`gap-${i}`}
+              className="group pointer-events-none absolute left-1 right-1 z-[6]"
+              style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
+              title={`Open · ${labelRange} · ${dur} min available`}
+            >
+              <div className="h-full w-full rounded-md bg-emerald-500/0 transition group-hover:bg-emerald-500/[0.07]" />
+              <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block">
+                Open · {labelRange} · {dur} min available
+              </div>
+            </div>
+          );
+        })}
+
         {nowPct != null && (
           <div
-            className="pointer-events-none absolute left-0 right-0 z-[5]"
+            className="pointer-events-none absolute left-0 right-0 z-[12]"
             style={{ top: `${nowPct}%` }}
             aria-hidden
           >
