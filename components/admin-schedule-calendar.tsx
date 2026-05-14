@@ -170,6 +170,17 @@ function scheduleHoverFromClientY(
   return { topPct, label: minutesToLabel(clampedM) };
 }
 
+/** Snap a click inside an open-gap rectangle to a 15-minute start minute within [gapStart, gapEnd). */
+function snapOpenSlotStartMinute(clientY: number, gapRect: DOMRect, gapStartMin: number, gapEndMin: number): number {
+  const step = 15;
+  const h = Math.max(gapRect.height, 1);
+  const frac = Math.max(0, Math.min(1, (clientY - gapRect.top) / h));
+  const continuous = gapStartMin + frac * (gapEndMin - gapStartMin);
+  let snapped = Math.round(continuous / step) * step;
+  const maxStart = Math.max(gapStartMin, gapEndMin - step);
+  return Math.max(gapStartMin, Math.min(snapped, maxStart));
+}
+
 /** Hour (strong), half-hour, quarter-hour lines + alternating hour wash. */
 function ScheduleGridBackground({ hours }: { hours: number }) {
   const hourPct = 100 / hours;
@@ -389,6 +400,16 @@ type CalendarProps = {
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
   onPickDayInMonth: (d: Date) => void;
+  /**
+   * Day view only: click an open (unbooked) strip to book — start time snaps to the nearest 15 minutes
+   * under the cursor within that open range.
+   */
+  onPickOpenSlot?: (pick: {
+    providerId: number;
+    providerName: string;
+    dateIso: string;
+    startMinute: number;
+  }) => void;
 };
 
 export function AdminScheduleCalendar({
@@ -401,6 +422,7 @@ export function AdminScheduleCalendar({
   selectedId,
   onSelect,
   onPickDayInMonth,
+  onPickOpenSlot,
 }: CalendarProps) {
   const [nowTick, setNowTick] = useState(0);
   useEffect(() => {
@@ -447,6 +469,7 @@ export function AdminScheduleCalendar({
           selectedId={selectedId}
           onSelect={onSelect}
           nowPct={nowPct}
+          onPickOpenSlot={onPickOpenSlot}
         />
       )}
 
@@ -591,6 +614,7 @@ function DayGrid({
   selectedId,
   onSelect,
   nowPct,
+  onPickOpenSlot,
 }: {
   focusDate: Date;
   providers: ProviderRow[];
@@ -599,6 +623,7 @@ function DayGrid({
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
   nowPct: number | null;
+  onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
 }) {
   const iso = toIsoDate(focusDate);
 
@@ -617,6 +642,7 @@ function DayGrid({
               selectedId={selectedId}
               onSelect={onSelect}
               nowPct={nowPct}
+              onPickOpenSlot={onPickOpenSlot}
             />
           ))}
         </div>
@@ -633,6 +659,7 @@ function DayProviderColumn({
   selectedId,
   onSelect,
   nowPct,
+  onPickOpenSlot,
 }: {
   provider: ProviderRow;
   isoDate: string;
@@ -641,6 +668,7 @@ function DayProviderColumn({
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
   nowPct: number | null;
+  onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
 }) {
   const base = providerColorForId(provider.id);
 
@@ -749,16 +777,43 @@ function DayProviderColumn({
         {openGaps.map((g, i) => {
           const dur = g.endMin - g.startMin;
           const { topPct, heightPct } = timePositionPercent(g.startMin, dur);
+          const labelRange = formatIntervalLabel(g.startMin, g.endMin);
+          if (onPickOpenSlot) {
+            return (
+              <button
+                key={`gap-${i}`}
+                type="button"
+                className="group absolute left-1 right-1 z-[2] cursor-pointer rounded-md border border-transparent text-left transition hover:border-emerald-300/60 hover:bg-emerald-500/[0.09] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]"
+                style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
+                title={`Book here · ${labelRange} · ${dur} min free`}
+                aria-label={`Book appointment in open time ${labelRange}`}
+                onClick={(e) => {
+                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                  const startMinute = snapOpenSlotStartMinute(e.clientY, r, g.startMin, g.endMin);
+                  onPickOpenSlot({
+                    providerId: provider.id,
+                    providerName: provider.provider_name,
+                    dateIso: _isoDate,
+                    startMinute,
+                  });
+                }}
+              >
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block group-focus-visible:block">
+                  Click to book · {labelRange}
+                </span>
+              </button>
+            );
+          }
           return (
             <div
               key={`gap-${i}`}
               className="group absolute left-1 right-1 z-[2] cursor-default"
               style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
-              title={`Open · ${formatIntervalLabel(g.startMin, g.endMin)} · ${dur} min available`}
+              title={`Open · ${labelRange} · ${dur} min available`}
             >
               <div className="h-full w-full rounded-md bg-emerald-500/0 transition group-hover:bg-emerald-500/[0.07]" />
               <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block">
-                Open · {formatIntervalLabel(g.startMin, g.endMin)} · {dur} min available
+                Open · {labelRange} · {dur} min available
               </div>
             </div>
           );

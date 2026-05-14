@@ -7,6 +7,7 @@ import {
   schedulePeriodLabel,
   type ProviderBlock,
 } from "@/components/admin-schedule-calendar";
+import { AdminDeskBookFromSlotModal, type DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
 import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
@@ -290,6 +291,8 @@ function AdminSchedulePageContent() {
   const [bnSlotsLoading, setBnSlotsLoading] = useState(false);
   const [savingBookNext, setSavingBookNext] = useState(false);
 
+  const [deskBookSeed, setDeskBookSeed] = useState<DeskBookSlotSeed | null>(null);
+
   const navSigRef = useRef<{
     view: ScheduleViewMode;
     focusMs: number;
@@ -393,6 +396,10 @@ function AdminSchedulePageContent() {
       setSelected(null);
     }
   }, [view, focusDate, providerFilter, statusFilter]);
+
+  useEffect(() => {
+    if (view !== "day") setDeskBookSeed(null);
+  }, [view]);
 
   useEffect(() => {
     if (!bookNextAppt || !bnDate || !bnServiceId || !bnProviderId) {
@@ -656,9 +663,9 @@ function AdminSchedulePageContent() {
         description="See who is coming in, filter by doctor or status, and check patients in from the front desk when they arrive."
         pageHelp={
           <>
-            Use <strong>Day</strong> for the front-desk time grid (open gaps and provider columns), <strong>Week</strong> for Mon–Fri
-            overview, <strong>Month</strong> for counts at a glance. Filters reload appointments from the server.{" "}
-            <strong>Check In</strong> marks arrival like the kiosk.
+            Use <strong>Day</strong> for the front-desk time grid (open gaps and provider columns) — click an open strip to book a patient.{" "}
+            <strong>Week</strong> for Mon–Fri overview, <strong>Month</strong> for counts at a glance. Filters reload appointments from the
+            server. <strong>Check In</strong> marks arrival like the kiosk.
           </>
         }
       />
@@ -668,8 +675,8 @@ function AdminSchedulePageContent() {
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-slate-600">View</span>
               <HelpTip label="Calendar views">
-                Day shows a time grid by provider. Week shows Monday–Friday with overlapping visits stacked. Month shows appointment counts;
-                click a day to open it in Day view.
+                Day shows a time grid by provider — click any open (unbooked) time strip to book a patient. Week shows Monday–Friday with
+                overlapping visits stacked. Month shows appointment counts; click a day to open it in Day view.
               </HelpTip>
               <button
                 type="button"
@@ -792,6 +799,7 @@ function AdminSchedulePageContent() {
               setFocusDate(d);
               setView("day");
             }}
+            onPickOpenSlot={view === "day" ? (pick) => setDeskBookSeed(pick) : undefined}
           />
         )}
       </section>
@@ -1205,6 +1213,14 @@ function AdminSchedulePageContent() {
           </SheetContent>
         ) : null}
       </Sheet>
+
+      <AdminDeskBookFromSlotModal
+        open={deskBookSeed !== null}
+        seed={deskBookSeed}
+        onClose={() => setDeskBookSeed(null)}
+        todayMinIso={todayStr}
+        onBooked={() => loadAppointments()}
+      />
 
       {bookNextAppt && (
         <div

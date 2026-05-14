@@ -7,6 +7,7 @@ import {
   type ProviderBlock,
   type ScheduleAppointment,
 } from "@/components/admin-schedule-calendar";
+import { AdminDeskBookFromSlotModal, type DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
 import { DoctorPageIntro, DoctorSectionLabel } from "@/components/doctor-shell";
 import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
@@ -172,6 +173,8 @@ function DoctorSchedulePageInner() {
   const [bnSlotsLoading, setBnSlotsLoading] = useState(false);
   const [savingBookNext, setSavingBookNext] = useState(false);
 
+  const [deskBookSeed, setDeskBookSeed] = useState<DeskBookSlotSeed | null>(null);
+
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus | null>(null);
   const [calendarNote, setCalendarNote] = useState("");
   const [calendarBusy, setCalendarBusy] = useState(false);
@@ -248,6 +251,10 @@ function DoctorSchedulePageInner() {
   useEffect(() => {
     void loadAppointments();
   }, [loadAppointments]);
+
+  useEffect(() => {
+    if (view !== "day") setDeskBookSeed(null);
+  }, [view]);
 
   useEffect(() => {
     void loadBlocks();
@@ -685,6 +692,7 @@ function DoctorSchedulePageInner() {
                 setFocusDate(d);
                 setView("day");
               }}
+              onPickOpenSlot={view === "day" ? (pick) => setDeskBookSeed(pick) : undefined}
             />
           </div>
         )}
@@ -785,6 +793,15 @@ function DoctorSchedulePageInner() {
           </SheetContent>
         ) : null}
       </Sheet>
+
+      <AdminDeskBookFromSlotModal
+        open={deskBookSeed !== null}
+        seed={deskBookSeed}
+        onClose={() => setDeskBookSeed(null)}
+        lockProvider
+        todayMinIso={todayStr}
+        onBooked={() => loadAppointments()}
+      />
 
       {bookNextAppt && (
         <div
