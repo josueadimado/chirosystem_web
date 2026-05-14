@@ -6,13 +6,24 @@ import { ApiError, apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { useEffect, useMemo, useState } from "react";
 
-/** Seed from clicking an open region on the day schedule grid (15-minute snap). */
+/** Post-massage calendar hold — matches API `public_online_booking_calendar_span_minutes`. */
+const MASSAGE_DESK_BOOK_TAIL_MINUTES = 15;
+
+function deskCalendarSpanMinutes(s: { service_type?: string; duration_minutes: number }): number {
+  const d = Math.max(5, Number(s.duration_minutes) || 30);
+  return s.service_type === "massage" ? d + MASSAGE_DESK_BOOK_TAIL_MINUTES : d;
+}
+
+/** Seed from clicking an open region on the day schedule grid (15-minute snap + gap bounds). */
 export type DeskBookSlotSeed = {
   providerId: number;
   providerName: string;
   dateIso: string;
-  /** Minutes from midnight */
+  /** Minutes from midnight (snapped click) */
   startMinute: number;
+  /** Contiguous free window on the admin grid (minutes from midnight) */
+  gapStartMin: number;
+  gapEndMin: number;
 };
 
 type BookingOptionsResponse = {
@@ -47,9 +58,20 @@ function normalizePatientListPayload(data: unknown): PatientSearchRow[] {
   return [];
 }
 
+function startMinutesForSlotRow(
+  label: string,
+  timeVal: string,
+): number {
+  const t = (timeVal || "").trim();
+  if (t) return parseTimeToMinutes(t);
+  return parseTimeToMinutes(label);
+}
+
 /**
  * Front desk / doctor: after clicking an open slot on the schedule day grid, pick a patient and service
  * and confirm. Uses the same slot rules as online booking (`/appointments/book-from-desk/`).
+ * When still on the same date/provider as the clicked strip, start times are limited so the full
+ * calendar block (visit + massage tail) fits inside that free window.
  */
 export function AdminDeskBookFromSlotModal({
   open,
@@ -84,6 +106,40 @@ export function AdminDeskBookFromSlotModal({
   const [saving, setSaving] = useState(false);
 
   const seedLabel = useMemo(() => (seed ? minutesToLabel(seed.startMinute) : ""), [seed]);
+  const gapStripLabel = useMemo(() => {
+    if (!seed) return "";
+    return `${minutesToLabel(seed.gapStartMin)} – ${minutesToLabel(seed.gapEndMin)}`;
+  }, [seed]);
+
+  const selectedService = useMemo(
+    () => options?.services.find((s) => s.id === serviceId) ?? null,
+    [options, serviceId],
+  );
+
+  const gapContextActive = useMemo(() => {
+    if (!seed) return false;
+    return dateIso === seed.dateIso && providerId === seed.providerId;
+  }, [seed, dateIso, providerId]);
+
+  const selectedStartMinutes = useMemo(() => {
+    if (!selectedSlot) return null;
+    const idx = slotTimes.findIndex((t) => t === selectedSlot);
+    if (idx >= 0 && slotLabels[idx]) return startMinutesForSlotRow(slotLabels[idx], slotTimes[idx] || "");
+    if (selectedSlot.includes(":")) return parseTimeToMinutes(selectedSlot);
+    return null;
+  }, [selectedSlot, slotLabels, slotTimes]);
+
+  const scheduleEndMinutes = useMemo(() => {
+    if (selectedStartMinutes == null || !selectedService) return null;
+    return selectedStartMinutes + deskCalendarSpanMinutes(selectedService);
+  }, [selectedStartMinutes, selectedService]);
+
+  const fitsInClickedStrip = useMemo(() => {
+    if (!seed || !gapContextActive || selectedStartMinutes == null || !selectedService) return true;
+    const span = deskCalendarSpanMinutes(selectedService);
+    const end = selectedStartMinutes + span;
+    return selectedStartMinutes >= seed.gapStartMin && end <= seed.gapEndMin;
+  }, [seed, gapContextActive, selectedStartMinutes, selectedService]);
 
   useEffect(() => {
     if (!open || !seed) return;
@@ -129,6 +185,14 @@ export function AdminDeskBookFromSlotModal({
       setSelectedSlot("");
       return;
     }
+    const svc = options.services.find((s) => s.id === serviceId);
+    if (!svc) {
+      setSlotLabels([]);
+      setSlotTimes([]);
+      setSelectedSlot("");
+      return;
+    }
+
     let cancelled = false;
     setSlotsLoading(true);
     const q = new URLSearchParams({
@@ -139,10 +203,29 @@ export function AdminDeskBookFromSlotModal({
     void apiGetAuth<{ available_slots?: string[]; slot_start_times?: string[] }>(`/booking-options/availability/?${q}`)
       .then((data) => {
         if (cancelled) return;
-        const labels = data.available_slots ?? [];
-        const times = data.slot_start_times ?? [];
+        let labels = data.available_slots ?? [];
+        const timesRaw = data.slot_start_times ?? [];
+        let resolvedTimes = timesRaw.length ? timesRaw : labels.map(() => "");
+
+        const strip =
+          seed && dateIso === seed.dateIso && providerId === seed.providerId ? seed : null;
+        if (strip) {
+          const span = deskCalendarSpanMinutes(svc);
+          const keptLabels: string[] = [];
+          const keptTimes: string[] = [];
+          labels.forEach((lab, i) => {
+            const tStr = (resolvedTimes[i] || "").trim();
+            const st = startMinutesForSlotRow(lab, tStr);
+            if (st >= strip.gapStartMin && st + span <= strip.gapEndMin) {
+              keptLabels.push(lab);
+              keptTimes.push(tStr || minutesToHHMMSS(st));
+            }
+          });
+          labels = keptLabels;
+          resolvedTimes = keptTimes;
+        }
+
         setSlotLabels(labels);
-        const resolvedTimes = times.length ? times : labels.map(() => "");
         setSlotTimes(resolvedTimes);
         if (labels.length === 0) {
           setSelectedSlot("");
@@ -153,7 +236,7 @@ export function AdminDeskBookFromSlotModal({
         if (want != null) {
           let best = Infinity;
           resolvedTimes.forEach((t, i) => {
-            const cand = (t || "").trim() ? parseTimeToMinutes(t) : parseTimeToMinutes(labels[i] || "");
+            const cand = startMinutesForSlotRow(labels[i] || "", t);
             const d = Math.abs(cand - want);
             if (d < best) {
               best = d;
@@ -192,8 +275,7 @@ export function AdminDeskBookFromSlotModal({
     const t = window.setTimeout(() => {
       void apiGetAuth<unknown>(`/patients/?search=${encodeURIComponent(q)}&page_size=40`)
         .then((data) => {
-          if (cancelled) return;
-          setPatientHits(normalizePatientListPayload(data));
+          if (!cancelled) setPatientHits(normalizePatientListPayload(data));
         })
         .catch(() => {
           if (!cancelled) setPatientHits([]);
@@ -208,8 +290,20 @@ export function AdminDeskBookFromSlotModal({
     };
   }, [open, patientQuery]);
 
+  const canSubmit =
+    !saving &&
+    !optionsLoading &&
+    Boolean(patientId) &&
+    Boolean(serviceId) &&
+    Boolean(providerId) &&
+    Boolean(dateIso) &&
+    Boolean(selectedSlot) &&
+    !slotsLoading &&
+    slotLabels.length > 0 &&
+    fitsInClickedStrip;
+
   const submit = async () => {
-    if (!seed || !patientId || !serviceId || !providerId || !dateIso || !selectedSlot) return;
+    if (!seed || !canSubmit) return;
     setSaving(true);
     try {
       await runWithFeedback(
@@ -248,20 +342,33 @@ export function AdminDeskBookFromSlotModal({
       aria-modal="true"
       aria-labelledby="desk-book-slot-title"
     >
-      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-        <h2 id="desk-book-slot-title" className="text-lg font-bold text-slate-900">
+      <div className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-8 shadow-xl">
+        <h2 id="desk-book-slot-title" className="text-2xl font-bold text-slate-900">
           Book from schedule
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Open slot near <span className="font-semibold text-slate-800">{seedLabel}</span> ·{" "}
+        <p className="mt-2 text-base text-slate-600">
+          Near <span className="font-semibold text-slate-800">{seedLabel}</span> ·{" "}
           <span className="font-semibold text-slate-800">{seed.providerName}</span> ·{" "}
           {formatWeekdayMonthDayYear(seed.dateIso)}
         </p>
+        <p className="mt-1 text-sm text-slate-500">
+          Open strip on calendar: <span className="font-medium text-slate-700">{gapStripLabel}</span>
+          {gapContextActive ? (
+            <span className="block pt-1">
+              Visits must finish inside this strip (visit length
+              {selectedService?.service_type === "massage"
+                ? ` plus ${MASSAGE_DESK_BOOK_TAIL_MINUTES} min schedule cleanup for massage`
+                : ""}
+              ).
+            </span>
+          ) : null}
+        </p>
+
         {optionsLoading ? (
-          <p className="mt-4 text-sm text-slate-600">Loading visit types…</p>
+          <p className="mt-6 text-base text-slate-600">Loading visit types…</p>
         ) : (
-          <div className="mt-4 space-y-3">
-            <label className="block text-xs font-semibold text-slate-600">
+          <div className="mt-6 space-y-5">
+            <label className="block text-sm font-semibold text-slate-700">
               Patient search
               <input
                 type="search"
@@ -271,16 +378,16 @@ export function AdminDeskBookFromSlotModal({
                   setPatientId(null);
                 }}
                 placeholder="Type name or phone (2+ characters)"
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
                 autoComplete="off"
               />
             </label>
-            {patientLoading && <p className="text-xs text-slate-500">Searching…</p>}
+            {patientLoading && <p className="text-sm text-slate-500">Searching…</p>}
             {!patientLoading && patientQuery.trim().length >= 2 && patientHits.length === 0 && (
-              <p className="text-xs text-slate-500">No matches — try another spelling or phone fragment.</p>
+              <p className="text-sm text-slate-500">No matches — try another spelling or phone fragment.</p>
             )}
             {patientHits.length > 0 && (
-              <ul className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/80 text-sm">
+              <ul className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 text-base">
                 {patientHits.map((p) => {
                   const label = `${p.first_name} ${p.last_name}`.trim();
                   const sub = (p.phone || "").trim();
@@ -290,12 +397,12 @@ export function AdminDeskBookFromSlotModal({
                       <button
                         type="button"
                         onClick={() => setPatientId(p.id)}
-                        className={`w-full px-3 py-2 text-left transition hover:bg-white ${
+                        className={`w-full px-4 py-3 text-left transition hover:bg-white ${
                           active ? "bg-emerald-50 font-semibold text-emerald-950" : "text-slate-800"
                         }`}
                       >
                         {label}
-                        {sub ? <span className="block text-xs font-normal text-slate-500">{sub}</span> : null}
+                        {sub ? <span className="block text-sm font-normal text-slate-500">{sub}</span> : null}
                       </button>
                     </li>
                   );
@@ -303,8 +410,8 @@ export function AdminDeskBookFromSlotModal({
               </ul>
             )}
 
-            <label className="block text-xs font-semibold text-slate-600">
-              Service
+            <label className="block text-sm font-semibold text-slate-700">
+              Service <span className="font-normal text-slate-500">(length shown)</span>
               <select
                 value={serviceId || ""}
                 onChange={(e) => {
@@ -319,23 +426,59 @@ export function AdminDeskBookFromSlotModal({
                   setProviderId(pid);
                 }}
                 disabled={!options?.services?.length}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
               >
                 {(options?.services ?? []).map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {s.name} — {s.duration_minutes} min
+                    {s.service_type === "massage" ? ` (+${MASSAGE_DESK_BOOK_TAIL_MINUTES} min on schedule)` : ""}
                   </option>
                 ))}
               </select>
             </label>
 
-            <label className="block text-xs font-semibold text-slate-600">
+            {selectedService ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-base leading-relaxed text-slate-800">
+                <p>
+                  <span className="font-semibold text-slate-900">Patient visit:</span>{" "}
+                  {selectedService.duration_minutes} minutes
+                </p>
+                {selectedService.service_type === "massage" ? (
+                  <p className="mt-1 text-sm text-slate-600">
+                    The schedule also reserves {MASSAGE_DESK_BOOK_TAIL_MINUTES} minutes after for room cleanup (same as
+                    online booking). Your booking must fit the open strip including that block.
+                  </p>
+                ) : null}
+                {selectedStartMinutes != null && scheduleEndMinutes != null ? (
+                  <p className="mt-3 border-t border-slate-200 pt-3 font-medium text-slate-900">
+                    With the start time below: <span className="text-[#0d5c2e]">{minutesToLabel(selectedStartMinutes)}</span>{" "}
+                    → block ends on schedule at{" "}
+                    <span className="text-[#0d5c2e]">{minutesToLabel(scheduleEndMinutes)}</span>
+                  </p>
+                ) : null}
+                {gapContextActive && !fitsInClickedStrip && selectedService && selectedStartMinutes != null ? (
+                  <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">
+                    This service is too long for the open strip you clicked (or the start time is too late). Choose a
+                    shorter service, switch to a time that still appears in the list, or click a wider open area on the
+                    calendar.
+                  </p>
+                ) : null}
+                {gapContextActive && !slotsLoading && slotLabels.length === 0 && selectedService ? (
+                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950">
+                    No start times fit in this open strip for this service. Pick another service or close and choose a
+                    larger open block.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <label className="block text-sm font-semibold text-slate-700">
               Provider
               <select
                 value={providerId || ""}
                 onChange={(e) => setProviderId(Number(e.target.value))}
                 disabled={!serviceId || lockProvider}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-base disabled:bg-slate-50"
               >
                 {(options?.providers_by_service[String(serviceId)] ?? []).map((p) => (
                   <option key={p.id} value={p.id}>
@@ -345,30 +488,30 @@ export function AdminDeskBookFromSlotModal({
               </select>
             </label>
 
-            <label className="block text-xs font-semibold text-slate-600">
+            <label className="block text-sm font-semibold text-slate-700">
               Date
               <input
                 type="date"
                 value={dateIso}
                 min={todayMinIso}
                 onChange={(e) => setDateIso(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
               />
             </label>
 
-            <label className="block text-xs font-semibold text-slate-600">
+            <label className="block text-sm font-semibold text-slate-700">
               Start time
               {slotsLoading ? (
-                <span className="mt-1 block text-sm font-normal text-slate-500">Loading openings…</span>
+                <span className="mt-2 block text-base font-normal text-slate-500">Loading openings…</span>
               ) : (
                 <select
                   value={selectedSlot}
                   onChange={(e) => setSelectedSlot(e.target.value)}
                   disabled={!slotLabels.length}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
                 >
                   {slotLabels.length === 0 ? (
-                    <option value="">No openings — change date, service, or provider</option>
+                    <option value="">No times fit this strip + service — adjust above</option>
                   ) : (
                     slotLabels.map((label, i) => (
                       <option key={`${label}-${i}`} value={slotTimes[i] || minutesToHHMMSS(parseTimeToMinutes(label))}>
@@ -381,30 +524,20 @@ export function AdminDeskBookFromSlotModal({
             </label>
           </div>
         )}
-        <div className="mt-6 flex flex-wrap justify-end gap-2">
+        <div className="mt-8 flex flex-wrap justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-xl border border-slate-200 px-5 py-3 text-base font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="button"
-            disabled={
-              saving ||
-              optionsLoading ||
-              !patientId ||
-              !serviceId ||
-              !providerId ||
-              !dateIso ||
-              !selectedSlot ||
-              slotsLoading ||
-              !slotLabels.length
-            }
+            disabled={!canSubmit}
             onClick={() => void submit()}
-            className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+            className="rounded-xl bg-[#16a349] px-5 py-3 text-base font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
           >
             {saving ? "Booking…" : "Confirm booking"}
           </button>

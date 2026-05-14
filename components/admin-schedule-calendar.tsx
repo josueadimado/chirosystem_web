@@ -409,6 +409,9 @@ type CalendarProps = {
     providerName: string;
     dateIso: string;
     startMinute: number;
+    /** Open-window bounds (minutes from midnight) for the strip that was clicked — used to block overlaps in desk booking. */
+    gapStartMin: number;
+    gapEndMin: number;
   }) => void;
 };
 
@@ -868,6 +871,8 @@ function DayProviderColumn({
                     providerName: provider.provider_name,
                     dateIso: _isoDate,
                     startMinute,
+                    gapStartMin: g.startMin,
+                    gapEndMin: g.endMin,
                   });
                 }}
               >
