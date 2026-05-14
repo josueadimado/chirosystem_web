@@ -5,6 +5,10 @@ import { minutesToLabel, parseTimeToMinutes } from "@/lib/admin-schedule-utils";
 import { ApiError, apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+
+/** Above admin/doctor sticky header (`z-30`); portaling to `body` avoids `main` stacking so the dimmer covers chrome. */
+const DESK_BOOK_MODAL_Z = "z-[400]";
 
 /** Post-massage calendar hold — matches API `public_online_booking_calendar_span_minutes`. */
 const MASSAGE_DESK_BOOK_TAIL_MINUTES = 15;
@@ -334,10 +338,11 @@ export function AdminDeskBookFromSlotModal({
   };
 
   if (!open || !seed) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[220] flex items-center justify-center bg-black/40 p-4"
+      className={`fixed inset-0 ${DESK_BOOK_MODAL_Z} flex items-center justify-center bg-black/40 p-4`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="desk-book-slot-title"
@@ -543,6 +548,7 @@ export function AdminDeskBookFromSlotModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

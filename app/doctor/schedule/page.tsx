@@ -25,6 +25,7 @@ import {
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -803,14 +804,15 @@ function DoctorSchedulePageInner() {
         onBooked={() => loadAppointments()}
       />
 
-      {bookNextAppt && (
-        <div
-          className="fixed inset-0 z-[220] flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="doctor-schedule-book-next-title"
-        >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      {bookNextAppt && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="doctor-schedule-book-next-title"
+            >
+              <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h2 id="doctor-schedule-book-next-title" className="text-lg font-bold text-slate-900">
               Book next visit
             </h2>
@@ -921,9 +923,11 @@ function DoctorSchedulePageInner() {
                 {savingBookNext ? "Booking…" : "Confirm booking"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
