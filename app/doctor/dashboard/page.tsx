@@ -3,6 +3,7 @@
 import { useAppFeedback } from "@/components/app-feedback";
 import { DoctorEmptyWell, DoctorPageIntro, DoctorSectionLabel, DoctorStatsRow, doctorGreeting } from "@/components/doctor-shell";
 import { ChartNoteRichEditor } from "@/components/chart-note-rich-editor";
+import { ChartNoteOpenWideButton, ChartNoteWideViewModal } from "@/components/chart-note-wide-modal";
 import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
@@ -150,6 +151,8 @@ export default function DoctorDashboardPage() {
   /** Saved on the appointment row for handoff / next doctor (separate from visit-only notes). */
   const [handoffNotes, setHandoffNotes] = useState("");
   const [savingHandoff, setSavingHandoff] = useState(false);
+  const [handoffWideOpen, setHandoffWideOpen] = useState(false);
+  const [handoffWideEditOpen, setHandoffWideEditOpen] = useState(false);
   /** Simple modal to move a visit to another date/time (only before the visit is in progress). */
   const [rescheduleAppt, setRescheduleAppt] = useState<Appointment | null>(null);
   const [resDate, setResDate] = useState("");
@@ -1302,12 +1305,17 @@ export default function DoctorDashboardPage() {
           </p>
         </div>
         <div className="rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
-          <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Chart note for the team</p>
-            <HelpTip label="Handoff note" tone="emerald">
-              Stays on this appointment in the patient chart. Use it for follow-up reminders, preferences, or anything the next doctor
-              should know—even if they see the patient on a different day.
-            </HelpTip>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Chart note for the team</p>
+              <HelpTip label="Handoff note" tone="emerald">
+                Stays on this appointment in the patient chart. Use it for follow-up reminders, preferences, or anything the next doctor
+                should know—even if they see the patient on a different day.
+              </HelpTip>
+            </div>
+            {handoffNotes.trim() ? (
+              <ChartNoteOpenWideButton onClick={() => setHandoffWideOpen(true)} />
+            ) : null}
           </div>
           <ChartNoteRichEditor
             value={handoffNotes}
@@ -1602,6 +1610,18 @@ export default function DoctorDashboardPage() {
           The patient bill is not printed until the invoice is paid (card on file, reader, or desk checkout). Use{" "}
           <strong>Print patient bill</strong> on the banner after payment.
         </p>
+        <ChartNoteWideViewModal
+          open={handoffWideOpen}
+          onClose={() => setHandoffWideOpen(false)}
+          value={handoffNotes}
+          title="Chart note for the team"
+          editable
+          editOpen={handoffWideEditOpen}
+          onEditOpenChange={setHandoffWideEditOpen}
+          onChange={setHandoffNotes}
+          onSave={() => void saveHandoffNote()}
+          saving={savingHandoff}
+        />
       </>
     );
   };

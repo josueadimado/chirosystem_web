@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartNoteReader } from "@/components/chart-note-document";
+import { ChartNoteReaderPanel } from "@/components/chart-note-document";
 import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -538,8 +538,9 @@ export default function DoctorPatientRecordPage() {
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-6">
                 <div className="max-h-[min(70vh,720px)] overflow-y-auto">
-                  <ChartNoteReader
+                  <ChartNoteReaderPanel
                     text={selectedVisit.clinical_handoff_notes ?? ""}
+                    title="Chart note for the team"
                     meta={{
                       dateLabel: `${formatWeekdayMonthDayYear(selectedVisit.appointment_date)} at ${selectedVisit.start_time}${
                         selectedVisit.end_time ? ` – ${selectedVisit.end_time}` : ""
@@ -556,7 +557,10 @@ export default function DoctorPatientRecordPage() {
                   <div className="mt-6">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Visit chart (SOAP)</p>
                     <div className="mt-2 max-h-[min(50vh,480px)] overflow-y-auto">
-                      <ChartNoteReader text={selectedVisit.visit.doctor_notes} />
+                      <ChartNoteReaderPanel
+                        text={selectedVisit.visit.doctor_notes}
+                        title="Visit chart (SOAP)"
+                      />
                     </div>
                   </div>
                 ) : null}

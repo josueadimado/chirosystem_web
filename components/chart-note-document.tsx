@@ -1,6 +1,7 @@
 "use client";
 
 import { ChartNoteRichEditor } from "@/components/chart-note-rich-editor";
+import { ChartNoteOpenWideButton, ChartNoteWideViewModal } from "@/components/chart-note-wide-modal";
 import { parseInlineParts, stripInlineMarkers } from "@/lib/chart-note-inline-format";
 import { cn } from "@/lib/utils";
 import { Fragment, useMemo, useState } from "react";
@@ -133,17 +134,20 @@ export function parseChartNoteDocument(text: string): { preamble: string; sectio
   return { preamble, sections };
 }
 
-function ChartBodyBlocks({ blocks }: { blocks: ChartBodyBlock[] }) {
+function ChartBodyBlocks({ blocks, comfortable }: { blocks: ChartBodyBlock[]; comfortable?: boolean }) {
   if (blocks.length === 0) return null;
+  const paraClass = comfortable ? "text-[16px] leading-8 text-slate-800" : "text-[15px] leading-7 text-slate-800";
+  const subClass = comfortable ? "text-[16px] font-bold text-slate-900" : "text-[15px] font-bold text-slate-900";
+  const dateLabelClass = comfortable ? "text-base font-bold text-slate-900" : "text-sm font-bold text-slate-900";
   return (
     <div className="space-y-4">
       {blocks.map((b, i) => {
         if (b.kind === "date-entry") {
           return (
             <div key={`d-${i}`} className="border-l-2 border-slate-200 pl-4">
-              <p className="text-sm font-bold text-slate-900">{b.label}</p>
+              <p className={dateLabelClass}>{b.label}</p>
               {b.text ? (
-                <p className="mt-1 text-[15px] leading-7 text-slate-800">
+                <p className={cn("mt-1", paraClass)}>
                   <FormattedInlineText text={b.text} />
                 </p>
               ) : null}
@@ -152,13 +156,13 @@ function ChartBodyBlocks({ blocks }: { blocks: ChartBodyBlock[] }) {
         }
         if (b.kind === "subheading") {
           return (
-            <p key={`s-${i}`} className="text-[15px] font-bold text-slate-900">
+            <p key={`s-${i}`} className={subClass}>
               <FormattedInlineText text={b.text} />
             </p>
           );
         }
         return (
-          <p key={`p-${i}`} className="whitespace-pre-wrap text-[15px] leading-7 text-slate-800">
+          <p key={`p-${i}`} className={cn("whitespace-pre-wrap", paraClass)}>
             <FormattedInlineText text={b.text} />
           </p>
         );
@@ -167,15 +171,53 @@ function ChartBodyBlocks({ blocks }: { blocks: ChartBodyBlock[] }) {
   );
 }
 
+/** Read-only chart note with an “Open wide view” button. */
+export function ChartNoteReaderPanel({
+  text,
+  meta,
+  title = "Chart note",
+  emptyLabel,
+  className,
+}: {
+  text: string;
+  meta?: ChartNoteMeta;
+  title?: string;
+  emptyLabel?: string;
+  className?: string;
+}) {
+  const [wideOpen, setWideOpen] = useState(false);
+  const hasNote = Boolean((text || "").trim());
+
+  return (
+    <>
+      {hasNote ? (
+        <div className="mb-2 flex justify-end">
+          <ChartNoteOpenWideButton onClick={() => setWideOpen(true)} />
+        </div>
+      ) : null}
+      <ChartNoteReader text={text} meta={meta} emptyLabel={emptyLabel} className={className} />
+      <ChartNoteWideViewModal
+        open={wideOpen}
+        onClose={() => setWideOpen(false)}
+        value={text}
+        meta={meta}
+        title={title}
+      />
+    </>
+  );
+}
+
 export function ChartNoteReader({
   text,
   meta,
   className,
+  comfortable,
   emptyLabel = "No chart note on file for this visit.",
 }: {
   text: string;
   meta?: ChartNoteMeta;
   className?: string;
+  comfortable?: boolean;
   emptyLabel?: string;
 }) {
   const parsed = useMemo(() => parseChartNoteDocument(text), [text]);
@@ -198,13 +240,24 @@ export function ChartNoteReader({
       )}
     >
       {headerLine ? (
-        <p className="border-b border-slate-100 pb-4 text-sm font-medium leading-relaxed text-slate-600">
+        <p
+          className={cn(
+            "border-b border-slate-100 pb-4 font-medium leading-relaxed text-slate-600",
+            comfortable ? "text-base" : "text-sm",
+          )}
+        >
           {headerLine}
         </p>
       ) : null}
 
       {parsed.preamble ? (
-        <p className={cn("whitespace-pre-wrap text-[15px] leading-7 text-slate-800", headerLine ? "mt-4" : "")}>
+        <p
+          className={cn(
+            "whitespace-pre-wrap text-slate-800",
+            comfortable ? "text-[16px] leading-8" : "text-[15px] leading-7",
+            headerLine ? "mt-4" : "",
+          )}
+        >
           <FormattedInlineText text={parsed.preamble} />
         </p>
       ) : null}
@@ -212,9 +265,16 @@ export function ChartNoteReader({
       <div className={cn(parsed.preamble || headerLine ? "mt-6 space-y-8" : "space-y-8")}>
         {parsed.sections.map((sec) => (
           <section key={sec.title}>
-            <h3 className="text-lg font-bold tracking-tight text-slate-900">{sec.title}</h3>
+            <h3
+              className={cn(
+                "font-bold tracking-tight text-slate-900",
+                comfortable ? "text-xl" : "text-lg",
+              )}
+            >
+              {sec.title}
+            </h3>
             <div className="mt-3">
-              <ChartBodyBlocks blocks={sec.blocks} />
+              <ChartBodyBlocks blocks={sec.blocks} comfortable={comfortable} />
             </div>
           </section>
         ))}
@@ -254,7 +314,9 @@ export function ChartNoteWorkspace({
 }) {
   const [lineItemView, setLineItemView] = useState(false);
   const [editOpen, setEditOpen] = useState(defaultEditOpen ?? false);
+  const [wideOpen, setWideOpen] = useState(false);
   const hasLineItems = (lineItems?.length ?? 0) > 0;
+  const hasNote = Boolean((value || "").trim());
 
   return (
     <div className="space-y-3">
@@ -263,6 +325,7 @@ export function ChartNoteWorkspace({
           Chart note for the team (handoff)
         </p>
         <div className="flex flex-wrap items-center gap-2">
+          {hasNote || editable ? <ChartNoteOpenWideButton onClick={() => setWideOpen(true)} /> : null}
           {hasLineItems ? (
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
               <span>Line item view</span>
@@ -346,6 +409,23 @@ export function ChartNoteWorkspace({
           ) : null}
         </div>
       ) : null}
+
+      <ChartNoteWideViewModal
+        open={wideOpen}
+        onClose={() => setWideOpen(false)}
+        value={value}
+        meta={meta}
+        title="Chart note for the team"
+        editable={editable}
+        editOpen={editOpen}
+        onEditOpenChange={setEditOpen}
+        onChange={onChange}
+        onSave={onSave}
+        saving={saving}
+        lineItems={lineItems}
+        lineItemView={lineItemView}
+        onLineItemViewChange={setLineItemView}
+      />
     </div>
   );
 }
