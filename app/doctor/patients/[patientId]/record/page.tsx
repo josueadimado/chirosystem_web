@@ -1,5 +1,6 @@
 "use client";
 
+import { ChartNoteReader } from "@/components/chart-note-document";
 import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -536,20 +537,26 @@ export default function DoctorPatientRecordPage() {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-6">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Handoff note</p>
-                  <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-relaxed text-slate-800">
-                    {selectedVisit.clinical_handoff_notes?.trim()
-                      ? selectedVisit.clinical_handoff_notes
-                      : "No handoff note for this visit."}
-                  </div>
+                <div className="max-h-[min(70vh,720px)] overflow-y-auto">
+                  <ChartNoteReader
+                    text={selectedVisit.clinical_handoff_notes ?? ""}
+                    meta={{
+                      dateLabel: `${formatWeekdayMonthDayYear(selectedVisit.appointment_date)} at ${selectedVisit.start_time}${
+                        selectedVisit.end_time ? ` – ${selectedVisit.end_time}` : ""
+                      }`,
+                      provider: selectedVisit.provider ?? undefined,
+                      service: selectedVisit.service ?? undefined,
+                    }}
+                    emptyLabel="No handoff note for this visit."
+                  />
                 </div>
 
-                {selectedVisit.visit?.doctor_notes?.trim() ? (
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Chart / visit notes</p>
-                    <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800">
-                      {selectedVisit.visit.doctor_notes}
+                {selectedVisit.visit?.doctor_notes?.trim() &&
+                selectedVisit.visit.doctor_notes.trim() !== (selectedVisit.clinical_handoff_notes ?? "").trim() ? (
+                  <div className="mt-6">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Visit chart (SOAP)</p>
+                    <div className="mt-2 max-h-[min(50vh,480px)] overflow-y-auto">
+                      <ChartNoteReader text={selectedVisit.visit.doctor_notes} />
                     </div>
                   </div>
                 ) : null}

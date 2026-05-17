@@ -23,9 +23,10 @@ import {
   startOfMonth,
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
+import { ChartNoteWorkspace } from "@/components/chart-note-document";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
@@ -182,16 +183,7 @@ function DoctorSchedulePageInner() {
   const [calendarBusy, setCalendarBusy] = useState(false);
 
   const navSigRef = useRef<{ view: ScheduleViewMode; focusMs: number } | null>(null);
-  /** Wall-mounted touchscreen: chart note grows with content; min height enforced in layout effect. */
-  const handoffTextareaRef = useRef<HTMLTextAreaElement>(null);
   const todayStr = new Date().toISOString().slice(0, 10);
-
-  const adjustHandoffTextareaHeight = useCallback(() => {
-    const el = handoffTextareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.max(300, el.scrollHeight)}px`;
-  }, []);
 
   const providersForCalendar = useMemo(() => {
     if (providerId == null) return [];
@@ -311,10 +303,6 @@ function DoctorSchedulePageInner() {
       cancelled = true;
     };
   }, [selected?.id]);
-
-  useLayoutEffect(() => {
-    adjustHandoffTextareaHeight();
-  }, [handoffNotes, handoffLoading, selected?.id, adjustHandoffTextareaHeight]);
 
   useEffect(() => {
     if (!bookNextAppt || !bnDate || !bnServiceId || !bnProviderId) {
@@ -756,31 +744,28 @@ function DoctorSchedulePageInner() {
               </div>
 
               <div className="mt-8 max-w-none border-t border-slate-200 pt-6">
-                <label className="block w-full max-w-none">
-                  <span className="text-base font-bold uppercase tracking-wide text-slate-900">
-                    Chart note for the team (handoff)
-                  </span>
-                  <span className="mt-1 block text-sm leading-relaxed text-slate-500">
-                    Visible on this patient chart to every provider. Saved on this appointment only.
-                  </span>
-                  <textarea
-                    ref={handoffTextareaRef}
+                <p className="text-sm leading-relaxed text-slate-500">
+                  Visible on this patient chart to every provider. Saved on this appointment only.
+                </p>
+                <div className="mt-3">
+                  <ChartNoteWorkspace
                     value={handoffNotes}
-                    onChange={(e) => setHandoffNotes(e.target.value)}
-                    disabled={handoffLoading}
-                    placeholder={handoffLoading ? "Loading…" : "Reason for follow-up, preferences, reminders…"}
-                    rows={1}
-                    className="mt-3 box-border min-h-[300px] w-full max-w-none resize-none overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-3 text-lg leading-[1.6] text-slate-900 shadow-inner placeholder:text-slate-400 focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 disabled:bg-slate-50"
+                    onChange={setHandoffNotes}
+                    editable={!handoffLoading && !!selected}
+                    saving={savingHandoff}
+                    onSave={() => void saveHandoff()}
+                    defaultEditOpen
+                    meta={
+                      selected
+                        ? {
+                            dateLabel: `${formatWeekdayMonthDayYear(selected.appointment_date)} at ${selected.start_time_display || selected.start_time}`,
+                            provider: selected.provider_name,
+                            service: selected.service_name,
+                          }
+                        : undefined
+                    }
                   />
-                </label>
-                <button
-                  type="button"
-                  disabled={savingHandoff || handoffLoading || !selected}
-                  onClick={() => void saveHandoff()}
-                  className="mt-3 min-h-[52px] w-full rounded-xl border border-[#16a349]/40 bg-[#ecfdf5] px-4 py-3 text-base font-semibold text-[#0d5c2e] hover:bg-emerald-100 disabled:opacity-50"
-                >
-                  {savingHandoff ? "Saving…" : "Save chart note"}
-                </button>
+                </div>
               </div>
 
               <div className="mt-8 border-t border-slate-100 pt-5">

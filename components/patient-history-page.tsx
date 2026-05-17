@@ -4,7 +4,8 @@ import Link from "next/link";
 import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
-import { formatMonthDayYear } from "@/lib/format-date";
+import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
+import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { useEffect, useMemo, useState } from "react";
 
 const inputClass =
@@ -235,31 +236,22 @@ export function PatientHistoryPage({
                 </span>
               </div>
 
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Chart note for the team (handoff)</p>
-                {active.can_edit_handoff_notes ? (
-                  <div className="mt-2 space-y-2">
-                    <textarea
-                      className={`${inputClass} min-h-[220px] resize-y leading-relaxed`}
-                      value={handoffEdits[active.id] ?? ""}
-                      onChange={(e) => setHandoffEdits((prev) => ({ ...prev, [active.id]: e.target.value }))}
-                    />
-                    <button
-                      type="button"
-                      disabled={savingHandoffId === active.id}
-                      onClick={() => void saveAppointmentHandoff(active.id)}
-                      className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-                    >
-                      {savingHandoffId === active.id ? "Saving..." : "Save chart note"}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-relaxed text-slate-800">
-                    {active.clinical_handoff_notes?.trim() ? active.clinical_handoff_notes : "No handoff note."}
-                  </div>
-                )}
-              </div>
-
+              <ChartNoteWorkspace
+                value={handoffEdits[active.id] ?? ""}
+                onChange={(next) => setHandoffEdits((prev) => ({ ...prev, [active.id]: next }))}
+                editable={active.can_edit_handoff_notes}
+                saving={savingHandoffId === active.id}
+                onSave={() => void saveAppointmentHandoff(active.id)}
+                meta={{
+                  dateLabel: `${formatWeekdayMonthDayYear(active.appointment_date)} at ${active.start_time}${
+                    active.end_time ? ` - ${active.end_time}` : ""
+                  }`,
+                  provider: active.provider ?? undefined,
+                  service: active.service ?? undefined,
+                }}
+                lineItems={active.visit?.rendered_services}
+                inputClassName={inputClass}
+              />
               {active.visit ? (
                 <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Completed visit record</p>
@@ -276,10 +268,10 @@ export function PatientHistoryPage({
                     </p>
                   ) : null}
                   {active.visit.doctor_notes?.trim() ? (
-                    <div className="mt-2 text-sm">
-                      <span className="font-semibold text-slate-600">Visit notes: </span>
-                      <div className="mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white px-3 py-2 leading-relaxed text-slate-800">
-                        {active.visit.doctor_notes}
+                    <div className="mt-4">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Visit chart (SOAP)</p>
+                      <div className="mt-2 max-h-[min(50vh,480px)] overflow-y-auto">
+                        <ChartNoteReader text={active.visit.doctor_notes} />
                       </div>
                     </div>
                   ) : null}

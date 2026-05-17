@@ -2,6 +2,7 @@
 
 import { useAppFeedback } from "@/components/app-feedback";
 import { DoctorEmptyWell, DoctorPageIntro, DoctorSectionLabel, DoctorStatsRow, doctorGreeting } from "@/components/doctor-shell";
+import { ChartNoteRichEditor } from "@/components/chart-note-rich-editor";
 import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
@@ -1207,9 +1208,6 @@ export default function DoctorDashboardPage() {
     const isRevisingBilling =
       revisingBillingForAppointmentId != null && revisingBillingForAppointmentId === activeAppt.id;
     const billingEditShowCloseOnly = isRevisingBilling && billingEditJustSaved;
-    const handoffClass = spacious
-      ? "mb-2 min-h-[5.5rem] w-full rounded-lg border border-slate-200 bg-white p-3 text-base leading-relaxed"
-      : "mb-2 h-20 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm";
     const diagnosisClass = spacious
       ? "min-h-[7rem] w-full rounded-lg border border-slate-200 p-3 text-base leading-relaxed"
       : "h-20 w-full rounded-lg border border-slate-200 p-2 text-sm";
@@ -1311,11 +1309,12 @@ export default function DoctorDashboardPage() {
               should know—even if they see the patient on a different day.
             </HelpTip>
           </div>
-          <textarea
-            className={handoffClass}
-            placeholder="e.g. Plan: recheck ROM next visit; prefers afternoons…"
+          <ChartNoteRichEditor
             value={handoffNotes}
-            onChange={(e) => setHandoffNotes(e.target.value)}
+            onChange={setHandoffNotes}
+            className={spacious ? "text-base" : "text-sm"}
+            minHeightClassName={spacious ? "min-h-[5.5rem]" : "min-h-[5rem]"}
+            disabled={savingHandoff}
           />
           <button
             type="button"
