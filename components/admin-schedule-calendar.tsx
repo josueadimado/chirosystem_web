@@ -6,6 +6,7 @@ import {
   SCHEDULE_DAY_START_MIN,
   SCHEDULE_TOTAL_MIN,
   addDays,
+  appointmentBlocksScheduleGrid,
   appointmentDurationMinutes,
   canDragAppointmentOnSchedule,
   computeOpenGaps,
@@ -835,6 +836,11 @@ function DayProviderColumn({
 }) {
   const base = providerColorForId(provider.id);
 
+  const blockingAppointments = useMemo(
+    () => appointments.filter((a) => appointmentBlocksScheduleGrid(a.status)),
+    [appointments],
+  );
+
   const apptLaneItems = useMemo(() => {
     return appointments
       .map((a) => ({
@@ -876,23 +882,26 @@ function DayProviderColumn({
   const busyIntervals: TimeInterval[] = useMemo(() => {
     const visibleAppts =
       dragActive && drag?.appointment.provider === provider.id
-        ? appointments.filter((a) => a.id !== drag.appointment.id)
-        : appointments;
+        ? blockingAppointments.filter((a) => a.id !== drag.appointment.id)
+        : blockingAppointments;
     const ap = visibleAppts.map((a) => ({
       startMin: parseTimeToMinutes(a.start_time),
       endMin: parseTimeToMinutes(a.end_time),
     }));
-    const bl = blocks.flatMap((b) => {
-      if (b.all_day) {
-        return [{ startMin: SCHEDULE_DAY_START_MIN, endMin: SCHEDULE_DAY_END_MIN }];
-      }
-      if (b.start_time && b.end_time) {
-        return [{ startMin: parseTimeToMinutes(b.start_time), endMin: parseTimeToMinutes(b.end_time) }];
-      }
-      return [];
-    });
+    // Desk booking: gray stripes are online-only blocks — still shown, but staff can click to book.
+    const bl = onPickOpenSlot
+      ? []
+      : blocks.flatMap((b) => {
+          if (b.all_day) {
+            return [{ startMin: SCHEDULE_DAY_START_MIN, endMin: SCHEDULE_DAY_END_MIN }];
+          }
+          if (b.start_time && b.end_time) {
+            return [{ startMin: parseTimeToMinutes(b.start_time), endMin: parseTimeToMinutes(b.end_time) }];
+          }
+          return [];
+        });
     return [...ap, ...bl].filter((x) => x.endMin > x.startMin);
-  }, [appointments, blocks, drag, dragActive, provider.id]);
+  }, [blockingAppointments, blocks, drag, dragActive, onPickOpenSlot, provider.id]);
 
   const openGaps = useMemo(() => computeOpenGaps(busyIntervals), [busyIntervals]);
 
@@ -946,7 +955,11 @@ function DayProviderColumn({
                   backgroundImage: STRIPE_BG,
                   backgroundColor: "#e5e7eb",
                 }}
-                title="Blocked (online booking)"
+                title={
+                  onPickOpenSlot
+                    ? "Online booking block — patients cannot book here; click to book from the desk schedule"
+                    : "Blocked (online booking)"
+                }
               />
             );
           }
@@ -965,7 +978,11 @@ function DayProviderColumn({
                 backgroundImage: STRIPE_BG,
                 backgroundColor: "#e5e7eb",
               }}
-              title="Blocked (online booking)"
+              title={
+                onPickOpenSlot
+                  ? "Online booking block — patients cannot book here; click to book from the desk schedule"
+                  : "Blocked (online booking)"
+              }
             />
           );
         })}

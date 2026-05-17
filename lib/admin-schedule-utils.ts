@@ -153,6 +153,11 @@ export function appointmentVisibleOnScheduleGrid(status: string, statusFilter = 
   return !SCHEDULE_GRID_EXCLUDED_STATUSES.has(status);
 }
 
+/** True when this visit still occupies the calendar / blocks desk booking in that time range. */
+export function appointmentBlocksScheduleGrid(status: string): boolean {
+  return appointmentVisibleOnScheduleGrid(status, "");
+}
+
 export function filterAppointmentsForScheduleGrid<T extends { status: string }>(
   appointments: T[],
   statusFilter = "",
