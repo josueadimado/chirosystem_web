@@ -6,6 +6,7 @@ import {
   navigateFocusDate,
   schedulePeriodLabel,
   type ProviderBlock,
+  type ScheduleAppointment,
 } from "@/components/admin-schedule-calendar";
 import { AdminDeskBookFromSlotModal, type DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
 import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
@@ -18,6 +19,8 @@ import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import {
   addDays,
   endOfMonth,
+  filterAppointmentsForScheduleGrid,
+  minutesToApiTime,
   mondayOfWeekContaining,
   parseTimeToMinutes,
   providerColorForId,
@@ -104,7 +107,7 @@ type PatientQuick = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "", label: "All statuses" },
+  { value: "", label: "Active on calendar" },
   { value: "booked", label: "Booked" },
   { value: "checked_in", label: "Checked in" },
   { value: "in_consultation", label: "In consultation" },
@@ -308,12 +311,17 @@ function AdminSchedulePageContent() {
         : providers.find((p) => String(p.id) === providerFilter)?.provider_name ?? "Selected provider";
     const statusLabel =
       statusFilter === ""
-        ? "All statuses"
+        ? "Active on calendar"
         : STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter;
     return `Showing: ${provLabel} · ${statusLabel}`;
   }, [providerFilter, statusFilter, providers]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  const calendarAppointments = useMemo(
+    () => filterAppointmentsForScheduleGrid(appointments, statusFilter),
+    [appointments, statusFilter],
+  );
 
   useEffect(() => {
     if (!selected) {
@@ -541,6 +549,10 @@ function AdminSchedulePageContent() {
     try {
       await apiPatch(`/appointments/${id}/`, body);
       await loadAppointments();
+      const nextStatus = typeof body.status === "string" ? body.status : undefined;
+      if (nextStatus === "cancelled" || nextStatus === "no_show") {
+        setSelected(null);
+      }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not update appointment.";
       setError(msg);
@@ -582,6 +594,36 @@ function AdminSchedulePageContent() {
       }
     );
     if (saved) setShowReschedule(false);
+  };
+
+  const handleRescheduleFromGrid = async (pick: {
+    appointment: ScheduleAppointment;
+    providerId: number;
+    dateIso: string;
+    startMinute: number;
+  }) => {
+    const { appointment, providerId, dateIso, startMinute } = pick;
+    if (!canRescheduleStaff(appointment.status)) {
+      toast.error("This visit cannot be moved from the calendar.");
+      return;
+    }
+    const body: Record<string, unknown> = {
+      appointment_date: dateIso,
+      start_time: minutesToApiTime(startMinute),
+    };
+    if (providerId !== appointment.provider) {
+      body.provider = providerId;
+    }
+    await runWithFeedback(
+      async () => {
+        await patchAppointment(appointment.id, body);
+      },
+      {
+        loadingMessage: "Moving appointment…",
+        successMessage: "Appointment rescheduled.",
+        errorFallback: "Could not move this appointment — the slot may be taken or outside booking rules.",
+      },
+    );
   };
 
   const openPatientBillPreview = async (invoiceId: number) => {
@@ -743,9 +785,10 @@ function AdminSchedulePageContent() {
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-slate-500">Filters</span>
               <HelpTip label="Filters">
-                Provider limits the list to one doctor. Status matches the visit workflow (booked, checked-in, completed, etc.). Both send
-                new requests to the server. Use the appointment drawer to mark <strong>no-show</strong>, <strong>cancel</strong>, or{" "}
-                <strong>completed</strong>, or to <strong>reschedule</strong>—missed visits stop blocking the slot once marked.
+                Provider limits the list to one doctor. <strong>Active on calendar</strong> hides cancelled and no-show visits so those times
+                are open for new bookings; pick <strong>Cancelled</strong> or <strong>No-show</strong> to review them here. Cancelled visits
+                always stay on the patient&apos;s history page. Use the drawer to mark <strong>no-show</strong>, <strong>cancel</strong>, or{" "}
+                <strong>completed</strong>, or to <strong>reschedule</strong>.
               </HelpTip>
               <select
                 value={providerFilter}
@@ -787,7 +830,7 @@ function AdminSchedulePageContent() {
           <AdminScheduleCalendar
             view={view}
             focusDate={focusDate}
-            appointments={appointments}
+            appointments={calendarAppointments}
             providers={providers}
             providerFilter={providerFilter}
             blocks={blocks}
@@ -801,6 +844,7 @@ function AdminSchedulePageContent() {
               setView("day");
             }}
             onPickOpenSlot={view === "day" ? (pick) => setDeskBookSeed(pick) : undefined}
+            onRescheduleAppointment={view === "day" ? (pick) => void handleRescheduleFromGrid(pick) : undefined}
           />
         )}
       </section>

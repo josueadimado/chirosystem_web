@@ -17,6 +17,7 @@ import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import {
   addDays,
   endOfMonth,
+  filterAppointmentsForScheduleGrid,
   mondayOfWeekContaining,
   parseTimeToMinutes,
   startOfMonth,
@@ -450,7 +451,7 @@ function DoctorSchedulePageInner() {
     }
   };
 
-  const scheduleAppts: ScheduleAppointment[] = appointments;
+  const scheduleAppts = useMemo(() => filterAppointmentsForScheduleGrid(appointments), [appointments]);
 
   const firstDay = new Date(focusDate.getFullYear(), focusDate.getMonth(), 1);
   const startPad = firstDay.getDay();

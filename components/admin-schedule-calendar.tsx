@@ -7,6 +7,7 @@ import {
   SCHEDULE_TOTAL_MIN,
   addDays,
   appointmentDurationMinutes,
+  canDragAppointmentOnSchedule,
   computeOpenGaps,
   formatIntervalLabel,
   isSameDay,
@@ -14,6 +15,7 @@ import {
   mondayOfWeekContaining,
   parseTimeToMinutes,
   providerColorForId,
+  snapScheduleGridStartMinute,
   timePositionPercent,
   toIsoDate,
   type TimeInterval,
@@ -413,7 +415,56 @@ type CalendarProps = {
     gapStartMin: number;
     gapEndMin: number;
   }) => void;
+  /** Day view: drag a visit block to another time or provider column (15-minute snap, working hours). */
+  onRescheduleAppointment?: (pick: {
+    appointment: ScheduleAppointment;
+    providerId: number;
+    providerName: string;
+    dateIso: string;
+    startMinute: number;
+  }) => void | Promise<void>;
 };
+
+const DRAG_THRESHOLD_PX = 6;
+
+type ScheduleDragState = {
+  appointment: ScheduleAppointment;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+  durationMin: number;
+  preview: { providerId: number; providerName: string; startMinute: number } | null;
+};
+
+function resolveScheduleDropTarget(
+  clientX: number,
+  clientY: number,
+  durationMin: number,
+): { providerId: number; providerName: string; startMinute: number } | null {
+  const el = document.elementFromPoint(clientX, clientY);
+  const col = el?.closest("[data-schedule-provider-column]") as HTMLElement | null;
+  if (!col) return null;
+  const providerId = Number.parseInt(col.getAttribute("data-schedule-provider-id") ?? "", 10);
+  const providerName = col.getAttribute("data-schedule-provider-name") ?? "";
+  if (Number.isNaN(providerId)) return null;
+  const grid = col.querySelector("[data-schedule-grid-body]") as HTMLElement | null;
+  if (!grid) return null;
+  const rect = grid.getBoundingClientRect();
+  return {
+    providerId,
+    providerName,
+    startMinute: snapScheduleGridStartMinute(clientY, rect, durationMin),
+  };
+}
+
+function openGapContaining(
+  gaps: TimeInterval[],
+  startMinute: number,
+  minDuration = 15,
+): TimeInterval | undefined {
+  return gaps.find((g) => startMinute >= g.startMin && startMinute + minDuration <= g.endMin);
+}
 
 export function AdminScheduleCalendar({
   view,
@@ -426,6 +477,7 @@ export function AdminScheduleCalendar({
   onSelect,
   onPickDayInMonth,
   onPickOpenSlot,
+  onRescheduleAppointment,
 }: CalendarProps) {
   const [nowTick, setNowTick] = useState(0);
   useEffect(() => {
@@ -473,6 +525,7 @@ export function AdminScheduleCalendar({
           onSelect={onSelect}
           nowPct={nowPct}
           onPickOpenSlot={onPickOpenSlot}
+          onRescheduleAppointment={onRescheduleAppointment}
         />
       )}
 
@@ -513,16 +566,21 @@ function ScheduleGridColumnBody({
   children,
   className,
   outerRef,
+  onOpenSlotClick,
+  dragActive,
 }: {
   children: ReactNode;
   className?: string;
   outerRef?: Ref<HTMLDivElement>;
+  onOpenSlotClick?: (clientY: number, gridRect: DOMRect) => void;
+  dragActive?: boolean;
 }) {
   const [hover, setHover] = useState<{ label: string; topPct: number } | null>(null);
   const hours = scheduleGridHours();
   return (
     <div
       ref={outerRef}
+      data-schedule-grid-body
       className={cn("relative bg-white", className)}
       style={{ height: GRID_PX }}
       onMouseMoveCapture={(e) => {
@@ -531,6 +589,13 @@ function ScheduleGridColumnBody({
         if (h) setHover(h);
       }}
       onMouseLeave={() => setHover(null)}
+      onClickCapture={(e) => {
+        if (!onOpenSlotClick || dragActive) return;
+        const t = e.target as HTMLElement;
+        if (t.closest("[data-schedule-appointment]")) return;
+        if (t.closest("[data-schedule-open-gap]")) return;
+        onOpenSlotClick(e.clientY, e.currentTarget.getBoundingClientRect());
+      }}
     >
       <ScheduleGridBackground hours={hours} />
       {hover ? <HoverTimeChip label={hover.label} topPct={hover.topPct} /> : null}
@@ -543,7 +608,7 @@ function ProviderLegend({ providers }: { providers: ProviderRow[] }) {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-2xl border border-slate-200/90 bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-slate-100/80">
       <span className="w-full text-xs text-slate-500 sm:w-auto sm:flex-none">
-        Colors = provider; chip on each block = status.
+        Colors = provider; chip on each block = status. Day view: drag a visit to move it; click open time to book (7 AM–7 PM).
       </span>
       <span className="font-semibold text-slate-500">Providers</span>
       {providers.map((p) => {
@@ -618,6 +683,7 @@ function DayGrid({
   onSelect,
   nowPct,
   onPickOpenSlot,
+  onRescheduleAppointment,
 }: {
   focusDate: Date;
   providers: ProviderRow[];
@@ -627,8 +693,74 @@ function DayGrid({
   onSelect: (a: ScheduleAppointment) => void;
   nowPct: number | null;
   onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
+  onRescheduleAppointment?: CalendarProps["onRescheduleAppointment"];
 }) {
   const iso = toIsoDate(focusDate);
+  const [drag, setDrag] = useState<ScheduleDragState | null>(null);
+
+  useEffect(() => {
+    if (!drag) return;
+
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== drag.pointerId) return;
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      const dist2 = dx * dx + dy * dy;
+      const moved = drag.moved || dist2 >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
+      const preview = moved
+        ? resolveScheduleDropTarget(e.clientX, e.clientY, drag.durationMin)
+        : drag.preview;
+      setDrag((prev) =>
+        prev && prev.pointerId === e.pointerId ? { ...prev, moved, preview } : prev,
+      );
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== drag.pointerId) return;
+      const appt = drag.appointment;
+      if (drag.moved && drag.preview && onRescheduleAppointment) {
+        const { providerId, providerName, startMinute } = drag.preview;
+        const same =
+          appt.provider === providerId &&
+          appt.appointment_date === iso &&
+          parseTimeToMinutes(appt.start_time) === startMinute;
+        if (!same) {
+          void onRescheduleAppointment({
+            appointment: appt,
+            providerId,
+            providerName,
+            dateIso: iso,
+            startMinute,
+          });
+        }
+      } else if (!drag.moved) {
+        onSelect(appt);
+      }
+      setDrag(null);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [drag, iso, onRescheduleAppointment, onSelect]);
+
+  const dragActive = drag?.moved ?? false;
+
+  useEffect(() => {
+    if (!dragActive) return;
+    const prev = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    document.body.classList.add("cursor-grabbing");
+    return () => {
+      document.body.style.userSelect = prev;
+      document.body.classList.remove("cursor-grabbing");
+    };
+  }, [dragActive]);
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
@@ -646,6 +778,26 @@ function DayGrid({
               onSelect={onSelect}
               nowPct={nowPct}
               onPickOpenSlot={onPickOpenSlot}
+              onRescheduleAppointment={onRescheduleAppointment}
+              drag={drag}
+              dragActive={dragActive}
+              onAppointmentPointerDown={
+                onRescheduleAppointment
+                  ? (appt, e) => {
+                      if (e.button !== 0 || !canDragAppointmentOnSchedule(appt.status)) return;
+                      const durationMin = appointmentDurationMinutes(appt.start_time, appt.end_time);
+                      setDrag({
+                        appointment: appt,
+                        pointerId: e.pointerId,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        moved: false,
+                        durationMin,
+                        preview: null,
+                      });
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -656,13 +808,17 @@ function DayGrid({
 
 function DayProviderColumn({
   provider,
-  isoDate: _isoDate,
+  isoDate,
   appointments,
   blocks,
   selectedId,
   onSelect,
   nowPct,
   onPickOpenSlot,
+  onRescheduleAppointment: _onRescheduleAppointment,
+  drag,
+  dragActive,
+  onAppointmentPointerDown,
 }: {
   provider: ProviderRow;
   isoDate: string;
@@ -672,6 +828,10 @@ function DayProviderColumn({
   onSelect: (a: ScheduleAppointment) => void;
   nowPct: number | null;
   onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
+  onRescheduleAppointment?: CalendarProps["onRescheduleAppointment"];
+  drag: ScheduleDragState | null;
+  dragActive: boolean;
+  onAppointmentPointerDown?: (appt: ScheduleAppointment, e: React.PointerEvent) => void;
 }) {
   const base = providerColorForId(provider.id);
 
@@ -714,7 +874,11 @@ function DayProviderColumn({
       : MIN_LANE_WIDTH_PX;
 
   const busyIntervals: TimeInterval[] = useMemo(() => {
-    const ap = appointments.map((a) => ({
+    const visibleAppts =
+      dragActive && drag?.appointment.provider === provider.id
+        ? appointments.filter((a) => a.id !== drag.appointment.id)
+        : appointments;
+    const ap = visibleAppts.map((a) => ({
       startMin: parseTimeToMinutes(a.start_time),
       endMin: parseTimeToMinutes(a.end_time),
     }));
@@ -728,19 +892,48 @@ function DayProviderColumn({
       return [];
     });
     return [...ap, ...bl].filter((x) => x.endMin > x.startMin);
-  }, [appointments, blocks]);
+  }, [appointments, blocks, drag, dragActive, provider.id]);
 
   const openGaps = useMemo(() => computeOpenGaps(busyIntervals), [busyIntervals]);
 
+  const dropPreview =
+    dragActive && drag?.preview?.providerId === provider.id ? drag.preview : null;
+  const dropDurationMin = drag?.durationMin ?? 15;
+
   return (
-    <div className="relative border-l border-slate-100">
+    <div
+      className="relative border-l border-slate-100"
+      data-schedule-provider-column
+      data-schedule-provider-id={provider.id}
+      data-schedule-provider-name={provider.provider_name}
+    >
       <div
         className="flex min-h-0 shrink-0 items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
         style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
       >
         <p className="text-[15px] font-semibold leading-snug text-slate-800">{provider.provider_name}</p>
       </div>
-      <ScheduleGridColumnBody outerRef={stackRef}>
+      <ScheduleGridColumnBody
+        outerRef={stackRef}
+        dragActive={dragActive}
+        onOpenSlotClick={
+          onPickOpenSlot
+            ? (clientY, rect) => {
+                const startMinute = snapScheduleGridStartMinute(clientY, rect, 15);
+                const gap = openGapContaining(openGaps, startMinute);
+                if (!gap) return;
+                onPickOpenSlot({
+                  providerId: provider.id,
+                  providerName: provider.provider_name,
+                  dateIso: isoDate,
+                  startMinute,
+                  gapStartMin: gap.startMin,
+                  gapEndMin: gap.endMin,
+                });
+              }
+            : undefined
+        }
+      >
         {blocks.map((b) => {
           if (b.all_day) {
             return (
@@ -791,15 +984,27 @@ function DayProviderColumn({
               const endShown = a.end_time_display || formatTimeShort(a.end_time);
               const lane = laneByKey.get(key) ?? 0;
               const leftPx = lane * (laneW + LANE_GAP_PX);
+              const draggable = !!onAppointmentPointerDown && canDragAppointmentOnSchedule(a.status);
+              const isDragging = drag?.appointment.id === a.id;
               return (
                 <button
                   key={a.id}
                   type="button"
-                  onClick={() => onSelect(a)}
+                  data-schedule-appointment
+                  onPointerDown={(e) => {
+                    if (draggable) onAppointmentPointerDown(a, e);
+                  }}
+                  onClick={(e) => {
+                    if (draggable) e.preventDefault();
+                    else onSelect(a);
+                  }}
+                  title={draggable ? "Drag to reschedule · release without moving to open details" : undefined}
                   className={cn(
                     "absolute flex flex-col overflow-hidden rounded-lg border px-1 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                     styles.wrap,
                     selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
+                    draggable && "cursor-grab touch-none active:cursor-grabbing",
+                    isDragging && dragActive && "opacity-40",
                   )}
                   style={{
                     top: `${topPct}%`,
@@ -850,6 +1055,22 @@ function DayProviderColumn({
           </div>
         </div>
 
+        {dropPreview &&
+          (() => {
+            const { topPct, heightPct } = timePositionPercent(dropPreview.startMinute, dropDurationMin);
+            return (
+              <div
+                className="pointer-events-none absolute left-1 right-1 z-[7] flex items-start justify-center rounded-lg border-2 border-dashed border-[#16a349] bg-[#16a349]/15 px-1 pt-1"
+                style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 12 }}
+                aria-hidden
+              >
+                <span className="rounded bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold text-[#13823d] shadow-sm">
+                  {minutesToLabel(dropPreview.startMinute)}
+                </span>
+              </div>
+            );
+          })()}
+
         {openGaps.map((g, i) => {
           const dur = g.endMin - g.startMin;
           const { topPct, heightPct } = timePositionPercent(g.startMin, dur);
@@ -859,6 +1080,7 @@ function DayProviderColumn({
               <button
                 key={`gap-${i}`}
                 type="button"
+                data-schedule-open-gap
                 className="group absolute left-1 right-1 z-[6] cursor-pointer rounded-md border border-transparent text-left transition hover:border-emerald-300/60 hover:bg-emerald-500/[0.09] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]"
                 style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
                 title={`Book here · ${labelRange} · ${dur} min free`}
@@ -869,7 +1091,7 @@ function DayProviderColumn({
                   onPickOpenSlot({
                     providerId: provider.id,
                     providerName: provider.provider_name,
-                    dateIso: _isoDate,
+                    dateIso: isoDate,
                     startMinute,
                     gapStartMin: g.startMin,
                     gapEndMin: g.endMin,

@@ -143,3 +143,45 @@ export function endOfMonth(d: Date): Date {
 export function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
+
+/** Cancelled / no-show remain in patient history but free the desk calendar unless explicitly filtered. */
+const SCHEDULE_GRID_EXCLUDED_STATUSES = new Set(["cancelled", "no_show"]);
+
+/** Whether an appointment should render on the schedule grid (and count as blocking open slots). */
+export function appointmentVisibleOnScheduleGrid(status: string, statusFilter = ""): boolean {
+  if (statusFilter) return status === statusFilter;
+  return !SCHEDULE_GRID_EXCLUDED_STATUSES.has(status);
+}
+
+export function filterAppointmentsForScheduleGrid<T extends { status: string }>(
+  appointments: T[],
+  statusFilter = "",
+): T[] {
+  return appointments.filter((a) => appointmentVisibleOnScheduleGrid(a.status, statusFilter));
+}
+
+/** Snap a Y position on the day grid to a 15-minute start that keeps `durationMin` inside working hours. */
+export function snapScheduleGridStartMinute(
+  clientY: number,
+  gridRect: DOMRect,
+  durationMin: number,
+): number {
+  const h = Math.max(gridRect.height, 1);
+  const frac = Math.max(0, Math.min(1, (clientY - gridRect.top) / h));
+  const continuous = SCHEDULE_DAY_START_MIN + frac * SCHEDULE_TOTAL_MIN;
+  const snapped = Math.round(continuous / 15) * 15;
+  const maxStart = SCHEDULE_DAY_END_MIN - Math.max(15, durationMin);
+  return Math.max(SCHEDULE_DAY_START_MIN, Math.min(maxStart, snapped));
+}
+
+/** API time string (HH:MM:SS) from minutes since midnight. */
+export function minutesToApiTime(totalMin: number): string {
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+}
+
+/** Visits that can be dragged on the desk day grid (same rules as drawer reschedule). */
+export function canDragAppointmentOnSchedule(status: string): boolean {
+  return status !== "completed" && status !== "cancelled" && status !== "no_show";
+}
