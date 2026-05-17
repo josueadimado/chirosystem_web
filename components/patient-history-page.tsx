@@ -5,7 +5,9 @@ import { Loader } from "@/components/loader";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const inputClass =
@@ -64,6 +66,88 @@ function statusBadgeClass(status: string): string {
   return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
 }
 
+function AppointmentDetailPanel({
+  active,
+  handoffEdits,
+  setHandoffEdits,
+  savingHandoffId,
+  onSaveHandoff,
+}: {
+  active: AppointmentHistoryRow;
+  handoffEdits: Record<number, string>;
+  setHandoffEdits: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  savingHandoffId: number | null;
+  onSaveHandoff: (id: number) => void;
+}) {
+  return (
+    <>
+      <ChartNoteWorkspace
+        value={handoffEdits[active.id] ?? ""}
+        onChange={(next) => setHandoffEdits((prev) => ({ ...prev, [active.id]: next }))}
+        editable={active.can_edit_handoff_notes}
+        saving={savingHandoffId === active.id}
+        onSave={() => onSaveHandoff(active.id)}
+        meta={{
+          dateLabel: `${formatWeekdayMonthDayYear(active.appointment_date)} at ${active.start_time}${
+            active.end_time ? ` - ${active.end_time}` : ""
+          }`,
+          provider: active.provider ?? undefined,
+          service: active.service ?? undefined,
+        }}
+        lineItems={active.visit?.rendered_services}
+        inputClassName={inputClass}
+      />
+
+      {active.visit ? (
+        <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Completed visit record</p>
+          {active.visit.reason_for_visit?.trim() ? (
+            <p className="mt-3 text-sm">
+              <span className="font-semibold text-slate-600">Reason: </span>
+              <span className="text-slate-800">{active.visit.reason_for_visit}</span>
+            </p>
+          ) : null}
+          {active.visit.diagnosis?.trim() ? (
+            <p className="mt-2 text-sm">
+              <span className="font-semibold text-slate-600">Diagnosis (bill): </span>
+              <span className="text-slate-800">{active.visit.diagnosis}</span>
+            </p>
+          ) : null}
+          {active.visit.doctor_notes?.trim() ? (
+            <div className="mt-4">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Visit chart (SOAP)</p>
+              <div className="mt-2">
+                <ChartNoteReader text={active.visit.doctor_notes} />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {active.invoice ? (
+        <div className="rounded-xl border border-slate-200/90 bg-white p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Invoice details</p>
+          <div className="mt-2 grid gap-1 text-sm text-slate-700">
+            <p>Invoice: {active.invoice.invoice_number}</p>
+            <p>Status: {active.invoice.status.replace(/_/g, " ")}</p>
+            <p>Subtotal: ${active.invoice.subtotal}</p>
+            {active.invoice.discount !== "0.00" ? (
+              <p>Professional discount (internal): -${active.invoice.discount}</p>
+            ) : null}
+            {active.invoice.professional_discount_reason?.trim() ? (
+              <p className="text-xs text-slate-500">Reason: {active.invoice.professional_discount_reason}</p>
+            ) : null}
+            {active.invoice.credit_applied_total !== "0.00" ? (
+              <p>Credit used from wallet (internal): -${active.invoice.credit_applied_total}</p>
+            ) : null}
+            <p className="font-semibold text-slate-900">Amount due: ${active.invoice.total_amount}</p>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function PatientHistoryPage({
   patientId,
   detailPath,
@@ -95,7 +179,7 @@ export function PatientHistoryPage({
       setActiveHistoryAppointmentId((prev) => {
         if (!d.appointments.length) return null;
         if (prev && d.appointments.some((a) => a.id === prev)) return prev;
-        return d.appointments[0].id;
+        return null;
       });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load patient history.");
@@ -110,9 +194,11 @@ export function PatientHistoryPage({
   }, [patientId, detailPath]);
 
   const active = useMemo(
-    () => detail?.appointments.find((a) => a.id === activeHistoryAppointmentId) || detail?.appointments[0] || null,
+    () => detail?.appointments.find((a) => a.id === activeHistoryAppointmentId) ?? null,
     [detail, activeHistoryAppointmentId],
   );
+
+  const closeAppointmentPanel = () => setActiveHistoryAppointmentId(null);
 
   const saveAppointmentHandoff = async (appointmentId: number) => {
     setSavingHandoffId(appointmentId);
@@ -185,120 +271,85 @@ export function PatientHistoryPage({
           <p className="mt-2 text-sm text-slate-500">When visits are created, the full chart and billing history will appear here.</p>
         </div>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[20rem,1fr]">
-          <aside className="max-h-[80vh] space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/70 p-2">
+        <>
+          <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Tap an appointment to open the chart note in a side panel. It slides in from the right — you do not need to scroll to the
+            bottom of the page.
+          </p>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {detail.appointments.map((a) => {
-              const selected = a.id === active?.id;
+              const selected = a.id === activeHistoryAppointmentId;
               return (
                 <button
                   key={a.id}
                   type="button"
                   onClick={() => setActiveHistoryAppointmentId(a.id)}
-                  className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                  className={`flex w-full items-center gap-2 rounded-xl border px-3 py-3 text-left transition ${
                     selected
                       ? "border-emerald-300 bg-white shadow-sm ring-1 ring-emerald-200"
-                      : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white/80"
+                      : "border-slate-200 bg-white hover:border-emerald-200 hover:shadow-sm"
                   }`}
                 >
-                  <p className="text-sm font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</p>
-                  <p className="mt-0.5 text-xs font-medium text-[#0d5c2e]">
-                    {a.start_time}
-                    {a.end_time ? ` - ${a.end_time}` : ""}
-                  </p>
-                  {a.provider ? <p className="mt-1 text-xs text-slate-600">{a.provider}</p> : null}
-                  <span
-                    className={`mt-2 inline-block rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
-                  >
-                    {a.status.replace(/_/g, " ")}
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</p>
+                    <p className="mt-0.5 text-xs font-medium text-[#0d5c2e]">
+                      {a.start_time}
+                      {a.end_time ? ` - ${a.end_time}` : ""}
+                    </p>
+                    {a.provider ? <p className="mt-1 truncate text-xs text-slate-600">{a.provider}</p> : null}
+                    <span
+                      className={`mt-2 inline-block rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
+                    >
+                      {a.status.replace(/_/g, " ")}
+                    </span>
+                    <p className="mt-2 text-[11px] font-semibold text-[#0d5c2e]">View chart note</p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
                 </button>
               );
             })}
-          </aside>
+          </div>
 
-          {active ? (
-            <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3">
-                <div>
-                  <p className="text-lg font-bold tracking-tight text-slate-900">
+          <Sheet open={active !== null} onOpenChange={(open) => !open && closeAppointmentPanel()}>
+            {active ? (
+              <SheetContent
+                side="right"
+                showCloseButton
+                className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,920px)] flex-col gap-0 overflow-hidden border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[min(100vw,920px)]"
+              >
+                <div className="shrink-0 border-b border-slate-100 px-5 pb-4 pt-14 sm:px-6">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Visit chart</p>
+                  <p className="mt-1 text-xl font-bold tracking-tight text-slate-900">
                     {formatMonthDayYear(active.appointment_date)} at {active.start_time}
                     {active.end_time ? ` - ${active.end_time}` : ""}
                   </p>
-                  {active.service ? <p className="mt-1 text-sm text-slate-600">{active.service}</p> : null}
+                  {active.service ? <p className="mt-2 text-sm text-slate-700">{active.service}</p> : null}
                   {active.provider ? (
                     <p className="mt-1 text-sm text-slate-600">
                       Provider: <span className="font-semibold text-[#0d5c2e]">{active.provider}</span>
                     </p>
                   ) : null}
+                  <span
+                    className={`mt-3 inline-block rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(active.status)}`}
+                  >
+                    {active.status.replace(/_/g, " ")}
+                  </span>
                 </div>
-                <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(active.status)}`}>
-                  {active.status.replace(/_/g, " ")}
-                </span>
-              </div>
 
-              <ChartNoteWorkspace
-                value={handoffEdits[active.id] ?? ""}
-                onChange={(next) => setHandoffEdits((prev) => ({ ...prev, [active.id]: next }))}
-                editable={active.can_edit_handoff_notes}
-                saving={savingHandoffId === active.id}
-                onSave={() => void saveAppointmentHandoff(active.id)}
-                meta={{
-                  dateLabel: `${formatWeekdayMonthDayYear(active.appointment_date)} at ${active.start_time}${
-                    active.end_time ? ` - ${active.end_time}` : ""
-                  }`,
-                  provider: active.provider ?? undefined,
-                  service: active.service ?? undefined,
-                }}
-                lineItems={active.visit?.rendered_services}
-                inputClassName={inputClass}
-              />
-              {active.visit ? (
-                <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Completed visit record</p>
-                  {active.visit.reason_for_visit?.trim() ? (
-                    <p className="mt-3 text-sm">
-                      <span className="font-semibold text-slate-600">Reason: </span>
-                      <span className="text-slate-800">{active.visit.reason_for_visit}</span>
-                    </p>
-                  ) : null}
-                  {active.visit.diagnosis?.trim() ? (
-                    <p className="mt-2 text-sm">
-                      <span className="font-semibold text-slate-600">Diagnosis (bill): </span>
-                      <span className="text-slate-800">{active.visit.diagnosis}</span>
-                    </p>
-                  ) : null}
-                  {active.visit.doctor_notes?.trim() ? (
-                    <div className="mt-4">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Visit chart (SOAP)</p>
-                      <div className="mt-2 max-h-[min(50vh,480px)] overflow-y-auto">
-                        <ChartNoteReader text={active.visit.doctor_notes} />
-                      </div>
-                    </div>
-                  ) : null}
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
+                  <AppointmentDetailPanel
+                    active={active}
+                    handoffEdits={handoffEdits}
+                    setHandoffEdits={setHandoffEdits}
+                    savingHandoffId={savingHandoffId}
+                    onSaveHandoff={(id) => void saveAppointmentHandoff(id)}
+                  />
                 </div>
-              ) : null}
-
-              {active.invoice ? (
-                <div className="rounded-xl border border-slate-200/90 bg-white p-4">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Invoice details</p>
-                  <div className="mt-2 grid gap-1 text-sm text-slate-700">
-                    <p>Invoice: {active.invoice.invoice_number}</p>
-                    <p>Status: {active.invoice.status.replace(/_/g, " ")}</p>
-                    <p>Subtotal: ${active.invoice.subtotal}</p>
-                    {active.invoice.discount !== "0.00" ? <p>Professional discount (internal): -${active.invoice.discount}</p> : null}
-                    {active.invoice.professional_discount_reason?.trim() ? (
-                      <p className="text-xs text-slate-500">Reason: {active.invoice.professional_discount_reason}</p>
-                    ) : null}
-                    {active.invoice.credit_applied_total !== "0.00" ? (
-                      <p>Credit used from wallet (internal): -${active.invoice.credit_applied_total}</p>
-                    ) : null}
-                    <p className="font-semibold text-slate-900">Amount due: ${active.invoice.total_amount}</p>
-                  </div>
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-        </div>
+              </SheetContent>
+            ) : null}
+          </Sheet>
+        </>
       )}
     </div>
   );
