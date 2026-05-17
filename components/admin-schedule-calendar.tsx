@@ -608,9 +608,6 @@ function ScheduleGridColumnBody({
 function ProviderLegend({ providers }: { providers: ProviderRow[] }) {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-2xl border border-slate-200/90 bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-slate-100/80">
-      <span className="w-full text-xs text-slate-500 sm:w-auto sm:flex-none">
-        Colors = provider; chip on each block = status. Day view: drag a visit to move it; click open time to book (7 AM–7 PM).
-      </span>
       <span className="font-semibold text-slate-500">Providers</span>
       {providers.map((p) => {
         const c = providerColorForId(p.id);
