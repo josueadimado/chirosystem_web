@@ -459,12 +459,15 @@ function resolveScheduleDropTarget(
   };
 }
 
-function openGapContaining(
-  gaps: TimeInterval[],
-  startMinute: number,
-  minDuration = 15,
-): TimeInterval | undefined {
-  return gaps.find((g) => startMinute >= g.startMin && startMinute + minDuration <= g.endMin);
+/** Which open strip contains this clock time (minutes from midnight). */
+function openGapAtMinute(gaps: TimeInterval[], minute: number): TimeInterval | undefined {
+  return gaps.find((g) => minute >= g.startMin && minute < g.endMin);
+}
+
+function minuteAtGridY(clientY: number, gridRect: DOMRect): number {
+  const h = Math.max(gridRect.height, 1);
+  const frac = Math.max(0, Math.min(1, (clientY - gridRect.top) / h));
+  return SCHEDULE_DAY_START_MIN + frac * SCHEDULE_TOTAL_MIN;
 }
 
 export function AdminScheduleCalendar({
@@ -596,6 +599,11 @@ function ScheduleGridColumnBody({
         if (t.closest("[data-schedule-appointment]")) return;
         if (t.closest("[data-schedule-open-gap]")) return;
         onOpenSlotClick(e.clientY, e.currentTarget.getBoundingClientRect());
+      }}
+      onPointerDownCapture={(e) => {
+        if (dragActive) return;
+        const t = e.target as HTMLElement;
+        if (t.closest("[data-schedule-open-gap]")) e.stopPropagation();
       }}
     >
       <ScheduleGridBackground hours={hours} />
@@ -925,9 +933,10 @@ function DayProviderColumn({
         onOpenSlotClick={
           onPickOpenSlot
             ? (clientY, rect) => {
-                const startMinute = snapScheduleGridStartMinute(clientY, rect, 15);
-                const gap = openGapContaining(openGaps, startMinute);
+                const minute = minuteAtGridY(clientY, rect);
+                const gap = openGapAtMinute(openGaps, minute);
                 if (!gap) return;
+                const startMinute = snapOpenSlotStartMinute(clientY, rect, gap.startMin, gap.endMin);
                 onPickOpenSlot({
                   providerId: provider.id,
                   providerName: provider.provider_name,
@@ -984,7 +993,7 @@ function DayProviderColumn({
           );
         })}
 
-        <div className="absolute inset-0 z-[3] overflow-x-auto overflow-y-hidden">
+        <div className="pointer-events-none absolute inset-0 z-[3] overflow-x-auto overflow-y-hidden">
           <div className="relative h-full min-w-full" style={{ width: innerMinW }}>
             {appointments.map((a) => {
               const key = `a-${a.id}`;
@@ -1014,7 +1023,7 @@ function DayProviderColumn({
                   }}
                   title={draggable ? "Drag to reschedule · release without moving to open details" : undefined}
                   className={cn(
-                    "absolute flex flex-col overflow-hidden rounded-lg border px-1 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
+                    "pointer-events-auto absolute flex flex-col overflow-hidden rounded-lg border px-1 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                     styles.wrap,
                     selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
                     draggable && "cursor-grab touch-none active:cursor-grabbing",
@@ -1095,11 +1104,12 @@ function DayProviderColumn({
                 key={`gap-${i}`}
                 type="button"
                 data-schedule-open-gap
-                className="group absolute left-1 right-1 z-[6] cursor-pointer rounded-md border border-transparent text-left transition hover:border-emerald-300/60 hover:bg-emerald-500/[0.09] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]"
+                className="group absolute left-1 right-1 z-[10] cursor-pointer rounded-md border border-transparent text-left transition hover:border-emerald-300/60 hover:bg-emerald-500/[0.09] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]"
                 style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
                 title={`Book here · ${labelRange} · ${dur} min free`}
                 aria-label={`Book appointment in open time ${labelRange}`}
                 onClick={(e) => {
+                  e.stopPropagation();
                   const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
                   const startMinute = snapOpenSlotStartMinute(e.clientY, r, g.startMin, g.endMin);
                   onPickOpenSlot({
