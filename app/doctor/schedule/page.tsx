@@ -13,7 +13,7 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import {
   addDays,
   endOfMonth,
@@ -23,9 +23,16 @@ import {
   startOfMonth,
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
+import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-modal";
+import { RescheduleVisitSlotsModal } from "@/components/visit-panel/reschedule-visit-slots-modal";
+import { VisitDoctorScheduleActions } from "@/components/visit-panel/visit-doctor-schedule-actions";
+import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
+import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { ChartNoteWorkspace } from "@/components/chart-note-document";
+import { useBookNextVisit } from "@/hooks/use-book-next-visit";
+import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
+import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
-import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
@@ -53,18 +60,6 @@ type AppointmentRow = {
 
 type ScheduleViewMode = "day" | "week" | "month";
 
-/** Same payload as public booking — book next flow */
-type BookingOptionsResponse = {
-  services: Array<{
-    id: number;
-    name: string;
-    duration_minutes: number;
-    price: string;
-    service_type: string;
-  }>;
-  providers_by_service: Record<string, Array<{ id: number; provider_name: string }>>;
-};
-
 function formatTime(t: string): string {
   if (!t) return "";
   const match = t.match(/(\d{1,2}):(\d{2})/);
@@ -84,32 +79,6 @@ function formatAppointmentDuration(start: string, end: string): string {
   const rem = mins % 60;
   if (rem === 0) return `${h} hour${h === 1 ? "" : "s"}`;
   return `${h} hr ${rem} min`;
-}
-
-function drawerStatusBadgeClass(status: string): string {
-  switch (status) {
-    case "booked":
-    case "scheduled":
-      return "bg-emerald-100 text-emerald-900";
-    case "checked_in":
-    case "in_consultation":
-      return "bg-sky-100 text-sky-900";
-    case "awaiting_payment":
-      return "bg-violet-100 text-violet-900";
-    case "completed":
-      return "bg-slate-200 text-slate-800";
-    case "cancelled":
-      return "bg-pink-100 text-pink-900";
-    case "no_show":
-      return "bg-orange-100 text-orange-900";
-    default:
-      return "bg-slate-100 text-slate-700";
-  }
-}
-
-function drawerStatusLabel(status: string): string {
-  const key = status === "booked" ? "scheduled" : status;
-  return key.replaceAll("_", " ");
 }
 
 function buildAppointmentListParams(
@@ -147,7 +116,7 @@ function blockListRange(view: ScheduleViewMode, focusDate: Date): { from: string
 }
 
 function DoctorSchedulePageInner() {
-  const { runWithFeedback } = useAppFeedback();
+  const { runWithFeedback, toast } = useAppFeedback();
   const searchParams = useSearchParams();
   const [providerId, setProviderId] = useState<number | null>(null);
   const [providerName, setProviderName] = useState("");
@@ -164,18 +133,6 @@ function DoctorSchedulePageInner() {
   const [handoffLoading, setHandoffLoading] = useState(false);
   const [savingHandoff, setSavingHandoff] = useState(false);
 
-  const [bookNextAppt, setBookNextAppt] = useState<AppointmentRow | null>(null);
-  const [bookingOptions, setBookingOptions] = useState<BookingOptionsResponse | null>(null);
-  const [bookNextOptionsLoading, setBookNextOptionsLoading] = useState(false);
-  const [bnServiceId, setBnServiceId] = useState(0);
-  const [bnProviderId, setBnProviderId] = useState(0);
-  const [bnDate, setBnDate] = useState("");
-  const [bnSlotTimes, setBnSlotTimes] = useState<string[]>([]);
-  const [bnSlotLabels, setBnSlotLabels] = useState<string[]>([]);
-  const [bnSelectedSlot, setBnSelectedSlot] = useState("");
-  const [bnSlotsLoading, setBnSlotsLoading] = useState(false);
-  const [savingBookNext, setSavingBookNext] = useState(false);
-
   const [deskBookSeed, setDeskBookSeed] = useState<DeskBookSlotSeed | null>(null);
 
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus | null>(null);
@@ -183,7 +140,24 @@ function DoctorSchedulePageInner() {
   const [calendarBusy, setCalendarBusy] = useState(false);
 
   const navSigRef = useRef<{ view: ScheduleViewMode; focusMs: number } | null>(null);
+  const openedFromUrlRef = useRef<number | null>(null);
+  const pendingAppointmentIdRef = useRef<number | null>(null);
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  const bookNext = useBookNextVisit({
+    todayMinIso: todayStr,
+    preferredProviderId: providerId,
+    onBooked: () => loadAppointments(),
+  });
+  const rescheduleVisit = useRescheduleVisitSlots({
+    todayMinIso: todayStr,
+    providerId,
+    defaultDateIso: toIsoDate(focusDate),
+    onRescheduled: () => loadAppointments(),
+  });
+  const { contact: patientContact, loading: patientContactLoading } = usePatientQuickContact(
+    selected?.patient ?? null,
+  );
 
   const providersForCalendar = useMemo(() => {
     if (providerId == null) return [];
@@ -247,6 +221,45 @@ function DoctorSchedulePageInner() {
   }, [loadAppointments]);
 
   useEffect(() => {
+    const raw = searchParams.get("appointment");
+    if (!raw) return;
+    const id = Number.parseInt(raw, 10);
+    if (!Number.isNaN(id)) pendingAppointmentIdRef.current = id;
+  }, [searchParams]);
+
+  useEffect(() => {
+    const id = pendingAppointmentIdRef.current;
+    if (id == null || providerId == null) return;
+
+    const ap = appointments.find((a) => a.id === id);
+    if (ap) {
+      if (openedFromUrlRef.current !== ap.id) {
+        openedFromUrlRef.current = ap.id;
+        setSelected(ap);
+        toast.info(`${ap.patient_name} — details are in the panel on the right.`);
+      }
+      pendingAppointmentIdRef.current = null;
+      return;
+    }
+
+    if (loading) return;
+
+    let cancelled = false;
+    void apiGetAuth<AppointmentRow>(`/appointments/${id}/`)
+      .then((row) => {
+        if (cancelled) return;
+        setFocusDate(new Date(`${row.appointment_date}T12:00:00`));
+        setView("day");
+      })
+      .catch(() => {
+        if (!cancelled) pendingAppointmentIdRef.current = null;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appointments, providerId, loading, toast]);
+
+  useEffect(() => {
     if (view !== "day") setDeskBookSeed(null);
   }, [view]);
 
@@ -304,46 +317,6 @@ function DoctorSchedulePageInner() {
     };
   }, [selected?.id]);
 
-  useEffect(() => {
-    if (!bookNextAppt || !bnDate || !bnServiceId || !bnProviderId) {
-      setBnSlotLabels([]);
-      setBnSlotTimes([]);
-      setBnSelectedSlot("");
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      setBnSlotsLoading(true);
-      try {
-        const q = new URLSearchParams({
-          date: bnDate,
-          provider_id: String(bnProviderId),
-          service_id: String(bnServiceId),
-        });
-        const data = await apiGetAuth<{ available_slots: string[]; slot_start_times?: string[] }>(
-          `/booking-options/availability/?${q.toString()}`,
-        );
-        if (cancelled) return;
-        const labels = data.available_slots || [];
-        const times = data.slot_start_times || [];
-        setBnSlotLabels(labels);
-        setBnSlotTimes(times.length ? times : labels.map(() => ""));
-        setBnSelectedSlot(times[0] || "");
-      } catch {
-        if (!cancelled) {
-          setBnSlotLabels([]);
-          setBnSlotTimes([]);
-          setBnSelectedSlot("");
-        }
-      } finally {
-        if (!cancelled) setBnSlotsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [bookNextAppt?.id, bnDate, bnServiceId, bnProviderId]);
-
   const handleCheckIn = async () => {
     if (!selected) return;
     setCheckingIn(true);
@@ -384,59 +357,27 @@ function DoctorSchedulePageInner() {
     }
   };
 
-  const openBookNext = (appt: AppointmentRow) => {
-    void (async () => {
-      setBookNextAppt(appt);
-      const initialDate = appt.appointment_date >= todayStr ? appt.appointment_date : todayStr;
-      setBnDate(initialDate);
-      setBookNextOptionsLoading(true);
-      try {
-        const opts = await apiGet<BookingOptionsResponse>("/booking-options/");
-        setBookingOptions(opts);
-        const sid =
-          appt.booked_service && opts.services.some((s) => s.id === appt.booked_service)
-            ? appt.booked_service
-            : opts.services[0]?.id ?? 0;
-        setBnServiceId(sid);
-        const provs = opts.providers_by_service[String(sid)] ?? [];
-        const pid = provs.some((p) => p.id === appt.provider) ? appt.provider : provs[0]?.id ?? 0;
-        setBnProviderId(pid);
-      } catch {
-        setBookingOptions(null);
-        setBnServiceId(0);
-        setBnProviderId(0);
-      } finally {
-        setBookNextOptionsLoading(false);
-      }
-    })();
+  const openReschedule = (appt: AppointmentRow) => {
+    rescheduleVisit.open({
+      id: appt.id,
+      patientLabel: appt.patient_name,
+      appointmentDate: appt.appointment_date,
+      startTimeDisplay: appt.start_time_display || formatTime(appt.start_time),
+      endTimeDisplay: appt.end_time_display || formatTime(appt.end_time),
+      serviceLabel: appt.service_name,
+      bookedServiceId: appt.booked_service,
+      startTimeIso: appt.start_time,
+    });
   };
 
-  const submitBookNext = async () => {
-    if (!bookNextAppt || !bnServiceId || !bnProviderId || !bnDate || !bnSelectedSlot) return;
-    setSavingBookNext(true);
-    try {
-      await runWithFeedback(
-        async () => {
-          await apiPost(`/appointments/book-by-provider/`, {
-            source_appointment_id: bookNextAppt.id,
-            service_id: bnServiceId,
-            provider_id: bnProviderId,
-            appointment_date: bnDate,
-            start_time: bnSelectedSlot,
-          });
-          setBookNextAppt(null);
-          setBookingOptions(null);
-          await loadAppointments();
-        },
-        {
-          loadingMessage: "Booking…",
-          successMessage: "Next visit booked",
-          errorFallback: "Could not book that slot (it may have been taken).",
-        },
-      );
-    } finally {
-      setSavingBookNext(false);
-    }
+  const openBookNext = (appt: AppointmentRow) => {
+    bookNext.open({
+      id: appt.id,
+      patientLabel: appt.patient_name,
+      appointmentDate: appt.appointment_date,
+      bookedServiceId: appt.booked_service,
+      providerId: appt.provider,
+    });
   };
 
   const scheduleAppts = useMemo(() => filterAppointmentsForScheduleGrid(appointments), [appointments]);
@@ -676,7 +617,10 @@ function DoctorSchedulePageInner() {
               selectedId={selected?.id ?? null}
               onSelect={(row) => {
                 const full = appointments.find((x) => x.id === row.id);
-                if (full) setSelected(full);
+                if (full) {
+                  setSelected(full);
+                  toast.info(`${full.patient_name} — details are in the panel on the right.`);
+                }
               }}
               onPickDayInMonth={(d) => {
                 setFocusDate(d);
@@ -695,53 +639,25 @@ function DoctorSchedulePageInner() {
             showCloseButton
             className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[480px]"
           >
-            <div className="shrink-0 border-b border-slate-100 px-5 pb-4 pt-14">
-              <h2 className="text-xl font-bold tracking-tight text-slate-900">{selected.patient_name}</h2>
-              <p className="mt-1 text-sm font-medium text-slate-600">{selected.service_name || "—"}</p>
-              <p className="mt-3 text-sm text-slate-800">
-                {formatWeekdayMonthDayYear(selected.appointment_date)} at{" "}
-                {selected.start_time_display || formatTime(selected.start_time)}
-              </p>
-              <p className="mt-1 text-sm text-slate-600">
-                Duration · {formatAppointmentDuration(selected.start_time, selected.end_time)}
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${drawerStatusBadgeClass(selected.status)}`}
-                >
-                  {drawerStatusLabel(selected.status)}
-                </span>
-              </div>
-            </div>
+            <VisitSummaryHeader
+              patientName={selected.patient_name}
+              serviceName={selected.service_name}
+              dateTimeLabel={`${formatWeekdayMonthDayYear(selected.appointment_date)} at ${selected.start_time_display || formatTime(selected.start_time)}`}
+              durationLabel={formatAppointmentDuration(selected.start_time, selected.end_time)}
+              providerName={selected.provider_name}
+              providerColor="#16a349"
+              status={selected.status}
+              appointmentId={selected.id}
+            />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <div className="space-y-3">
-                {(selected.status === "cancelled" || selected.status === "no_show") && (
-                  <p className="text-center text-sm text-slate-500">No actions available</p>
-                )}
-
-                {selected.status === "completed" && (
-                  <button
-                    type="button"
-                    onClick={() => openBookNext(selected)}
-                    className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
-                  >
-                    Book next visit
-                  </button>
-                )}
-
-                {(selected.status === "booked" || selected.status === "scheduled") && (
-                  <button
-                    type="button"
-                    onClick={() => void handleCheckIn()}
-                    disabled={checkingIn}
-                    className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-                  >
-                    {checkingIn ? "Completing check-in…" : "Check in"}
-                  </button>
-                )}
-              </div>
+              <VisitDoctorScheduleActions
+                status={selected.status}
+                checkingIn={checkingIn}
+                onCheckIn={() => void handleCheckIn()}
+                onReschedule={() => openReschedule(selected)}
+                onBookNext={() => openBookNext(selected)}
+              />
 
               <div className="mt-8 max-w-none border-t border-slate-200 pt-6">
                 <p className="text-sm leading-relaxed text-slate-500">
@@ -768,15 +684,15 @@ function DoctorSchedulePageInner() {
                 </div>
               </div>
 
-              <div className="mt-8 border-t border-slate-100 pt-5">
-                <Link
-                  href={`/doctor/patients/${selected.patient}/history`}
-                  className="inline-flex text-sm font-semibold text-[#16a349] hover:text-[#13823d]"
-                >
-                  View full patient record →
-                </Link>
-              </div>
             </div>
+
+            <VisitPanelPatientFooter
+              loading={patientContactLoading}
+              phone={patientContact?.phone}
+              email={patientContact?.email}
+              profileHref={`/doctor/patients/${selected.patient}/record`}
+              profileLabel="View full patient record →"
+            />
           </SheetContent>
         ) : null}
       </Sheet>
@@ -790,130 +706,12 @@ function DoctorSchedulePageInner() {
         onBooked={() => loadAppointments()}
       />
 
-      {bookNextAppt && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40 p-4"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="doctor-schedule-book-next-title"
-            >
-              <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h2 id="doctor-schedule-book-next-title" className="text-lg font-bold text-slate-900">
-              Book next visit
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Schedule a new appointment for <span className="font-semibold text-slate-800">{bookNextAppt.patient_name}</span>.
-            </p>
-            {bookNextOptionsLoading ? (
-              <p className="mt-4 text-sm text-slate-600">Loading visit types…</p>
-            ) : (
-              <div className="mt-4 space-y-3">
-                <label className="block text-xs font-semibold text-slate-600">
-                  Service
-                  <select
-                    value={bnServiceId || ""}
-                    onChange={(e) => {
-                      const sid = Number(e.target.value);
-                      setBnServiceId(sid);
-                      const provs = bookingOptions?.providers_by_service[String(sid)] ?? [];
-                      const pid = provs.some((p) => p.id === bookNextAppt.provider) ? bookNextAppt.provider : provs[0]?.id ?? 0;
-                      setBnProviderId(pid);
-                    }}
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    {(bookingOptions?.services ?? []).map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-xs font-semibold text-slate-600">
-                  Provider
-                  <select
-                    value={bnProviderId || ""}
-                    onChange={(e) => setBnProviderId(Number(e.target.value))}
-                    disabled={!bnServiceId}
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    {(bookingOptions?.providers_by_service[String(bnServiceId)] ?? []).map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.provider_name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-xs font-semibold text-slate-600">
-                  Date
-                  <input
-                    type="date"
-                    value={bnDate}
-                    min={todayStr}
-                    onChange={(e) => setBnDate(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-slate-600">
-                  Time
-                  {bnSlotsLoading ? (
-                    <span className="mt-1 block text-sm font-normal text-slate-500">Loading openings…</span>
-                  ) : (
-                    <select
-                      value={bnSelectedSlot}
-                      onChange={(e) => setBnSelectedSlot(e.target.value)}
-                      disabled={!bnSlotLabels.length}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    >
-                      {bnSlotLabels.length === 0 ? (
-                        <option value="">No openings — adjust date, service, or provider</option>
-                      ) : (
-                        bnSlotLabels.map((label, i) => (
-                          <option key={`${label}-bn-${i}`} value={bnSlotTimes[i] || label}>
-                            {label}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  )}
-                </label>
-              </div>
-            )}
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setBookNextAppt(null);
-                  setBookingOptions(null);
-                }}
-                disabled={savingBookNext}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                disabled={
-                  savingBookNext ||
-                  bookNextOptionsLoading ||
-                  !bnServiceId ||
-                  !bnProviderId ||
-                  !bnDate ||
-                  !bnSelectedSlot ||
-                  bnSlotsLoading ||
-                  !bnSlotLabels.length
-                }
-                onClick={() => void submitBookNext()}
-                className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-              >
-                {savingBookNext ? "Booking…" : "Confirm booking"}
-              </button>
-            </div>
-            </div>
-          </div>,
-            document.body,
-          )
-        : null}
+      <RescheduleVisitSlotsModal reschedule={rescheduleVisit} titleId="doctor-schedule-reschedule-title" />
+      <BookNextVisitModal
+        bookNext={bookNext}
+        titleId="doctor-schedule-book-next-title"
+        showOnlineRulesHint={false}
+      />
     </div>
   );
 }

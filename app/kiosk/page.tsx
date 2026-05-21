@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppFeedback } from "@/components/app-feedback";
-import { IconArrowRight } from "@/components/icons";
+import { IconArrowRight, IconCheck } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { ApiError, apiPostPublic } from "@/lib/api";
 import Link from "next/link";
@@ -71,41 +71,93 @@ type KioskLookupOk =
 /** Lookup outcomes that need a message (not the success path). */
 type KioskLookupNotice = Exclude<KioskLookupOk, { result: "ready" }>;
 
-type Notice = { tone: "amber" | "sky" | "rose"; title: string; body: string };
+type NoticeTone = "amber" | "sky" | "rose";
+
+type Notice = {
+  tone: NoticeTone;
+  icon: string;
+  title: string;
+  /** One short sentence — what the patient should do next. */
+  action: string;
+  detail?: string;
+};
 
 function lookupToNotice(data: KioskLookupNotice): Notice {
   switch (data.result) {
     case "too_early":
       return {
         tone: "amber",
+        icon: "⏰",
         title: "A little early",
-        body: `${data.message}\n\nYour appointment is at ${data.start_time_display}. From this kiosk, check-in opens around ${data.earliest_checkin_display}. If the front desk or your doctor is ready sooner, they can complete your check-in at the desk.`,
+        action: "Please wait until check-in opens, or see the front desk if they are ready for you.",
+        detail: `Appointment at ${data.start_time_display}. Kiosk check-in opens around ${data.earliest_checkin_display}.`,
       };
     case "wrong_day":
       return {
         tone: "amber",
+        icon: "📅",
         title: "Different day",
-        body: data.message,
+        action: "Come back on the day of your appointment, or see the front desk.",
+        detail: data.message,
       };
     case "not_found":
       return {
         tone: "rose",
+        icon: "📱",
         title: "No appointment found",
-        body: data.message,
+        action: "Double-check your cell number, or see the front desk.",
+        detail: data.message,
       };
     case "already_checked_in":
       return {
         tone: "sky",
-        title: "Already checked-in",
-        body: data.message,
+        icon: "✓",
+        title: "You're already checked in",
+        action: "Please have a seat — we'll call your name when the doctor is ready.",
+        detail: data.message,
       };
     case "visit_completed_today":
       return {
         tone: "amber",
+        icon: "✓",
         title: "Visit already finished",
-        body: data.message,
+        action: "If you need help or another visit, see the front desk.",
+        detail: data.message,
       };
   }
+}
+
+function KioskNoticeCard({ notice }: { notice: Notice }) {
+  const styles =
+    notice.tone === "rose"
+      ? "border-rose-300 bg-rose-50 text-rose-950"
+      : notice.tone === "sky"
+        ? "border-sky-300 bg-sky-50 text-sky-950"
+        : "border-amber-300 bg-amber-50 text-amber-950";
+
+  return (
+    <div
+      className={`rounded-2xl border-2 px-5 py-6 text-center shadow-sm sm:px-6 sm:py-7 ${styles}`}
+      role="alert"
+    >
+      <p className="text-4xl leading-none" aria-hidden>
+        {notice.icon}
+      </p>
+      <p className="mt-4 text-xl font-extrabold sm:text-2xl">{notice.title}</p>
+      <p className="mt-3 text-base font-semibold leading-snug sm:text-lg">{notice.action}</p>
+      {notice.detail ? (
+        <p className="mt-3 text-sm leading-relaxed opacity-90 sm:text-base">{notice.detail}</p>
+      ) : null}
+      {(notice.tone === "rose" || notice.tone === "amber") && (
+        <p className="mt-4 text-sm font-medium sm:text-base">
+          <Link href="/" className="text-primary underline-offset-4 hover:underline">
+            Book online
+          </Link>{" "}
+          · front desk
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function KioskPage() {
@@ -113,6 +165,7 @@ export default function KioskPage() {
   const [phone, setPhone] = useState("");
   const [checkingIn, setCheckingIn] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
+  const [successPatientName, setSuccessPatientName] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const append = (char: string) => {
@@ -140,6 +193,7 @@ export default function KioskPage() {
   const resetKiosk = () => {
     setPhone("");
     setSuccessVisible(false);
+    setSuccessPatientName("");
     setNotice(null);
   };
 
@@ -151,6 +205,7 @@ export default function KioskPage() {
       const lookup = await apiPostPublic<KioskLookupOk>("/kiosk/lookup/", { phone: e164 });
       if (lookup.result === "ready") {
         await apiPostPublic<{ detail: string }>("/kiosk/checkin/", { appointment_id: lookup.appointment_id });
+        setSuccessPatientName(lookup.patient?.trim() || "");
       } else {
         setNotice(lookupToNotice(lookup));
         return;
@@ -164,21 +219,16 @@ export default function KioskPage() {
           : "Something went wrong. Please see the front desk or try again.";
       setNotice({
         tone: "rose",
+        icon: "!",
         title: "Could not complete check-in",
-        body: msg,
+        action: "See the front desk, or tap Start over to try again.",
+        detail: msg,
       });
       toast.error(msg);
     } finally {
       setCheckingIn(false);
     }
   };
-
-  const noticeStyles =
-    notice?.tone === "rose"
-      ? "border-rose-300 bg-rose-50 text-rose-950"
-      : notice?.tone === "sky"
-        ? "border-sky-300 bg-sky-50 text-sky-950"
-        : "border-amber-300 bg-amber-50 text-amber-950";
 
   return (
     <main className="relative flex min-h-[100dvh] min-h-screen flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-[#ecfdf5] via-background to-muted/50 px-[max(1rem,env(safe-area-inset-left))] py-10 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(2.5rem,env(safe-area-inset-top))] pb-[max(6.5rem,env(safe-area-inset-bottom))] sm:px-6">
@@ -215,15 +265,23 @@ export default function KioskPage() {
                 role="status"
                 aria-live="polite"
               >
-                <p className="text-2xl font-extrabold leading-tight text-[#0d5c2e] sm:text-3xl md:text-4xl">
-                  Check-in complete!
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#16a349] text-white shadow-lg shadow-[#16a349]/30 sm:h-20 sm:w-20">
+                  <IconCheck className="h-9 w-9 sm:h-11 sm:w-11" />
+                </div>
+                <p className="mt-5 text-2xl font-extrabold leading-tight text-[#0d5c2e] sm:text-3xl">
+                  You&apos;re checked in!
                 </p>
-                <p className="mt-5 text-lg font-semibold leading-snug text-foreground sm:text-xl md:text-2xl">
-                  Please have a seat in the waiting area.
+                {successPatientName ? (
+                  <p className="mt-3 text-lg font-semibold text-foreground sm:text-xl">
+                    {successPatientName}, please have a seat.
+                  </p>
+                ) : (
+                  <p className="mt-3 text-lg font-semibold text-foreground sm:text-xl">Please have a seat.</p>
+                )}
+                <p className="mt-3 text-base leading-relaxed text-muted-foreground sm:text-lg">
+                  The front desk has been notified. We&apos;ll call your name when the doctor is ready.
                 </p>
-                <p className="mt-3 text-base font-medium leading-relaxed text-muted-foreground sm:text-lg">
-                  We&apos;ll call you shortly when the doctor is ready.
-                </p>
+                <p className="mt-2 text-sm text-muted-foreground">Tap Start over when the next person checks in.</p>
                 <button
                   type="button"
                   onClick={resetKiosk}
@@ -238,23 +296,7 @@ export default function KioskPage() {
                   {formatPhoneDisplay(phone)}
                 </div>
 
-                {notice ? (
-                  <div
-                    className={`rounded-2xl border-2 px-4 py-4 text-left shadow-sm sm:px-5 sm:py-5 ${noticeStyles}`}
-                    role="alert"
-                  >
-                    <p className="text-lg font-extrabold sm:text-xl">{notice.title}</p>
-                    <p className="mt-3 whitespace-pre-line text-base leading-relaxed sm:text-lg">{notice.body}</p>
-                    {(notice.tone === "rose" || notice.tone === "amber") && (
-                      <p className="mt-4 text-base font-semibold sm:text-lg">
-                        <Link href="/" className="text-primary underline-offset-4 hover:underline">
-                          Book an appointment online
-                        </Link>{" "}
-                        or visit the front desk.
-                      </p>
-                    )}
-                  </div>
-                ) : null}
+                {notice ? <KioskNoticeCard notice={notice} /> : null}
 
                 <div className="grid grid-cols-3 gap-3 sm:gap-3.5">
                   {"123456789".split("").map((digit) => (

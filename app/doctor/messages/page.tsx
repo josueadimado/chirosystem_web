@@ -1,26 +1,27 @@
+import { DoctorPageIntro } from "@/components/doctor-shell";
+import Link from "next/link";
+
+/** Placeholder — not linked from the doctor sidebar until messaging is built. */
 export default function DoctorMessagesPage() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-      <section className="card space-y-2">
-        <h1 className="text-xl font-bold">Messages</h1>
-        <p className="text-sm text-slate-600">Conversations with your patients only.</p>
-        <p className="text-sm text-slate-600">Messaging with your patients. (Coming soon — no backend yet.)</p>
-        <input className="w-full rounded-lg border border-slate-200 p-2" placeholder="Search messages" />
-        {["Jordan Lee", "David Wilson", "Emily Rodriguez"].map((name) => (
-          <button key={name} className="w-full rounded-lg border border-slate-200 p-2 text-left text-sm hover:bg-slate-50">{name}</button>
-        ))}
-      </section>
-      <section className="card flex min-h-[500px] flex-col">
-        <div className="mb-4 border-b border-slate-200 pb-3 font-semibold">Jordan Lee</div>
-        <div className="flex-1 space-y-3 text-sm">
-          <p className="max-w-md rounded-lg bg-slate-100 p-3">Hi Dr. Smith, should I still come in at 11:00 AM?</p>
-          <p className="ml-auto max-w-md rounded-lg bg-[#16a349] p-3 text-white">Yes, come in. We will reassess and adjust treatment.</p>
-        </div>
-        <div className="mt-4 flex gap-2">
-          <input className="flex-1 rounded-lg border border-slate-200 p-2" placeholder="Type a message..." />
-          <button className="rounded-lg bg-[#16a349] px-3 py-2 text-white">Send</button>
-        </div>
-      </section>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <DoctorPageIntro
+        title="Messages"
+        description="Patient texting is not available in this version yet."
+        pageHelp="Use chart notes on each visit so the next provider sees important context. The clinic can still call or text patients outside this app."
+      />
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-6 py-10 text-center shadow-sm">
+        <p className="text-lg font-semibold text-slate-900">Coming soon</p>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-600">
+          A shared inbox for patient texts will live here later. For now, document follow-ups in the chart note on each appointment.
+        </p>
+        <Link
+          href="/doctor/dashboard"
+          className="mt-6 inline-flex rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
+        >
+          Back to dashboard
+        </Link>
+      </div>
     </div>
   );
 }

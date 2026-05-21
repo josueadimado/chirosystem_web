@@ -7,375 +7,47 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { IconCheck, IconChevronLeft, IconChevronRight } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { BookingCardSetup } from "@/components/booking-card-setup";
+import { PublicBookingClinicHelp } from "@/components/public-booking-clinic-help";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiGet, apiPostPublic } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { useFindNextOpenBookingDay } from "@/hooks/use-find-next-open-booking-day";
+import { publicBookingStepLabel } from "@/lib/public-booking-step-labels";
+import type {
+  AvailabilityApiResponse,
+  BookingFlowMode,
+  BookingOptions,
+  BookingResult,
+  CartItem,
+  CartSlotPick,
+  FormErrors,
+  ProviderOption,
+  RescheduleAppointmentRow,
+  ServiceOption,
+  SlotGridEntry,
+  Step,
+} from "@/lib/public-booking-types";
+import {
+  addCalendarMonths,
+  buildFallbackTimeSlots,
+  chiroIntakeRuleFromLookupResponse,
+  formatBookingPrice,
+  isMassageLateCancelWindow,
+  massagePastClosingScheduleMessage,
+  massageReservedBlockExtendsPastPublicClose,
+  newCartLineId,
+  nextWeekdayOnOrAfter,
+  normalizeAvailabilityFromResponse,
+  providerPickForService,
+  publicBookingCalendarSpanMinutes,
+  startOfCalendarMonth,
+  toLocalISODate,
+  lastWeekdayOnOrBefore,
+} from "@/lib/public-booking-utils";
 import { withMinimumDelay } from "@/lib/with-minimum-delay";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
-
-type Step = 1 | 2 | 3 | 4;
-type BookingResult = {
-  appointment_id: number;
-  patient: string;
-  provider: string;
-  service: string;
-  service_type?: string;
-  appointment_date: string;
-  start_time: string;
-  total_amount: string;
-};
-type FormErrors = {
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-};
-
-type ServiceOption = {
-  id: number;
-  name: string;
-  description?: string;
-  duration_minutes: number;
-  price: string;
-  service_type?: "chiropractic" | "massage";
-  allow_provider_choice?: boolean;
-  /** True = new patient / reactivation visit (required online after long gap since last chiro visit). */
-  is_new_client_intake?: boolean;
-};
-type ProviderOption = { id: number; provider_name: string };
-type BookingOptions = { services: ServiceOption[]; providers_by_service: Record<number, ProviderOption[]> };
-
-/** One row from GET /booking-options/my-appointments/ (upcoming visits the patient can reschedule). */
-type RescheduleAppointmentRow = {
-  id: number;
-  appointment_date: string;
-  start_time: string;
-  service_id: number;
-  service_name: string;
-  /** From API — preferred for policy checks when booking options are still loading. */
-  service_type?: string;
-  provider_id: number;
-  provider_name: string;
-  duration_minutes: number;
-  price: string;
-  /** Present when multiple patient profiles share the same phone number — who this visit is for. */
-  patient_name?: string;
-};
-
-type BookingFlowMode = "new" | "reschedule";
-
-/** One row from GET /booking-options/availability/ when ``slot_grid`` is present (full 15-min list + bookable). */
-type SlotGridEntry = { label: string; bookable: boolean };
-
-type CartItem = {
-  /** Stable id for this cart row (date/time picks and availability are keyed by this). */
-  lineId: string;
-  service: ServiceOption;
-  provider: ProviderOption | null;
-  providerSkipped: boolean;
-};
-
-type CartSlotPick = { date: string; time: string };
-
-/** Stable id for one row in the cart (two of the same service = two different line ids). */
-function newCartLineId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `line-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-}
-
-/**
- * Online booking: chiropractic does not ask the patient to pick a doctor — use the first linked provider
- * (same as admin-assigned / single-calendar behavior). Massage with several therapists still requires a choice.
- */
-function providerPickForService(
-  service: ServiceOption,
-  providers: ProviderOption[],
-): { provider: ProviderOption | null; providerSkipped: boolean } {
-  if (providers.length === 0) {
-    return { provider: null, providerSkipped: false };
-  }
-  if (providers.length === 1) {
-    return { provider: providers[0], providerSkipped: true };
-  }
-  /** New office / intake visits are chiropractic; auto-pick so the schedule API always gets a provider_id. */
-  const isChiroBooking =
-    service.service_type === "chiropractic" || service.is_new_client_intake === true;
-  if (isChiroBooking) {
-    return { provider: providers[0], providerSkipped: true };
-  }
-  return { provider: null, providerSkipped: false };
-}
-
-/** Post-massage turnover reserved on the provider schedule for public booking (matches API). */
-const MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES = 15;
-
-function massageCalendarTailMinutes(service: { service_type?: string }): number {
-  return service.service_type === "massage" ? MASSAGE_PUBLIC_BOOKING_TAIL_MINUTES : 0;
-}
-
-/** Total minutes blocked on the calendar for one public slot (chiro = duration; massage = duration + tail). */
-function publicBookingCalendarSpanMinutes(service: ServiceOption): number {
-  return Number(service.duration_minutes) + massageCalendarTailMinutes(service);
-}
-
-/** YYYY-MM-DD in the user's local calendar (UTC `toISOString()` can shift the date near midnight). */
-function toLocalISODate(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${mo}-${day}`;
-}
-
-/** First day of the month in local time, noon (avoids DST edge cases). */
-function startOfCalendarMonth(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(12, 0, 0, 0);
-  x.setDate(1);
-  return x;
-}
-
-function addCalendarMonths(d: Date, delta: number): Date {
-  const x = new Date(d);
-  x.setMonth(x.getMonth() + delta);
-  return x;
-}
-
-/** Next Mon–Fri date on or after `iso` (stay within `maxIso`). */
-function nextWeekdayOnOrAfter(iso: string, maxIso: string): string {
-  const d = new Date(`${iso}T12:00:00`);
-  for (let i = 0; i < 14; i++) {
-    const wd = d.getDay();
-    if (wd !== 0 && wd !== 6) {
-      const out = toLocalISODate(d);
-      if (out <= maxIso) return out;
-      return lastWeekdayOnOrBefore(maxIso);
-    }
-    d.setDate(d.getDate() + 1);
-  }
-  return lastWeekdayOnOrBefore(maxIso);
-}
-
-/** Last Mon–Fri date on or before `maxIso` (walk backward from that calendar day). */
-function lastWeekdayOnOrBefore(maxIso: string): string {
-  const d = new Date(`${maxIso}T12:00:00`);
-  for (let i = 0; i < 14; i++) {
-    const wd = d.getDay();
-    if (wd !== 0 && wd !== 6) return toLocalISODate(d);
-    d.setDate(d.getDate() - 1);
-  }
-  return toLocalISODate(d);
-}
-
-/** First bookable minute for online booking (matches API policy). Friday 7:00 both lines; else chiro 8 / massage 9. */
-function publicBookingOpenMinutes(dateIso: string, serviceType: "chiropractic" | "massage" | undefined): number {
-  const d = new Date(`${dateIso}T12:00:00`);
-  if (d.getDay() === 5) return 7 * 60;
-  return serviceType === "massage" ? 9 * 60 : 8 * 60;
-}
-
-/** Closing minute for online booking (visit must *end* by this time): Friday 4:00 PM, else 6:00 PM — matches server. */
-function publicBookingDayEndMinutes(dateIso: string): number {
-  const d = new Date(`${dateIso}T12:00:00`);
-  return d.getDay() === 5 ? 16 * 60 : 18 * 60;
-}
-
-/** 15-minute public start grid (matches API `CHIRO_PUBLIC_BOOKING_SLOT_STEP_MINUTES`). */
-const PUBLIC_BOOKING_SLOT_STEP_MIN = 15;
-
-/**
- * Inclusive last 15-minute *start* on the public grid: 5:45 PM Mon–Thu, 3:45 PM Fri — capped by close − one step.
- * Matches `public_booking_last_slot_start_minute` in the API.
- */
-function publicBookingLastSlotStartMinutes(dateIso: string): number {
-  const d = new Date(`${dateIso}T12:00:00`);
-  const dow = d.getDay();
-  const closeMin = publicBookingDayEndMinutes(dateIso);
-  const capByClose = closeMin - PUBLIC_BOOKING_SLOT_STEP_MIN;
-  if (dow === 0 || dow === 6) return capByClose;
-  const policyLast = dow === 5 ? 15 * 60 + 45 : 17 * 60 + 45;
-  return Math.min(policyLast, capByClose);
-}
-
-/** Parses labels like "9:00 AM" / "5:45 PM" from the API into minutes from midnight (local policy day). */
-function parsePublicSlotLabelToMinutes(slot: string): number | null {
-  const m = slot.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const ap = m[3].toUpperCase();
-  if (ap === "PM" && h !== 12) h += 12;
-  if (ap === "AM" && h === 12) h = 0;
-  return h * 60 + min;
-}
-
-/** Human-readable closing time for messages (matches `publicBookingDayEndMinutes`). */
-function formatPublicClosingLabel(dateIso: string): string {
-  const total = publicBookingDayEndMinutes(dateIso);
-  const h24 = Math.floor(total / 60);
-  const min = total % 60;
-  const isPm = h24 >= 12;
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  return `${h12}:${String(min).padStart(2, "0")} ${isPm ? "PM" : "AM"}`;
-}
-
-/**
- * Massage only: true when the **patient visit** (hands-on minutes only) would end after posted online closing.
- * Staff turnover after massages is kept on the calendar for overlap checks, but it must not block or warn a slot
- * that still finishes by closing (e.g. 5:00 PM + 60 min → 6:00 PM when we close at 6:00 PM).
- */
-function massageReservedBlockExtendsPastPublicClose(
-  dateIso: string,
-  slot: string,
-  service: Pick<ServiceOption, "service_type" | "duration_minutes">,
-): boolean {
-  if (service.service_type !== "massage") return false;
-  const start = parsePublicSlotLabelToMinutes(slot);
-  if (start === null) return false;
-  const duration = Math.max(5, Number(service.duration_minutes) || 30);
-  return start + duration > publicBookingDayEndMinutes(dateIso);
-}
-
-function massagePastClosingScheduleMessage(dateIso: string): string {
-  const close = formatPublicClosingLabel(dateIso);
-  return `This visit would end after our ${close} closing time for online booking. Pick an earlier start time or another open day.`;
-}
-
-/** True if slot start + visit duration ends by public closing (treatment end only; not massage calendar buffer). */
-function slotChainFitsPublicDayEnd(dateIso: string, slot: string, durationMinutes: number): boolean {
-  const duration = Math.max(5, Number(durationMinutes) || 30);
-  const dayEnd = publicBookingDayEndMinutes(dateIso);
-  const start = parsePublicSlotLabelToMinutes(slot);
-  if (start === null) return true;
-  return start + duration <= dayEnd;
-}
-
-type AvailabilityApiResponse = {
-  available_slots?: string[];
-  slot_grid?: Array<{ label?: string; bookable?: boolean }>;
-};
-
-/**
- * Prefer ``slot_grid`` from the API (full 15-min list through 5:45 / Fri 3:45 with ``bookable`` flags).
- * Otherwise filter legacy ``available_slots`` with ``slotChainFitsPublicDayEnd``.
- */
-function normalizeAvailabilityFromResponse(
-  res: AvailabilityApiResponse,
-  dateIso: string,
-  visitDurationMin: number,
-): { bookableLabels: string[]; slotGrid: SlotGridEntry[] | null } {
-  const raw = Array.isArray(res.slot_grid) ? res.slot_grid : [];
-  const parsed: SlotGridEntry[] = [];
-  for (const row of raw) {
-    if (row && typeof row.label === "string" && typeof row.bookable === "boolean") {
-      parsed.push({ label: row.label, bookable: row.bookable });
-    }
-  }
-  if (parsed.length > 0) {
-    return {
-      bookableLabels: parsed.filter((x) => x.bookable).map((x) => x.label),
-      slotGrid: parsed,
-    };
-  }
-  let slots = Array.isArray(res.available_slots) ? res.available_slots : [];
-  slots = slots.filter((slot) => slotChainFitsPublicDayEnd(dateIso, slot, visitDurationMin));
-  return { bookableLabels: slots, slotGrid: null };
-}
-
-/**
- * Last-resort slots if the availability API errors — same rules as the server: 15-min grid through 5:45 Mon–Thu
- * (3:45 Fri); a slot is listed only if the visit ends by closing (duration × 15-min blocks).
- */
-function buildFallbackTimeSlots(
-  dateIso: string,
-  serviceType: "chiropractic" | "massage" | undefined,
-  durationMinutes: number,
-): string[] {
-  const openMin = publicBookingOpenMinutes(dateIso, serviceType);
-  const closeMin = publicBookingDayEndMinutes(dateIso);
-  const duration = Math.max(5, Number(durationMinutes) || 30);
-  const step = PUBLIC_BOOKING_SLOT_STEP_MIN;
-  const lastSlotStart = publicBookingLastSlotStartMinutes(dateIso);
-  if (openMin >= closeMin || openMin > lastSlotStart) return [];
-  const out: string[] = [];
-  for (let t = openMin; t <= lastSlotStart; t += step) {
-    if (t + duration > closeMin) continue;
-    const h24 = Math.floor(t / 60);
-    const m = t % 60;
-    const suffix = h24 < 12 ? "AM" : "PM";
-    const displayH = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24 === 12 ? 12 : h24;
-    out.push(`${displayH}:${String(m).padStart(2, "0")} ${suffix}`);
-  }
-  return out;
-}
-
-/** Maps public patient-lookup fields to the step-4 chiropractic intake banner state. */
-function chiroIntakeRuleFromLookupResponse(res: {
-  chiropractic_returning_gap_requires_intake?: boolean;
-  chiropractic_first_chiro_requires_intake?: boolean;
-  chiropractic_new_patient_requires_intake?: boolean;
-  chiropractic_intake_services?: Array<{ id: number; name: string }>;
-  chiropractic_gap_days?: number;
-  last_chiropractic_visit_date?: string | null;
-}): {
-  requiresIntake: boolean;
-  intakeServices: Array<{ id: number; name: string }>;
-  gapDays: number;
-  lastVisit: string | null;
-  reason: "gap" | "first_chiro" | "new_patient" | null;
-} | null {
-  const intakeServices = Array.isArray(res.chiropractic_intake_services) ? res.chiropractic_intake_services : [];
-  const gapDays = typeof res.chiropractic_gap_days === "number" ? res.chiropractic_gap_days : 730;
-  const lastVisit = res.last_chiropractic_visit_date ?? null;
-  let reason: "gap" | "first_chiro" | "new_patient" | null = null;
-  if (res.chiropractic_returning_gap_requires_intake === true) reason = "gap";
-  else if (res.chiropractic_first_chiro_requires_intake === true) reason = "first_chiro";
-  else if (res.chiropractic_new_patient_requires_intake === true) reason = "new_patient";
-  const needsIntake =
-    res.chiropractic_returning_gap_requires_intake === true ||
-    res.chiropractic_first_chiro_requires_intake === true ||
-    res.chiropractic_new_patient_requires_intake === true;
-  if (!needsIntake) return null;
-  return {
-    requiresIntake: true,
-    intakeServices,
-    gapDays,
-    lastVisit,
-    reason: (reason ?? "new_patient") as "gap" | "first_chiro" | "new_patient",
-  };
-}
-
-function formatBookingPrice(p: string): string {
-  const n = parseFloat(p);
-  if (Number.isNaN(n)) return `$${p}`;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-}
-
-function appointmentStartDateTimeLocal(appointmentDate: string, displayTime12h: string): Date | null {
-  const m = displayTime12h.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const ap = m[3].toUpperCase();
-  if (ap === "PM" && h !== 12) h += 12;
-  if (ap === "AM" && h === 12) h = 0;
-  const d = new Date(`${appointmentDate}T${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function isMassageLateCancelWindow(row: RescheduleAppointmentRow, bookingOptions: BookingOptions | null): boolean {
-  const fromRow = row.service_type === "massage";
-  const fromOptions =
-    bookingOptions?.services.find((s) => s.id === row.service_id)?.service_type === "massage";
-  if (!fromRow && !fromOptions) return false;
-  const dt = appointmentStartDateTimeLocal(row.appointment_date, row.start_time);
-  if (!dt) return false;
-  const ms = dt.getTime() - Date.now();
-  return ms > 0 && ms < 24 * 60 * 60 * 1000;
-}
 
 export default function BookingPage() {
   const { toast } = useAppFeedback();
@@ -1105,6 +777,12 @@ export default function BookingPage() {
     setStep3FocusLineId(null);
   };
 
+  const { findNextOpenDay, findingNextOpenDay } = useFindNextOpenBookingDay({
+    maxBookDateIso,
+    phone,
+    toast,
+  });
+
   const activateRescheduleFlow = () => {
     setBookingFlow("reschedule");
     setCart([]);
@@ -1608,16 +1286,20 @@ export default function BookingPage() {
                 type="button"
                 onClick={() => setStep(item)}
                 className={cn(
-                  "min-h-11 shrink rounded-lg px-1.5 py-2 text-[11px] font-semibold leading-tight transition-all sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm",
+                  "min-h-11 shrink rounded-lg px-1.5 py-2 text-[10px] font-semibold leading-tight transition-all sm:rounded-xl sm:px-2 sm:py-2.5 sm:text-xs",
                   step === item
                     ? "bg-[#e9982f] text-white shadow-md shadow-[#e9982f]/25 ring-2 ring-[#e9982f]/40"
                     : "border border-border/80 bg-muted/50 text-muted-foreground hover:border-primary/20 hover:bg-primary/[0.06] hover:text-foreground",
                 )}
               >
-                Step {item}
+                <span className="block sm:hidden">{item}</span>
+                <span className="hidden sm:block">{publicBookingStepLabel(bookingFlow, item)}</span>
               </button>
             ))}
           </div>
+          <p className="text-center text-xs text-muted-foreground sm:hidden" aria-live="polite">
+            Step {step}: {publicBookingStepLabel(bookingFlow, step)}
+          </p>
 
           {bookingFlow === "new" && chiroGapBlocksCart && chiroIntakeRule && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
@@ -1656,6 +1338,32 @@ export default function BookingPage() {
           {/* ─── STEP 1: Service selection (new) or find visits (reschedule) ─── */}
           {step === 1 && (
             <div className="animate-fade-in-up space-y-3">
+              <p className="rounded-lg border border-border/80 bg-muted/30 px-3 py-2 text-sm text-slate-700">
+                {bookingFlow === "new" ? (
+                  <>
+                    You&apos;re booking a <strong className="text-slate-900">new visit</strong>.{" "}
+                    <button
+                      type="button"
+                      onClick={() => activateRescheduleFlow()}
+                      className="font-semibold text-[#0d5c2e] underline-offset-4 hover:underline"
+                    >
+                      Change or cancel an existing visit instead
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    You&apos;re changing or cancelling an <strong className="text-slate-900">existing visit</strong>.{" "}
+                    <button
+                      type="button"
+                      onClick={() => activateNewBookingFlow()}
+                      className="font-semibold text-[#0d5c2e] underline-offset-4 hover:underline"
+                    >
+                      Book a new visit instead
+                    </button>
+                  </>
+                )}
+              </p>
+
               {bookingFlow === "reschedule" && (
                 <div className="space-y-4 rounded-xl border border-[#166534]/25 bg-[#f0fdf4]/60 p-4">
                   <h2 className="text-lg font-semibold text-[#0d5c2e]">Find your appointment</h2>
@@ -1690,7 +1398,10 @@ export default function BookingPage() {
                     {rescheduleListLoading ? "Looking up…" : "Show my upcoming visits"}
                   </Button>
                   {rescheduleListError && (
-                    <p className="text-sm text-amber-900">{rescheduleListError}</p>
+                    <div className="space-y-2">
+                      <p className="text-sm text-amber-900">{rescheduleListError}</p>
+                      <PublicBookingClinicHelp />
+                    </div>
                   )}
                   {rescheduleSharedPhone && rescheduleList.length > 0 && (
                     <p className="text-sm leading-relaxed text-[#14532d]">
@@ -2175,12 +1886,7 @@ export default function BookingPage() {
                   </strong>
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                  Online booking is <strong className="font-medium text-slate-700">Monday–Friday</strong> only (closed
-                  weekends). Chiropractic: 8:00 AM–6:00 PM (start times every 15 minutes; your visit ends by 6:00 PM);
-                  massage: 9:00 AM–6:00 PM (same 15-minute starts; your visit ends by closing — extra minutes after
-                  massages are for staff scheduling only, not added to your visit length for booking).{" "}
-                  <strong className="font-medium text-slate-700">Friday we close at 4:00 PM</strong>. Times shown match
-                  your visit type and the schedule.
+                  Mon–Fri only · Chiro from 8:00 AM · Massage from 9:00 AM · Fri closes 4:00 PM
                 </p>
               </div>
 
@@ -2204,11 +1910,38 @@ export default function BookingPage() {
                     (availableSlots ?? []).map((label) => ({ label, bookable: true }));
                   if (displayGrid.length === 0) {
                     return (
-                      <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                        No open times on this day — try another date or call the clinic.
-                      </p>
+                      <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                        <p>No open times on this day — try another date.</p>
+                        {effectiveSlotService && effectiveSlotProvider ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={findingNextOpenDay}
+                            onClick={() =>
+                              void findNextOpenDay({
+                                startAfterIso: selectedDate,
+                                providerId: effectiveSlotProvider.id,
+                                serviceId: effectiveSlotService.id,
+                                durationMinutes: Number(effectiveSlotService.duration_minutes) || 30,
+                                serviceType: effectiveSlotService.service_type,
+                                excludeAppointmentId: reschedulePick?.id,
+                                onFound: (dateIso) => {
+                                  setSelectedDate(dateIso);
+                                  setBookingCalendarMonth(startOfCalendarMonth(new Date(`${dateIso}T12:00:00`)));
+                                  setSlotWarning("");
+                                },
+                              })
+                            }
+                            className="h-auto rounded-xl border-amber-300 bg-white text-sm font-semibold text-amber-950 hover:bg-amber-50"
+                          >
+                            {findingNextOpenDay ? "Searching…" : "Find next open day"}
+                          </Button>
+                        ) : null}
+                        <PublicBookingClinicHelp />
+                      </div>
                     );
                   }
+                  const firstBookableLabel = displayGrid.find((e) => e.bookable)?.label;
                   const parseHourFromSlot = (s: string) => {
                     const m = s.match(/^(\d+):.*\s*(AM|PM)$/i);
                     if (!m) return 12;
@@ -2236,9 +1969,10 @@ export default function BookingPage() {
                             {group.icon} {group.label} · {group.slots.length}{" "}
                             {group.slots.length === 1 ? "slot" : "slots"}
                           </p>
-                          <div className="grid gap-2 sm:grid-cols-3">
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                             {group.slots.map((entry) => {
                               const slot = entry.label;
+                              const isRecommended = entry.bookable && slot === firstBookableLabel;
                               const massagePastClose =
                                 effectiveSlotService != null &&
                                 massageReservedBlockExtendsPastPublicClose(
@@ -2260,10 +1994,9 @@ export default function BookingPage() {
                                   if (!entry.bookable) return;
                                   setSelectedTime(slot);
                                   setSlotWarning("");
-                                  setStep(4);
                                 }}
                                 className={cn(
-                                  "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                                  "min-h-11 rounded-xl border px-3 py-3 text-sm font-medium transition-all sm:min-h-12 sm:px-4",
                                   !entry.bookable && "cursor-not-allowed opacity-45",
                                   selectedTime === slot
                                     ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
@@ -2272,6 +2005,11 @@ export default function BookingPage() {
                                 )}
                               >
                                 <span className="block">{slot}</span>
+                                {isRecommended ? (
+                                  <span className="mt-1 block text-[10px] font-semibold uppercase tracking-wide text-[#166534]">
+                                    Recommended
+                                  </span>
+                                ) : null}
                                 {massagePastClose && entry.bookable ? (
                                   <span className="mt-1 block text-[11px] font-normal leading-snug text-amber-900/90">
                                     Schedule runs past closing
@@ -2300,7 +2038,10 @@ export default function BookingPage() {
                     </p>
                   )}
                 {slotWarning ? (
-                  <p className="mt-3 text-sm font-medium text-rose-700">{slotWarning}</p>
+                  <div className="mt-3 space-y-2">
+                    <p className="text-sm font-medium text-rose-700">{slotWarning}</p>
+                    <PublicBookingClinicHelp />
+                  </div>
                 ) : null}
               </div>
               </>
@@ -2513,20 +2254,53 @@ export default function BookingPage() {
                           ) : loadingLine ? null : !Array.isArray(slotsLine) ? (
                             <p className="text-sm text-slate-500">Loading open times…</p>
                           ) : displayGridCart.length === 0 ? (
-                            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                              No open times on this day — try another date or call the clinic.
-                            </p>
+                            <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                              <p>No open times on this day — try another date.</p>
+                              {item.provider ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  disabled={findingNextOpenDay}
+                                  onClick={() =>
+                                    void findNextOpenDay({
+                                      startAfterIso: pick.date,
+                                      providerId: item.provider!.id,
+                                      serviceId: item.service.id,
+                                      durationMinutes: Number(item.service.duration_minutes) || 30,
+                                      serviceType: item.service.service_type,
+                                      onFound: (dateIso) => {
+                                        setCartSlotPicksByLineId((p) => ({
+                                          ...p,
+                                          [item.lineId]: { ...p[item.lineId], date: dateIso },
+                                        }));
+                                        setCartCalendarMonthByLineId((prev) => ({
+                                          ...prev,
+                                          [item.lineId]: startOfCalendarMonth(new Date(`${dateIso}T12:00:00`)),
+                                        }));
+                                      },
+                                    })
+                                  }
+                                  className="h-auto rounded-xl border-amber-300 bg-white text-sm font-semibold text-amber-950 hover:bg-amber-50"
+                                >
+                                  {findingNextOpenDay ? "Searching…" : "Find next open day"}
+                                </Button>
+                              ) : null}
+                              <PublicBookingClinicHelp />
+                            </div>
                           ) : (
                             <div className="space-y-3">
-                              {groups.map((group) => (
+                              {(() => {
+                                const firstBookableCart = displayGridCart.find((e) => e.bookable)?.label;
+                                return groups.map((group) => (
                                 <div key={group.label}>
                                   <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
                                     {group.icon} {group.label} · {group.slots.length}{" "}
                                     {group.slots.length === 1 ? "slot" : "slots"}
                                   </p>
-                                  <div className="grid gap-2 sm:grid-cols-3">
+                                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                                     {group.slots.map((entry) => {
                                       const slot = entry.label;
+                                      const isRecommended = entry.bookable && slot === firstBookableCart;
                                       const massagePastClose = massageReservedBlockExtendsPastPublicClose(
                                         pick.date,
                                         slot,
@@ -2555,7 +2329,7 @@ export default function BookingPage() {
                                             });
                                           }}
                                           className={cn(
-                                            "rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                                            "min-h-11 rounded-xl border px-3 py-3 text-sm font-medium transition-all sm:min-h-12 sm:px-4",
                                             !entry.bookable && "cursor-not-allowed opacity-45",
                                             pick.time === slot
                                               ? "border-primary bg-primary/10 font-semibold text-[#0d5c2e] shadow-sm ring-1 ring-primary/15"
@@ -2564,6 +2338,11 @@ export default function BookingPage() {
                                           )}
                                         >
                                           <span className="block">{slot}</span>
+                                          {isRecommended ? (
+                                            <span className="mt-1 block text-[10px] font-semibold uppercase tracking-wide text-[#166534]">
+                                              Recommended
+                                            </span>
+                                          ) : null}
                                           {massagePastClose && entry.bookable ? (
                                             <span className="mt-1 block text-[11px] font-normal leading-snug text-amber-900/90">
                                               Schedule runs past closing
@@ -2574,7 +2353,8 @@ export default function BookingPage() {
                                     })}
                                   </div>
                                 </div>
-                              ))}
+                              ));
+                              })()}
                             </div>
                           )}
                           {item.service.service_type === "massage" &&
@@ -2917,14 +2697,9 @@ export default function BookingPage() {
                 ))}
               </div>
 
-              <p className="mx-auto mt-6 max-w-md text-center text-xs leading-relaxed text-slate-500">
-                This is what you can expect to pay for your booked service(s) at check-in; add-on services may change the final
-                total.
-              </p>
-
               <div className="mx-auto mt-6 max-w-md space-y-3 text-center">
                 <p className="text-sm text-slate-500">
-                  A confirmation has been sent by text and email. Check in at the kiosk when you arrive.
+                  Confirmation sent by text and email. Check in at the kiosk when you arrive.
                 </p>
                 {bookingResults.some((r) => /new office visit/i.test(r.service)) && (
                   <p className="text-sm text-slate-500">

@@ -1,28 +1,36 @@
+import { AdminPageIntro } from "@/components/admin-shell";
+import Link from "next/link";
+
+/** Placeholder — patient SMS inbox is not wired up yet; route kept for future use (not in sidebar). */
 export default function AdminMessagesPage() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-      <section className="card">
-        <h1 className="mb-3 text-xl font-bold">Messages</h1>
-        <input className="mb-3 w-full rounded-lg border border-slate-200 p-2" placeholder="Filter conversations" />
-        {[
-          "John Doe",
-          "Maria Rodriguez",
-          "Samuel Lee",
-        ].map((name) => (
-          <button key={name} className="mb-2 w-full rounded-lg border border-slate-200 p-2 text-left text-sm">{name}</button>
-        ))}
-      </section>
-      <section className="card flex min-h-[500px] flex-col">
-        <div className="mb-4 border-b border-slate-200 pb-3 font-semibold">John Doe</div>
-        <div className="flex-1 space-y-3 text-sm">
-          <p className="ml-auto max-w-md rounded-lg bg-teal-600 p-3 text-white">Reminder for tomorrow at 2:00 PM. Reply Y to confirm.</p>
-          <p className="max-w-md rounded-lg bg-slate-100 p-3">I&apos;m stuck in traffic. Can we push my appointment a bit?</p>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <AdminPageIntro
+        title="Messages"
+        description="Two-way texting with patients is planned but not available in this version yet."
+        pageHelp="You can still reach patients by phone. Appointment reminders are sent automatically by the system when visits are booked or changed."
+      />
+      <div className="admin-panel border-dashed border-slate-300 bg-slate-50/80 text-center">
+        <p className="text-lg font-semibold text-slate-900">Coming soon</p>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-600">
+          This screen will list text conversations with patients. For now, use the schedule and patient chart for visit updates, or call
+          patients directly.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Link
+            href="/admin/schedule"
+            className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
+          >
+            Open schedule
+          </Link>
+          <Link
+            href="/admin/patients"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Find a patient
+          </Link>
         </div>
-        <div className="mt-4 flex gap-2">
-          <input className="flex-1 rounded-lg border border-slate-200 p-2" placeholder="Type your message..." />
-          <button className="rounded-lg bg-teal-600 px-3 py-2 text-white">Send</button>
-        </div>
-      </section>
+      </div>
     </div>
   );
 }

@@ -16,6 +16,7 @@ export default function AdminPatientHistoryRoute() {
       detailPath="/admin/patient_detail"
       handoffSavePath="/admin/appointment_handoff/"
       backHref="/admin/patients"
+      scheduleHrefPrefix="/admin/schedule"
     />
   );
 }

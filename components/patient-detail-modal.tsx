@@ -465,6 +465,26 @@ export function PatientDetailModal({
                     </div>
                   </div>
 
+                  {fullHistoryHref ? (
+                    <div className="rounded-2xl border-2 border-[#16a349]/35 bg-gradient-to-br from-[#ecfdf5] via-white to-emerald-50/40 p-5 shadow-sm ring-1 ring-emerald-100/60">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-[#166534]">Visit history</p>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                        Chart notes, SOAP records, and billing for every visit live on the full history page — with a side panel so you
+                        never scroll to the bottom of the screen.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          router.push(fullHistoryHref);
+                        }}
+                        className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[#16a349] px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] sm:w-auto"
+                      >
+                        Open full visit history →
+                      </button>
+                    </div>
+                  ) : null}
+
                   {(!detail.date_of_birth ||
                     !(detail.address_line1 || "").trim() ||
                     !(detail.city_state_zip || "").trim()) && (
@@ -764,41 +784,35 @@ export function PatientDetailModal({
                 </div>
               )}
 
-              {tab === "history" && !isDoctorChart && (
-                <div className="animate-fade-in space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <DoctorSectionLabel>Visit history</DoctorSectionLabel>
-                    {fullHistoryHref ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          router.push(fullHistoryHref);
-                        }}
-                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
-                      >
-                        Open full-page history
-                      </button>
-                    ) : null}
-                  </div>
-                  <p className="text-sm leading-relaxed text-slate-600">
-                    Pick a visit on the left to see notes, diagnosis, services, and billing in one place.
+              {tab === "history" && !isDoctorChart && fullHistoryHref && (
+                <div className="animate-fade-in space-y-5 py-4 text-center">
+                  <DoctorSectionLabel>Visit history</DoctorSectionLabel>
+                  <p className="mx-auto max-w-md text-sm leading-relaxed text-slate-600">
+                    This popup is too small for chart notes and billing detail. Open the dedicated history page — tap any visit and the
+                    chart slides in from the right.
                   </p>
-                  {handoffMsg ? (
-                    <p
-                      className={`rounded-xl px-3 py-2 text-sm font-medium ${
-                        handoffMsg === "Chart note saved." ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-950"
-                      }`}
-                    >
-                      {handoffMsg}
-                    </p>
-                  ) : null}
+                  <p className="text-sm font-medium text-slate-800">
+                    {detail.appointments.length} visit{detail.appointments.length === 1 ? "" : "s"} on file
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      router.push(fullHistoryHref);
+                    }}
+                    className="inline-flex items-center justify-center rounded-xl bg-[#16a349] px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#13823d]"
+                  >
+                    Open full visit history →
+                  </button>
+                </div>
+              )}
+
+              {tab === "history" && !isDoctorChart && !fullHistoryHref && (
+                <div className="animate-fade-in space-y-4">
+                  <DoctorSectionLabel>Visit history</DoctorSectionLabel>
                   {detail.appointments.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-slate-200/90 bg-slate-50/50 px-5 py-10 text-center">
                       <p className="font-medium text-slate-700">No appointments on file</p>
-                      <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-                        When this patient books or you add visits, they will appear here with clinical and billing detail.
-                      </p>
                     </div>
                   ) : (
                     <div className="grid gap-4 lg:grid-cols-[16rem,1fr]">
@@ -810,9 +824,9 @@ export function PatientDetailModal({
                               key={a.id}
                               type="button"
                               onClick={() => setActiveHistoryAppointmentId(a.id)}
-                              className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                              className={`w-full rounded-xl border-2 px-3 py-3 text-left transition ${
                                 selected
-                                  ? "border-emerald-300 bg-white shadow-sm ring-1 ring-emerald-200"
+                                  ? "border-[#16a349] bg-[#ecfdf5]/60 shadow-md ring-2 ring-[#16a349]/35"
                                   : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white/80"
                               }`}
                             >

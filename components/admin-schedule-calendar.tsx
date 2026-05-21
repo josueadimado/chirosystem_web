@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import {
   SCHEDULE_DAY_END_MIN,
   SCHEDULE_DAY_START_MIN,
-  SCHEDULE_TOTAL_MIN,
   addDays,
   appointmentBlocksScheduleGrid,
   appointmentDurationMinutes,
@@ -16,6 +15,8 @@ import {
   mondayOfWeekContaining,
   parseTimeToMinutes,
   providerColorForId,
+  scheduleDayEndMinute,
+  scheduleTotalMinutes,
   snapScheduleGridStartMinute,
   timePositionPercent,
   toIsoDate,
@@ -138,12 +139,8 @@ function AppointmentBlockDecor({ status }: { status: string }) {
   return null;
 }
 
-/**
- * Total pixel height for the 7am–7pm grid (12 hours). Larger = taller blocks.
- * At 2688px, a 15-minute slot is ~56px tall so time range + patient name match longer visits.
- * (Previously 1280px → ~27px per 15 min, which hid the name row.)
- */
-const GRID_PX = 2688;
+/** Pixel height per hour on the day grid (scales total height with open–close range). */
+const GRID_PX_PER_HOUR = 2688 / 12;
 
 /** Header row above the time grid — must match provider/day column headers so times line up with blocks. */
 const SCHEDULE_GRID_HEADER_MIN_PX = 52;
@@ -152,8 +149,12 @@ const SCHEDULE_GRID_HEADER_MIN_PX = 52;
 const MIN_LANE_WIDTH_PX = 104;
 const LANE_GAP_PX = 3;
 
-function scheduleGridHours(): number {
-  return (SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN) / 60;
+function scheduleGridHours(dayEndMin: number): number {
+  return (dayEndMin - SCHEDULE_DAY_START_MIN) / 60;
+}
+
+function scheduleGridPx(dayEndMin: number): number {
+  return Math.round(GRID_PX_PER_HOUR * scheduleGridHours(dayEndMin));
 }
 
 /** Snap Y position inside grid to nearest 15 min for hover readout. */
@@ -161,15 +162,17 @@ function scheduleHoverFromClientY(
   clientY: number,
   rectTop: number,
   rectHeight: number,
+  dayEndMin: number,
 ): { topPct: number; label: string } | null {
   if (rectHeight <= 0) return null;
+  const totalMin = scheduleTotalMinutes(dayEndMin);
   const y = clientY - rectTop;
   const pctRaw = (y / rectHeight) * 100;
   const pctClamped = Math.max(0, Math.min(100, pctRaw));
-  const minsFloat = SCHEDULE_DAY_START_MIN + (pctClamped / 100) * SCHEDULE_TOTAL_MIN;
+  const minsFloat = SCHEDULE_DAY_START_MIN + (pctClamped / 100) * totalMin;
   const snapped = Math.round(minsFloat / 15) * 15;
-  const clampedM = Math.max(SCHEDULE_DAY_START_MIN, Math.min(SCHEDULE_DAY_END_MIN - 1, snapped));
-  const topPct = ((clampedM - SCHEDULE_DAY_START_MIN) / SCHEDULE_TOTAL_MIN) * 100;
+  const clampedM = Math.max(SCHEDULE_DAY_START_MIN, Math.min(dayEndMin - 1, snapped));
+  const topPct = ((clampedM - SCHEDULE_DAY_START_MIN) / totalMin) * 100;
   return { topPct, label: minutesToLabel(clampedM) };
 }
 
@@ -355,14 +358,14 @@ function AppointmentBlockTooltip({
   );
 }
 
-/** Horizontal “now” line position (% from top of day grid), or null if outside 7–7 or not today. */
-function nowLinePercent(focusDate: Date): number | null {
+/** Horizontal “now” line position (% from top of day grid), or null if outside range or not today. */
+function nowLinePercent(focusDate: Date, dayEndMin: number): number | null {
   const now = new Date();
   if (!isSameDay(focusDate, now)) return null;
   const mins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-  if (mins < SCHEDULE_DAY_START_MIN || mins >= SCHEDULE_DAY_END_MIN) return null;
+  if (mins < SCHEDULE_DAY_START_MIN || mins >= dayEndMin) return null;
   const rel = mins - SCHEDULE_DAY_START_MIN;
-  return (rel / SCHEDULE_TOTAL_MIN) * 100;
+  return (rel / scheduleTotalMinutes(dayEndMin)) * 100;
 }
 
 export function schedulePeriodLabel(view: ScheduleViewMode, focusDate: Date): string {
@@ -442,6 +445,7 @@ function resolveScheduleDropTarget(
   clientX: number,
   clientY: number,
   durationMin: number,
+  dayEndMin: number,
 ): { providerId: number; providerName: string; startMinute: number } | null {
   const el = document.elementFromPoint(clientX, clientY);
   const col = el?.closest("[data-schedule-provider-column]") as HTMLElement | null;
@@ -455,7 +459,7 @@ function resolveScheduleDropTarget(
   return {
     providerId,
     providerName,
-    startMinute: snapScheduleGridStartMinute(clientY, rect, durationMin),
+    startMinute: snapScheduleGridStartMinute(clientY, rect, durationMin, dayEndMin),
   };
 }
 
@@ -464,10 +468,10 @@ function openGapAtMinute(gaps: TimeInterval[], minute: number): TimeInterval | u
   return gaps.find((g) => minute >= g.startMin && minute < g.endMin);
 }
 
-function minuteAtGridY(clientY: number, gridRect: DOMRect): number {
+function minuteAtGridY(clientY: number, gridRect: DOMRect, dayEndMin: number): number {
   const h = Math.max(gridRect.height, 1);
   const frac = Math.max(0, Math.min(1, (clientY - gridRect.top) / h));
-  return SCHEDULE_DAY_START_MIN + frac * SCHEDULE_TOTAL_MIN;
+  return SCHEDULE_DAY_START_MIN + frac * scheduleTotalMinutes(dayEndMin);
 }
 
 export function AdminScheduleCalendar({
@@ -502,10 +506,11 @@ export function AdminScheduleCalendar({
     return [0, 1, 2, 3, 4].map((i) => addDays(mon, i));
   }, [focusDate]);
 
+  const dayEndMin = scheduleDayEndMinute(!!onPickOpenSlot);
   const nowPct = useMemo(() => {
     void nowTick;
-    return view === "day" ? nowLinePercent(focusDate) : null;
-  }, [view, focusDate, nowTick]);
+    return view === "day" ? nowLinePercent(focusDate, dayEndMin) : null;
+  }, [view, focusDate, nowTick, dayEndMin]);
 
   if (visibleProviders.length === 0) {
     return (
@@ -518,6 +523,14 @@ export function AdminScheduleCalendar({
   return (
     <div className="space-y-3">
       <ProviderLegend providers={visibleProviders} />
+
+      {view === "day" && onPickOpenSlot ? (
+        <p className="rounded-xl border border-[#166534]/20 bg-[#ecfdf5]/80 px-4 py-2.5 text-sm leading-relaxed text-slate-700">
+          <span className="font-semibold text-[#0d5c2e]">Staff hours:</span> this day view runs through{" "}
+          <strong>9:00 PM</strong> so you can book past online closing. Gray stripes are still online-only blocks — click any open white
+          strip to book from the desk.
+        </p>
+      ) : null}
 
       {view === "day" && (
         <DayGrid
@@ -572,24 +585,28 @@ function ScheduleGridColumnBody({
   outerRef,
   onOpenSlotClick,
   dragActive,
+  dayEndMin,
+  gridPx,
 }: {
   children: ReactNode;
   className?: string;
   outerRef?: Ref<HTMLDivElement>;
   onOpenSlotClick?: (clientY: number, gridRect: DOMRect) => void;
   dragActive?: boolean;
+  dayEndMin: number;
+  gridPx: number;
 }) {
   const [hover, setHover] = useState<{ label: string; topPct: number } | null>(null);
-  const hours = scheduleGridHours();
+  const hours = scheduleGridHours(dayEndMin);
   return (
     <div
       ref={outerRef}
       data-schedule-grid-body
       className={cn("relative bg-white", className)}
-      style={{ height: GRID_PX }}
+      style={{ height: gridPx }}
       onMouseMoveCapture={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
-        const h = scheduleHoverFromClientY(e.clientY, r.top, r.height);
+        const h = scheduleHoverFromClientY(e.clientY, r.top, r.height, dayEndMin);
         if (h) setHover(h);
       }}
       onMouseLeave={() => setHover(null)}
@@ -641,9 +658,10 @@ function ProviderLegend({ providers }: { providers: ProviderRow[] }) {
   );
 }
 
-function TimeLabelsColumn() {
+function TimeLabelsColumn({ dayEndMin, gridPx }: { dayEndMin: number; gridPx: number }) {
   const rows: number[] = [];
-  for (let m = SCHEDULE_DAY_START_MIN; m < SCHEDULE_DAY_END_MIN; m += 30) {
+  const totalMin = scheduleTotalMinutes(dayEndMin);
+  for (let m = SCHEDULE_DAY_START_MIN; m < dayEndMin; m += 30) {
     rows.push(m);
   }
   return (
@@ -657,10 +675,10 @@ function TimeLabelsColumn() {
       </div>
       <div
         className="relative text-[13px] font-medium leading-none text-slate-600"
-        style={{ height: GRID_PX, minHeight: GRID_PX }}
+        style={{ height: gridPx, minHeight: gridPx }}
       >
         {rows.map((m) => {
-          const pct = ((m - SCHEDULE_DAY_START_MIN) / SCHEDULE_TOTAL_MIN) * 100;
+          const pct = ((m - SCHEDULE_DAY_START_MIN) / totalMin) * 100;
           const onHour = m % 60 === 0;
           return (
             <span
@@ -702,6 +720,8 @@ function DayGrid({
   onRescheduleAppointment?: CalendarProps["onRescheduleAppointment"];
 }) {
   const iso = toIsoDate(focusDate);
+  const dayEndMin = scheduleDayEndMinute(!!onPickOpenSlot);
+  const gridPx = scheduleGridPx(dayEndMin);
   const [drag, setDrag] = useState<ScheduleDragState | null>(null);
 
   useEffect(() => {
@@ -714,7 +734,7 @@ function DayGrid({
       const dist2 = dx * dx + dy * dy;
       const moved = drag.moved || dist2 >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
       const preview = moved
-        ? resolveScheduleDropTarget(e.clientX, e.clientY, drag.durationMin)
+        ? resolveScheduleDropTarget(e.clientX, e.clientY, drag.durationMin, dayEndMin)
         : drag.preview;
       setDrag((prev) =>
         prev && prev.pointerId === e.pointerId ? { ...prev, moved, preview } : prev,
@@ -753,7 +773,7 @@ function DayGrid({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [drag, iso, onRescheduleAppointment, onSelect]);
+  }, [drag, iso, onRescheduleAppointment, onSelect, dayEndMin]);
 
   const dragActive = drag?.moved ?? false;
 
@@ -771,7 +791,7 @@ function DayGrid({
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
       <div className="flex min-w-[840px]">
-        <TimeLabelsColumn />
+        <TimeLabelsColumn dayEndMin={dayEndMin} gridPx={gridPx} />
         <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${providers.length}, minmax(140px, 1fr))` }}>
           {providers.map((p) => (
             <DayProviderColumn
@@ -783,6 +803,8 @@ function DayGrid({
               selectedId={selectedId}
               onSelect={onSelect}
               nowPct={nowPct}
+              dayEndMin={dayEndMin}
+              gridPx={gridPx}
               onPickOpenSlot={onPickOpenSlot}
               onRescheduleAppointment={onRescheduleAppointment}
               drag={drag}
@@ -820,6 +842,8 @@ function DayProviderColumn({
   selectedId,
   onSelect,
   nowPct,
+  dayEndMin,
+  gridPx,
   onPickOpenSlot,
   onRescheduleAppointment: _onRescheduleAppointment,
   drag,
@@ -833,6 +857,8 @@ function DayProviderColumn({
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
   nowPct: number | null;
+  dayEndMin: number;
+  gridPx: number;
   onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
   onRescheduleAppointment?: CalendarProps["onRescheduleAppointment"];
   drag: ScheduleDragState | null;
@@ -898,7 +924,7 @@ function DayProviderColumn({
       ? []
       : blocks.flatMap((b) => {
           if (b.all_day) {
-            return [{ startMin: SCHEDULE_DAY_START_MIN, endMin: SCHEDULE_DAY_END_MIN }];
+            return [{ startMin: SCHEDULE_DAY_START_MIN, endMin: dayEndMin }];
           }
           if (b.start_time && b.end_time) {
             return [{ startMin: parseTimeToMinutes(b.start_time), endMin: parseTimeToMinutes(b.end_time) }];
@@ -906,9 +932,12 @@ function DayProviderColumn({
           return [];
         });
     return [...ap, ...bl].filter((x) => x.endMin > x.startMin);
-  }, [blockingAppointments, blocks, drag, dragActive, onPickOpenSlot, provider.id]);
+  }, [blockingAppointments, blocks, drag, dragActive, dayEndMin, onPickOpenSlot, provider.id]);
 
-  const openGaps = useMemo(() => computeOpenGaps(busyIntervals), [busyIntervals]);
+  const openGaps = useMemo(
+    () => computeOpenGaps(busyIntervals, SCHEDULE_DAY_START_MIN, dayEndMin),
+    [busyIntervals, dayEndMin],
+  );
 
   const dropPreview =
     dragActive && drag?.preview?.providerId === provider.id ? drag.preview : null;
@@ -930,10 +959,12 @@ function DayProviderColumn({
       <ScheduleGridColumnBody
         outerRef={stackRef}
         dragActive={dragActive}
+        dayEndMin={dayEndMin}
+        gridPx={gridPx}
         onOpenSlotClick={
           onPickOpenSlot
             ? (clientY, rect) => {
-                const minute = minuteAtGridY(clientY, rect);
+                const minute = minuteAtGridY(clientY, rect, dayEndMin);
                 const gap = openGapAtMinute(openGaps, minute);
                 if (!gap) return;
                 const startMinute = snapOpenSlotStartMinute(clientY, rect, gap.startMin, gap.endMin);
@@ -972,7 +1003,7 @@ function DayProviderColumn({
           if (!b.start_time || !b.end_time) return null;
           const st = parseTimeToMinutes(b.start_time);
           const en = parseTimeToMinutes(b.end_time);
-          const { topPct, heightPct } = timePositionPercent(st, en - st);
+          const { topPct, heightPct } = timePositionPercent(st, en - st, dayEndMin);
           return (
             <div
               key={b.id}
@@ -999,7 +1030,7 @@ function DayProviderColumn({
               const key = `a-${a.id}`;
               const st = parseTimeToMinutes(a.start_time);
               const dur = appointmentDurationMinutes(a.start_time, a.end_time);
-              const { topPct, heightPct } = timePositionPercent(st, dur);
+              const { topPct, heightPct } = timePositionPercent(st, dur, dayEndMin);
               const styles = statusBlockStyles(a.status, base);
               const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
               const selected = selectedId === a.id;
@@ -1080,7 +1111,7 @@ function DayProviderColumn({
 
         {dropPreview &&
           (() => {
-            const { topPct, heightPct } = timePositionPercent(dropPreview.startMinute, dropDurationMin);
+            const { topPct, heightPct } = timePositionPercent(dropPreview.startMinute, dropDurationMin, dayEndMin);
             return (
               <div
                 className="pointer-events-none absolute left-1 right-1 z-[7] flex items-start justify-center rounded-lg border-2 border-dashed border-[#16a349] bg-[#16a349]/15 px-1 pt-1"
@@ -1096,7 +1127,7 @@ function DayProviderColumn({
 
         {openGaps.map((g, i) => {
           const dur = g.endMin - g.startMin;
-          const { topPct, heightPct } = timePositionPercent(g.startMin, dur);
+          const { topPct, heightPct } = timePositionPercent(g.startMin, dur, dayEndMin);
           const labelRange = formatIntervalLabel(g.startMin, g.endMin);
           if (onPickOpenSlot) {
             return (
@@ -1172,10 +1203,12 @@ function WeekGrid({
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
 }) {
+  const dayEndMin = SCHEDULE_DAY_END_MIN;
+  const gridPx = scheduleGridPx(dayEndMin);
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
       <div className="flex min-w-[980px]">
-        <TimeLabelsColumn />
+        <TimeLabelsColumn dayEndMin={dayEndMin} gridPx={gridPx} />
         <div
           className="grid flex-1"
           style={{ gridTemplateColumns: `repeat(${weekDays.length}, minmax(140px, 1fr))` }}
@@ -1202,7 +1235,7 @@ function WeekGrid({
                   </p>
                   <p className="text-[15px] font-bold leading-none text-slate-900">{d.getDate()}</p>
                 </div>
-                <ScheduleGridColumnBody>
+                <ScheduleGridColumnBody dayEndMin={dayEndMin} gridPx={gridPx}>
                   <WeekDayStack
                     appointments={dayAppts}
                     blocks={dayBlocks}

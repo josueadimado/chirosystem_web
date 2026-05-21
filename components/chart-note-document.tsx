@@ -322,7 +322,7 @@ export function ChartNoteWorkspace({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-          Chart note for the team (handoff)
+          Chart note for the team
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {hasNote || editable ? <ChartNoteOpenWideButton onClick={() => setWideOpen(true)} /> : null}

@@ -62,15 +62,33 @@ export function minutesToLabel(totalMin: number): string {
 }
 
 export const SCHEDULE_DAY_START_MIN = 7 * 60;
+/** Default day grid end (7 PM) — matches the front-desk calendar display. */
 export const SCHEDULE_DAY_END_MIN = 19 * 60;
+/** Staff click-to-book / desk API may schedule through 9 PM (patients still use public closing). */
+export const SCHEDULE_DESK_DAY_END_MIN = 21 * 60;
+
+export function scheduleDayEndMinute(deskBookingEnabled?: boolean): number {
+  return deskBookingEnabled ? SCHEDULE_DESK_DAY_END_MIN : SCHEDULE_DAY_END_MIN;
+}
+
+export function scheduleTotalMinutes(dayEndMin: number = SCHEDULE_DAY_END_MIN): number {
+  return dayEndMin - SCHEDULE_DAY_START_MIN;
+}
+
+/** @deprecated Use scheduleTotalMinutes(dayEndMin) when desk overtime is enabled. */
 export const SCHEDULE_TOTAL_MIN = SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN;
 
-export function timePositionPercent(startMin: number, durationMin: number): { topPct: number; heightPct: number } {
+export function timePositionPercent(
+  startMin: number,
+  durationMin: number,
+  dayEndMin: number = SCHEDULE_DAY_END_MIN,
+): { topPct: number; heightPct: number } {
+  const totalMin = scheduleTotalMinutes(dayEndMin);
   const relStart = Math.max(0, startMin - SCHEDULE_DAY_START_MIN);
   const dur = Math.max(15, durationMin);
   return {
-    topPct: (relStart / SCHEDULE_TOTAL_MIN) * 100,
-    heightPct: Math.min(100 - (relStart / SCHEDULE_TOTAL_MIN) * 100, (dur / SCHEDULE_TOTAL_MIN) * 100),
+    topPct: (relStart / totalMin) * 100,
+    heightPct: Math.min(100 - (relStart / totalMin) * 100, (dur / totalMin) * 100),
   };
 }
 
@@ -170,12 +188,14 @@ export function snapScheduleGridStartMinute(
   clientY: number,
   gridRect: DOMRect,
   durationMin: number,
+  dayEndMin: number = SCHEDULE_DAY_END_MIN,
 ): number {
+  const totalMin = scheduleTotalMinutes(dayEndMin);
   const h = Math.max(gridRect.height, 1);
   const frac = Math.max(0, Math.min(1, (clientY - gridRect.top) / h));
-  const continuous = SCHEDULE_DAY_START_MIN + frac * SCHEDULE_TOTAL_MIN;
+  const continuous = SCHEDULE_DAY_START_MIN + frac * totalMin;
   const snapped = Math.round(continuous / 15) * 15;
-  const maxStart = SCHEDULE_DAY_END_MIN - Math.max(15, durationMin);
+  const maxStart = dayEndMin - Math.max(15, durationMin);
   return Math.max(SCHEDULE_DAY_START_MIN, Math.min(maxStart, snapped));
 }
 

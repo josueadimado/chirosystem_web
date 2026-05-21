@@ -66,6 +66,18 @@ function statusBadgeClass(status: string): string {
   return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
 }
 
+/** YYYY-MM-DD in the user's local calendar (for "is this visit today?"). */
+function toLocalISODate(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+function isVisitToday(appointmentDate: string): boolean {
+  return appointmentDate === toLocalISODate(new Date());
+}
+
 function AppointmentDetailPanel({
   active,
   handoffEdits,
@@ -153,11 +165,14 @@ export function PatientHistoryPage({
   detailPath,
   handoffSavePath,
   backHref,
+  scheduleHrefPrefix,
 }: {
   patientId: number;
   detailPath: string;
   handoffSavePath: string;
   backHref: string;
+  /** e.g. `/admin/schedule` — used for "View on today's schedule" when the visit is today. */
+  scheduleHrefPrefix: string;
 }) {
   const [detail, setDetail] = useState<PatientDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -285,10 +300,10 @@ export function PatientHistoryPage({
                   key={a.id}
                   type="button"
                   onClick={() => setActiveHistoryAppointmentId(a.id)}
-                  className={`flex w-full items-center gap-2 rounded-xl border px-3 py-3 text-left transition ${
+                  className={`flex w-full items-center gap-2 rounded-xl border-2 px-3 py-3 text-left transition ${
                     selected
-                      ? "border-emerald-300 bg-white shadow-sm ring-1 ring-emerald-200"
-                      : "border-slate-200 bg-white hover:border-emerald-200 hover:shadow-sm"
+                      ? "border-[#16a349] bg-[#ecfdf5]/60 shadow-md ring-2 ring-[#16a349]/35"
+                      : "border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/30 hover:shadow-sm"
                   }`}
                 >
                   <div className="min-w-0 flex-1">
@@ -335,6 +350,14 @@ export function PatientHistoryPage({
                   >
                     {active.status.replace(/_/g, " ")}
                   </span>
+                  {isVisitToday(active.appointment_date) ? (
+                    <Link
+                      href={`${scheduleHrefPrefix}?appointment=${active.id}`}
+                      className="mt-4 inline-flex rounded-xl border border-[#16a349]/30 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-100"
+                    >
+                      View on today&apos;s schedule →
+                    </Link>
+                  ) : null}
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">

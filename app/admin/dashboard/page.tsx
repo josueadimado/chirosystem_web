@@ -204,41 +204,65 @@ export default function AdminDashboardPage() {
       </nav>
 
       <div className="stagger-children grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <div className="admin-panel border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 ring-slate-200/60">
+        <Link
+          href="/admin/schedule"
+          className="admin-panel group border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 ring-slate-200/60 transition hover:border-[#16a349]/35 hover:shadow-md"
+        >
           <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
             Today · appointments
             <HelpTip label="Appointments today">Visits scheduled for today (all providers), excluding cancelled and no-show.</HelpTip>
           </p>
-          <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-slate-900">{data.appointments_today}</p>
-        </div>
-        <div className="admin-panel border-[#16a349]/20 bg-gradient-to-br from-[#ecfdf5]/50 to-white ring-[#16a349]/15">
+          <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-slate-900 group-hover:text-[#0d5c2e]">
+            {data.appointments_today}
+          </p>
+          <p className="mt-2 text-xs font-medium text-[#16a349] opacity-0 transition group-hover:opacity-100">Open schedule →</p>
+        </Link>
+        <Link
+          href="/admin/schedule"
+          className="admin-panel group border-[#16a349]/20 bg-gradient-to-br from-[#ecfdf5]/50 to-white ring-[#16a349]/15 transition hover:border-[#16a349]/40 hover:shadow-md"
+        >
           <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-[#14532d]/90">
             Today · checked in
             <HelpTip label="Checked in">Patients who completed check-in today (kiosk or staff).</HelpTip>
           </p>
           <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-[#16a349]">{data.checked_in}</p>
-        </div>
-        <div className="admin-panel border-sky-200/80 bg-gradient-to-br from-sky-50/70 to-white ring-sky-100/80">
+          <p className="mt-2 text-xs font-medium text-[#16a349] opacity-0 transition group-hover:opacity-100">Open schedule →</p>
+        </Link>
+        <Link
+          href="/admin/schedule"
+          className="admin-panel group border-sky-200/80 bg-gradient-to-br from-sky-50/70 to-white ring-sky-100/80 transition hover:border-sky-300 hover:shadow-md"
+        >
           <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-sky-900/80">
             Today · completed
             <HelpTip label="Completed">Visits marked completed for today.</HelpTip>
           </p>
           <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-sky-800">{data.completed}</p>
-        </div>
-        <div className="admin-panel border-emerald-200/50 bg-gradient-to-br from-emerald-50/40 to-white">
+          <p className="mt-2 text-xs font-medium text-sky-700 opacity-0 transition group-hover:opacity-100">Open schedule →</p>
+        </Link>
+        <Link
+          href="/admin/billing"
+          className="admin-panel group border-emerald-200/50 bg-gradient-to-br from-emerald-50/40 to-white transition hover:border-emerald-300 hover:shadow-md"
+        >
           <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-600">
             Today · revenue
             <HelpTip label="Daily revenue">Total from invoices marked paid today (clinic date).</HelpTip>
           </p>
-          <p className="mt-3 text-3xl font-bold tabular-nums leading-none tracking-tight text-slate-900 sm:text-4xl">{formattedRevenue}</p>
-        </div>
-        <div className="admin-panel border-amber-200/60 bg-gradient-to-br from-amber-50/50 to-white sm:col-span-2 xl:col-span-1">
+          <p className="mt-3 text-3xl font-bold tabular-nums leading-none tracking-tight text-slate-900 sm:text-4xl group-hover:text-[#0d5c2e]">
+            {formattedRevenue}
+          </p>
+          <p className="mt-2 text-xs font-medium text-[#16a349] opacity-0 transition group-hover:opacity-100">Open billing →</p>
+        </Link>
+        <Link
+          href="/admin/billing"
+          className="admin-panel group border-amber-200/60 bg-gradient-to-br from-amber-50/50 to-white transition hover:border-amber-300 hover:shadow-md sm:col-span-2 xl:col-span-1"
+        >
           <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-amber-950/80">
             Pending invoices
             <HelpTip label="Pending invoices">Issued invoices not yet paid — follow up in Billing.</HelpTip>
           </p>
           <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-amber-950">{data.unpaid_invoices}</p>
-        </div>
+          <p className="mt-2 text-xs font-medium text-amber-800 opacity-0 transition group-hover:opacity-100">Collect in billing →</p>
+        </Link>
       </div>
 
       <section className="space-y-3">

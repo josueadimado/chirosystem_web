@@ -73,7 +73,7 @@ function startMinutesForSlotRow(
 
 /**
  * Front desk / doctor: after clicking an open slot on the schedule day grid, pick a patient and service
- * and confirm. Uses the same slot rules as online booking (`/appointments/book-from-desk/`).
+ * and confirm. Staff may book through 9:00 PM (`desk=1` availability); patients still use public closing rules.
  * When still on the same date/provider as the clicked strip, start times are limited so the full
  * calendar block (visit + massage tail) fits inside that free window.
  */
@@ -203,6 +203,7 @@ export function AdminDeskBookFromSlotModal({
       date: dateIso,
       provider_id: String(providerId),
       service_id: String(serviceId),
+      desk: "1",
     });
     void apiGetAuth<{ available_slots?: string[]; slot_start_times?: string[] }>(`/booking-options/availability/?${q}`)
       .then((data) => {
@@ -360,7 +361,8 @@ export function AdminDeskBookFromSlotModal({
           Open strip on calendar: <span className="font-medium text-slate-700">{gapStripLabel}</span>
           {gapContextActive ? (
             <span className="block pt-1">
-              Visits must finish inside this strip (visit length
+              Staff may schedule past public online closing (through 9:00 PM). The visit must still fit inside
+              this open strip (visit length
               {selectedService?.service_type === "massage"
                 ? ` plus ${MASSAGE_DESK_BOOK_TAIL_MINUTES} min schedule cleanup for massage`
                 : ""}
