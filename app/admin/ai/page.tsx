@@ -6,7 +6,7 @@ import { IconBot } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import { formatInstantMonthDayYearTime } from "@/lib/format-date";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 type VoiceAnalytics = {
   calls_today: number;
@@ -176,84 +176,106 @@ export default function AdminAIPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {calls.map((row) => {
-                  const turns = row.conversation_log?.length ?? 0;
-                  const expanded = expandedId === row.id;
-                  return (
-                    <div
-                      key={row.id}
-                      className="rounded-xl border border-slate-200/90 bg-white overflow-hidden"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-900">
-                            {formatInstantMonthDayYearTime(row.updated_at)}
-                            <span className="ml-2 font-mono text-xs font-normal text-slate-500">
-                              {row.from_number || "Unknown number"}
-                            </span>
-                          </p>
-                          <p className="mt-1 text-sm text-slate-700">
-                            <span className="font-medium">{row.outcome_label}</span>
-                            {row.appointment_id ? (
-                              <span className="ml-2 text-slate-500">Appointment #{row.appointment_id}</span>
-                            ) : null}
-                          </p>
-                          {row.detail ? (
-                            <p className="mt-1 text-xs text-slate-500">{row.detail}</p>
-                          ) : null}
-                          {!expanded && row.transcript ? (
-                            <p className="mt-2 text-xs text-slate-500 line-clamp-1">
-                              Last heard: {row.transcript}
-                            </p>
-                          ) : null}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(expanded ? null : row.id)}
-                          className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          {expanded ? "Hide conversation" : turns > 0 ? `View conversation (${turns})` : "View conversation"}
-                        </button>
-                      </div>
-                      {expanded ? (
-                        <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-4">
-                          {turns === 0 ? (
-                            <p className="text-sm text-slate-500">
-                              No full transcript was saved for this call (it may have been before conversation logging was enabled).
-                              {row.transcript ? (
-                                <>
-                                  {" "}
-                                  Last caller line: <em>{row.transcript}</em>
-                                </>
+              <div className="overflow-x-auto rounded-xl border border-slate-200/90">
+                <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                  <thead className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2.5">When</th>
+                      <th className="px-3 py-2.5">From</th>
+                      <th className="px-3 py-2.5">Outcome</th>
+                      <th className="px-3 py-2.5">Appointment</th>
+                      <th className="px-3 py-2.5 text-center">Turns</th>
+                      <th className="px-3 py-2.5">Last caller line</th>
+                      <th className="px-3 py-2.5">Conversation</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {calls.map((row) => {
+                      const turns = row.conversation_log?.length ?? 0;
+                      const expanded = expandedId === row.id;
+                      return (
+                        <Fragment key={row.id}>
+                          <tr
+                            className={`align-top ${expanded ? "bg-slate-50/80" : "hover:bg-slate-50/50"}`}
+                          >
+                            <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
+                              {formatInstantMonthDayYearTime(row.updated_at)}
+                            </td>
+                            <td className="px-3 py-2.5 font-mono text-xs text-slate-700">
+                              {row.from_number || "—"}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className="font-medium text-slate-800">{row.outcome_label}</span>
+                              {row.detail ? (
+                                <p className="mt-0.5 max-w-[12rem] truncate text-xs text-slate-500" title={row.detail}>
+                                  {row.detail}
+                                </p>
                               ) : null}
-                            </p>
-                          ) : (
-                            <ul className="space-y-2 max-h-[28rem] overflow-y-auto">
-                              {row.conversation_log.map((turn, i) => (
-                                <li
-                                  key={`${row.id}-${i}`}
-                                  className={`rounded-lg border px-3 py-2 text-sm ${roleStyles(turn.role)}`}
-                                >
-                                  <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide opacity-80">
-                                    <span>{roleLabel(turn.role)}</span>
-                                    {turn.step ? <span className="normal-case font-normal">· step: {turn.step}</span> : null}
-                                    {turn.at ? (
-                                      <span className="normal-case font-normal text-slate-500">
-                                        · {formatInstantMonthDayYearTime(turn.at)}
-                                      </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
+                              {row.appointment_id ? `#${row.appointment_id}` : "—"}
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-slate-600">{turns > 0 ? turns : "—"}</td>
+                            <td className="max-w-xs px-3 py-2.5 text-slate-600">
+                              <p className="line-clamp-2 text-xs" title={row.transcript}>
+                                {row.transcript || "—"}
+                              </p>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedId(expanded ? null : row.id)}
+                                className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                              >
+                                {expanded ? "Hide" : turns > 0 ? `View (${turns})` : "View"}
+                              </button>
+                            </td>
+                          </tr>
+                          {expanded ? (
+                            <tr key={`${row.id}-conversation`} className="bg-slate-50/50">
+                              <td colSpan={7} className="px-3 py-4">
+                                {turns === 0 ? (
+                                  <p className="text-sm text-slate-500">
+                                    No full transcript was saved for this call (logging may have started after this
+                                    call).
+                                    {row.transcript ? (
+                                      <>
+                                        {" "}
+                                        Last caller line: <em>{row.transcript}</em>
+                                      </>
                                     ) : null}
-                                  </div>
-                                  <p className="mt-1 whitespace-pre-wrap leading-relaxed">{turn.text}</p>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                                  </p>
+                                ) : (
+                                  <ul className="max-h-[28rem] space-y-2 overflow-y-auto">
+                                    {row.conversation_log.map((turn, i) => (
+                                      <li
+                                        key={`${row.id}-${i}`}
+                                        className={`rounded-lg border px-3 py-2 text-sm ${roleStyles(turn.role)}`}
+                                      >
+                                        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide opacity-80">
+                                          <span>{roleLabel(turn.role)}</span>
+                                          {turn.step ? (
+                                            <span className="normal-case font-normal">· step: {turn.step}</span>
+                                          ) : null}
+                                          {turn.at ? (
+                                            <span className="normal-case font-normal text-slate-500">
+                                              · {formatInstantMonthDayYearTime(turn.at)}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                        <p className="mt-1 whitespace-pre-wrap leading-relaxed">{turn.text}</p>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
