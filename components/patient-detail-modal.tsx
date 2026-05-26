@@ -7,6 +7,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
+import {
+  formatDemographicsDate,
+  formatMaritalStatus,
+  formatPatientAge,
+} from "@/lib/patient-demographics";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -64,6 +69,10 @@ type PatientDetail = {
   phone: string;
   email: string;
   date_of_birth: string | null;
+  marital_status?: string;
+  age?: number | null;
+  date_established?: string | null;
+  last_seen?: string | null;
   address_line1: string;
   address_line2: string;
   city_state_zip: string;
@@ -163,6 +172,7 @@ export function PatientDetailModal({
     emergency_contact_name: "",
     emergency_contact_phone: "",
     date_of_birth: "",
+    marital_status: "",
   });
 
   const [portalReady, setPortalReady] = useState(false);
@@ -235,6 +245,7 @@ export function PatientDetailModal({
           emergency_contact_name: d.emergency_contact_name || "",
           emergency_contact_phone: d.emergency_contact_phone || "",
           date_of_birth: d.date_of_birth || "",
+          marital_status: d.marital_status || "",
         });
       })
       .catch((e) => {
@@ -293,6 +304,7 @@ export function PatientDetailModal({
         emergency_contact_name: intakeForm.emergency_contact_name,
         emergency_contact_phone: intakeForm.emergency_contact_phone,
         date_of_birth: intakeForm.date_of_birth || null,
+        marital_status: intakeForm.marital_status || "",
         ...(detailPath === "/admin/patient_detail" ? { online_chiro_intake_waived: onlineChiroIntakeWaived } : {}),
       });
       setIntakeMsg("Saved.");
@@ -346,6 +358,7 @@ export function PatientDetailModal({
       intakeForm.emergency_contact_name !== (detail.emergency_contact_name || "") ||
       intakeForm.emergency_contact_phone !== (detail.emergency_contact_phone || "") ||
       intakeForm.date_of_birth !== (detail.date_of_birth || "") ||
+      intakeForm.marital_status !== (detail.marital_status || "") ||
       (detailPath === "/admin/patient_detail" &&
         onlineChiroIntakeWaived !== (detail.online_chiro_intake_waived === true)));
 
@@ -505,11 +518,31 @@ export function PatientDetailModal({
 
                   <div>
                     <DoctorSectionLabel>Demographics & billing</DoctorSectionLabel>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
                         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date of birth</p>
                         <p className="mt-1.5 font-semibold text-slate-900">
                           {detail.date_of_birth ? formatMonthDayYear(detail.date_of_birth) : "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Age</p>
+                        <p className="mt-1.5 font-semibold tabular-nums text-slate-900">{formatPatientAge(detail.age)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Marital</p>
+                        <p className="mt-1.5 font-semibold text-slate-900">{formatMaritalStatus(detail.marital_status)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date established</p>
+                        <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
+                          {formatDemographicsDate(detail.date_established)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Last seen</p>
+                        <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
+                          {formatDemographicsDate(detail.last_seen)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
@@ -693,31 +726,48 @@ export function PatientDetailModal({
                           : "border-slate-200/80 bg-white"
                       }`}
                     >
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date of birth</p>
-                      <label className="mt-3 block">
-                        <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Date of birth
-                        </span>
-                        <input
-                          type="date"
-                          className={`${inputClass} max-w-xs`}
-                          value={intakeForm.date_of_birth}
-                          onFocus={() => setActiveIntakeSection("dob")}
-                          onChange={(e) => setIntakeForm((f) => ({ ...f, date_of_birth: e.target.value }))}
-                          onPaste={(e) => {
-                            const text = e.clipboardData.getData("text/plain");
-                            const normalized = normalizeDateOfBirthInput(text);
-                            if (normalized) {
-                              e.preventDefault();
-                              setIntakeForm((f) => ({ ...f, date_of_birth: normalized }));
-                            }
-                          }}
-                          title="Pick a date or paste one, e.g. 4/15/1985 or 1985-04-15"
-                        />
-                        <p className="mt-1.5 text-xs text-slate-500">
-                          You can paste a date in US form (like 4/15/1985) or ISO (1985-04-15); it will fill the field for you.
-                        </p>
-                      </label>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date of birth & marital</p>
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Date of birth
+                          </span>
+                          <input
+                            type="date"
+                            className={`${inputClass} max-w-xs`}
+                            value={intakeForm.date_of_birth}
+                            onFocus={() => setActiveIntakeSection("dob")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, date_of_birth: e.target.value }))}
+                            onPaste={(e) => {
+                              const text = e.clipboardData.getData("text/plain");
+                              const normalized = normalizeDateOfBirthInput(text);
+                              if (normalized) {
+                                e.preventDefault();
+                                setIntakeForm((f) => ({ ...f, date_of_birth: normalized }));
+                              }
+                            }}
+                            title="Pick a date or paste one, e.g. 4/15/1985 or 1985-04-15"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Marital (Y / N)
+                          </span>
+                          <select
+                            className={inputClass}
+                            value={intakeForm.marital_status}
+                            onFocus={() => setActiveIntakeSection("dob")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, marital_status: e.target.value }))}
+                          >
+                            <option value="">— Not set —</option>
+                            <option value="Y">Y — Married</option>
+                            <option value="N">N — Not married</option>
+                          </select>
+                        </label>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Age, date established, and last seen are calculated from visits and update automatically.
+                      </p>
                     </section>
                   </div>
                   {detailPath === "/admin/patient_detail" && (
@@ -755,6 +805,7 @@ export function PatientDetailModal({
                                 emergency_contact_name: detail.emergency_contact_name || "",
                                 emergency_contact_phone: detail.emergency_contact_phone || "",
                                 date_of_birth: detail.date_of_birth || "",
+                                marital_status: detail.marital_status || "",
                               })
                             }
                             disabled={!intakeDirty || savingIntake}

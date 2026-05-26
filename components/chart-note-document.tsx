@@ -136,11 +136,11 @@ export function parseChartNoteDocument(text: string): { preamble: string; sectio
 
 function ChartBodyBlocks({ blocks, comfortable }: { blocks: ChartBodyBlock[]; comfortable?: boolean }) {
   if (blocks.length === 0) return null;
-  const paraClass = comfortable ? "text-[16px] leading-8 text-slate-800" : "text-[15px] leading-7 text-slate-800";
-  const subClass = comfortable ? "text-[16px] font-bold text-slate-900" : "text-[15px] font-bold text-slate-900";
-  const dateLabelClass = comfortable ? "text-base font-bold text-slate-900" : "text-sm font-bold text-slate-900";
+  const paraClass = comfortable ? "text-[15px] leading-6 text-slate-800" : "text-[14px] leading-[1.45] text-slate-800";
+  const subClass = comfortable ? "text-[15px] font-bold text-slate-900" : "text-[14px] font-bold text-slate-900";
+  const dateLabelClass = comfortable ? "text-sm font-bold text-slate-900" : "text-sm font-bold text-slate-900";
   return (
-    <div className="space-y-4">
+    <div className="space-y-1.5">
       {blocks.map((b, i) => {
         if (b.kind === "date-entry") {
           return (
@@ -254,26 +254,26 @@ export function ChartNoteReader({
         <p
           className={cn(
             "whitespace-pre-wrap text-slate-800",
-            comfortable ? "text-[16px] leading-8" : "text-[15px] leading-7",
-            headerLine ? "mt-4" : "",
+            comfortable ? "text-[15px] leading-6" : "text-[14px] leading-[1.45]",
+            headerLine ? "mt-3" : "",
           )}
         >
           <FormattedInlineText text={parsed.preamble} />
         </p>
       ) : null}
 
-      <div className={cn(parsed.preamble || headerLine ? "mt-6 space-y-8" : "space-y-8")}>
+      <div className={cn(parsed.preamble || headerLine ? "mt-4 space-y-5" : "space-y-5")}>
         {parsed.sections.map((sec) => (
           <section key={sec.title}>
             <h3
               className={cn(
                 "font-bold tracking-tight text-slate-900",
-                comfortable ? "text-xl" : "text-lg",
+                comfortable ? "text-lg" : "text-base",
               )}
             >
               {sec.title}
             </h3>
-            <div className="mt-3">
+            <div className="mt-1.5">
               <ChartBodyBlocks blocks={sec.blocks} comfortable={comfortable} />
             </div>
           </section>

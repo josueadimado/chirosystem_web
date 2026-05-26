@@ -2,6 +2,7 @@
 
 import { ChartNoteReaderPanel } from "@/components/chart-note-document";
 import { Loader } from "@/components/loader";
+import { PatientDemographicsEditor } from "@/components/patient-demographics-editor";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -13,6 +14,11 @@ import {
   formatWeekdayMonthDayYear,
   parseApiDateOnly,
 } from "@/lib/format-date";
+import {
+  formatDemographicsDate,
+  formatMaritalStatus,
+  formatPatientAge,
+} from "@/lib/patient-demographics";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { flushSync } from "react-dom";
@@ -68,6 +74,10 @@ type PatientDetail = {
   phone: string;
   email: string;
   date_of_birth: string | null;
+  marital_status?: string;
+  age?: number | null;
+  date_established?: string | null;
+  last_seen?: string | null;
   address_line1: string;
   address_line2: string;
   city_state_zip: string;
@@ -514,30 +524,12 @@ export default function DoctorPatientRecordPage() {
           )}
         </section>
 
-        {/* Demographics — read-only */}
-        <section className="space-y-3">
-          <h2 className="text-lg font-bold tracking-tight text-slate-900">Demographics</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date of birth</p>
-              <p className="mt-1.5 font-semibold text-slate-900">{detail.date_of_birth || "—"}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:col-span-2">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Address</p>
-              <p className="mt-1.5 leading-relaxed text-slate-800">
-                {[detail.address_line1, detail.address_line2, detail.city_state_zip].filter(Boolean).join(", ") || "—"}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:col-span-2">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Emergency contact</p>
-              <p className="mt-1.5 text-slate-800">
-                {detail.emergency_contact_name || detail.emergency_contact_phone
-                  ? `${detail.emergency_contact_name}${detail.emergency_contact_phone ? ` · ${detail.emergency_contact_phone}` : ""}`
-                  : "—"}
-              </p>
-            </div>
-          </div>
-        </section>
+        <PatientDemographicsEditor
+          patient={detail}
+          intakeSavePath="/doctor/patient_intake/"
+          detailPath="/doctor/patient_detail"
+          onPatientUpdated={(refreshed) => setDetail(refreshed as PatientDetail)}
+        />
       </div>
 
       <Sheet open={selectedVisit !== null} onOpenChange={(open) => !open && setSelectedVisit(null)}>
@@ -652,6 +644,22 @@ export default function DoctorPatientRecordPage() {
               <tr>
                 <td className="pf-demo-label">Email</td>
                 <td className="pf-demo-value">{detail.email?.trim() ? detail.email : "—"}</td>
+              </tr>
+              <tr>
+                <td className="pf-demo-label">Age</td>
+                <td className="pf-demo-value">{formatPatientAge(detail.age)}</td>
+              </tr>
+              <tr>
+                <td className="pf-demo-label">Marital</td>
+                <td className="pf-demo-value">{formatMaritalStatus(detail.marital_status)}</td>
+              </tr>
+              <tr>
+                <td className="pf-demo-label">Date established</td>
+                <td className="pf-demo-value">{formatDemographicsDate(detail.date_established)}</td>
+              </tr>
+              <tr>
+                <td className="pf-demo-label">Last seen</td>
+                <td className="pf-demo-value">{formatDemographicsDate(detail.last_seen)}</td>
               </tr>
               <tr>
                 <td className="pf-demo-label">Address</td>

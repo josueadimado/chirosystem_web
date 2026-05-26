@@ -1,0 +1,264 @@
+"use client";
+
+import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
+import {
+  formatDemographicsDate,
+  formatMaritalStatus,
+  formatPatientAge,
+} from "@/lib/patient-demographics";
+import { normalizeDateOfBirthInput } from "@/lib/normalize-date-of-birth";
+import { useEffect, useMemo, useState } from "react";
+
+const inputClass =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
+
+export type PatientDemographicsSource = {
+  id: number;
+  date_of_birth: string | null;
+  marital_status?: string;
+  age?: number | null;
+  date_established?: string | null;
+  last_seen?: string | null;
+  address_line1: string;
+  address_line2: string;
+  city_state_zip: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
+};
+
+type IntakeForm = {
+  date_of_birth: string;
+  marital_status: string;
+  address_line1: string;
+  address_line2: string;
+  city_state_zip: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
+};
+
+function detailToForm(d: PatientDemographicsSource): IntakeForm {
+  return {
+    date_of_birth: d.date_of_birth || "",
+    marital_status: d.marital_status || "",
+    address_line1: d.address_line1 || "",
+    address_line2: d.address_line2 || "",
+    city_state_zip: d.city_state_zip || "",
+    emergency_contact_name: d.emergency_contact_name || "",
+    emergency_contact_phone: d.emergency_contact_phone || "",
+  };
+}
+
+type Props = {
+  patient: PatientDemographicsSource;
+  /** e.g. `/doctor/patient_intake/` or `/admin/patient_intake/` */
+  intakeSavePath: string;
+  /** Reload full patient after save */
+  detailPath: string;
+  onPatientUpdated: (patient: PatientDemographicsSource) => void;
+};
+
+/**
+ * Editable demographics for doctors and front desk (DOB, marital, address, emergency).
+ * Age, date established, and last seen stay read-only (calculated by the server).
+ */
+export function PatientDemographicsEditor({
+  patient,
+  intakeSavePath,
+  detailPath,
+  onPatientUpdated,
+}: Props) {
+  const [form, setForm] = useState<IntakeForm>(() => detailToForm(patient));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    setForm(detailToForm(patient));
+  }, [patient]);
+
+  const dirty = useMemo(() => {
+    const baseline = detailToForm(patient);
+    return (Object.keys(baseline) as (keyof IntakeForm)[]).some((k) => form[k] !== baseline[k]);
+  }, [form, patient]);
+
+  const save = async () => {
+    setSaving(true);
+    setMessage("");
+    try {
+      await apiPatch(intakeSavePath, {
+        patient_id: patient.id,
+        address_line1: form.address_line1,
+        address_line2: form.address_line2,
+        city_state_zip: form.city_state_zip,
+        emergency_contact_name: form.emergency_contact_name,
+        emergency_contact_phone: form.emergency_contact_phone,
+        date_of_birth: form.date_of_birth || null,
+        marital_status: form.marital_status || "",
+      });
+      const refreshed = await apiGetAuth<PatientDemographicsSource>(
+        `${detailPath}/?patient_id=${patient.id}`,
+      );
+      onPatientUpdated(refreshed);
+      setMessage("Demographics saved.");
+    } catch (e) {
+      setMessage(e instanceof ApiError ? e.message : "Could not save demographics.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold tracking-tight text-slate-900">Demographics</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            You can update these during the visit. Age and visit dates update automatically.
+          </p>
+        </div>
+        {message ? (
+          <p
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${
+              message === "Demographics saved."
+                ? "bg-emerald-50 text-emerald-900"
+                : "bg-amber-50 text-amber-950"
+            }`}
+          >
+            {message}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Age</p>
+          <p className="mt-1.5 font-semibold tabular-nums text-slate-900">{formatPatientAge(patient.age)}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date established</p>
+          <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
+            {formatDemographicsDate(patient.date_established)}
+          </p>
+          <p className="mt-0.5 text-[10px] text-slate-500">First appointment</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4 sm:col-span-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Last seen</p>
+          <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
+            {formatDemographicsDate(patient.last_seen)}
+          </p>
+          <p className="mt-0.5 text-[10px] text-slate-500">Last visit or appointment</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <label>
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Date of birth
+            </span>
+            <input
+              type="date"
+              className={inputClass}
+              value={form.date_of_birth}
+              onChange={(e) => setForm((f) => ({ ...f, date_of_birth: e.target.value }))}
+              onPaste={(e) => {
+                const normalized = normalizeDateOfBirthInput(e.clipboardData.getData("text/plain"));
+                if (normalized) {
+                  e.preventDefault();
+                  setForm((f) => ({ ...f, date_of_birth: normalized }));
+                }
+              }}
+            />
+          </label>
+          <label>
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Marital (Y / N)
+            </span>
+            <select
+              className={inputClass}
+              value={form.marital_status}
+              onChange={(e) => setForm((f) => ({ ...f, marital_status: e.target.value }))}
+            >
+              <option value="">— Not set —</option>
+              <option value="Y">Y — Married</option>
+              <option value="N">N — Not married</option>
+            </select>
+            <p className="mt-1 text-[10px] text-slate-500">Current: {formatMaritalStatus(patient.marital_status)}</p>
+          </label>
+          <label className="sm:col-span-2 lg:col-span-3">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Street address
+            </span>
+            <input
+              className={inputClass}
+              value={form.address_line1}
+              onChange={(e) => setForm((f) => ({ ...f, address_line1: e.target.value }))}
+            />
+          </label>
+          <label className="sm:col-span-2 lg:col-span-3">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Apt / suite
+            </span>
+            <input
+              className={inputClass}
+              value={form.address_line2}
+              onChange={(e) => setForm((f) => ({ ...f, address_line2: e.target.value }))}
+            />
+          </label>
+          <label className="sm:col-span-2 lg:col-span-3">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              City, state, ZIP
+            </span>
+            <input
+              className={inputClass}
+              placeholder="St Joseph, MI 49085"
+              value={form.city_state_zip}
+              onChange={(e) => setForm((f) => ({ ...f, city_state_zip: e.target.value }))}
+            />
+          </label>
+          <label>
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Emergency name
+            </span>
+            <input
+              className={inputClass}
+              value={form.emergency_contact_name}
+              onChange={(e) => setForm((f) => ({ ...f, emergency_contact_name: e.target.value }))}
+            />
+          </label>
+          <label>
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Emergency phone
+            </span>
+            <input
+              className={inputClass}
+              value={form.emergency_contact_phone}
+              onChange={(e) => setForm((f) => ({ ...f, emergency_contact_phone: e.target.value }))}
+            />
+          </label>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            disabled={!dirty || saving}
+            onClick={() => setForm(detailToForm(patient))}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            disabled={!dirty || saving}
+            onClick={() => void save()}
+            className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save demographics"}
+          </button>
+          {!dirty ? (
+            <span className="text-xs text-slate-500">Change a field above to enable save.</span>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}

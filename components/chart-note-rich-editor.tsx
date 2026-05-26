@@ -111,7 +111,7 @@ export function ChartNoteRichEditor({
         disabled={disabled}
         aria-label={ariaLabel}
         className={cn(
-          "w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 font-mono text-sm leading-relaxed text-slate-900 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15 disabled:bg-slate-50",
+          "w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 font-mono text-sm leading-normal text-slate-900 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15 disabled:bg-slate-50",
           minHeightClassName,
           className,
         )}
