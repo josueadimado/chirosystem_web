@@ -3,7 +3,7 @@
 import { DoctorPageIntro } from "@/components/doctor-shell";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 import { formatMonthDayYear } from "@/lib/format-date";
 import Link from "next/link";
 import { useRouter } from "next/navigation";

@@ -201,9 +201,7 @@ export default function DoctorPatientRecordPage() {
     try {
       const preview = invoiceStatus !== "paid";
       const q = `invoice_id=${invoiceId}${preview ? "&preview=1" : ""}`;
-      const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?${q}`, {
-        timeoutMs: 30_000,
-      });
+      const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?${q}`);
       setPatientBillModal(bill);
     } catch (e) {
       setBillLoadError(e instanceof ApiError ? e.message : "Could not load bill for preview.");
