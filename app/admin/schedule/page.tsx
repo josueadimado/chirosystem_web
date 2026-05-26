@@ -493,9 +493,9 @@ function AdminSchedulePageContent() {
         saved = true;
       },
       {
-        loadingMessage: "Updating duration…",
-        successMessage: "Visit duration updated on the calendar.",
-        errorFallback: "Could not update duration — check for conflicts or booking hours.",
+        loadingMessage: "Extending period…",
+        successMessage: "Visit period extended on the calendar.",
+        errorFallback: "Could not extend — that time may already be booked or outside booking hours.",
       },
     );
     if (saved) setShowAdjustDuration(false);
