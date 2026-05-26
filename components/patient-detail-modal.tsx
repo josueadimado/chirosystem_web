@@ -73,6 +73,8 @@ type PatientDetail = {
   age?: number | null;
   date_established?: string | null;
   last_seen?: string | null;
+  clinical_access?: "full" | "read_only";
+  clinical_access_message?: string;
   address_line1: string;
   address_line2: string;
   city_state_zip: string;
@@ -293,6 +295,10 @@ export function PatientDetailModal({
       setIntakeMsg("Intake cannot be saved from this screen.");
       return;
     }
+    if (readOnlyChart) {
+      setIntakeMsg("This patient is outside your care type — front desk or the other provider must save changes.");
+      return;
+    }
     setSavingIntake(true);
     setIntakeMsg("");
     try {
@@ -342,6 +348,7 @@ export function PatientDetailModal({
 
   /** Doctor chart opens full-page record instead of an in-modal history tab (modal is too small). */
   const isDoctorChart = detailPath === "/doctor/patient_detail";
+  const readOnlyChart = isDoctorChart && detail?.clinical_access === "read_only";
 
   useEffect(() => {
     if (isDoctorChart && tab === "history") setTab("overview");
@@ -498,9 +505,16 @@ export function PatientDetailModal({
                     </div>
                   ) : null}
 
-                  {(!detail.date_of_birth ||
+                  {readOnlyChart && detail.clinical_access_message ? (
+                    <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                      {detail.clinical_access_message}
+                    </p>
+                  ) : null}
+
+                  {(!readOnlyChart &&
+                    (!detail.date_of_birth ||
                     !(detail.address_line1 || "").trim() ||
-                    !(detail.city_state_zip || "").trim()) && (
+                    !(detail.city_state_zip || "").trim())) && (
                     <div className="flex flex-col gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-sm leading-snug text-sky-950">
                         <span className="font-semibold">Demographics incomplete.</span>{" "}
@@ -609,10 +623,16 @@ export function PatientDetailModal({
 
               {tab === "intake" && (
                 <div className="animate-fade-in space-y-5">
+                  {readOnlyChart ? (
+                    <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                      {detail.clinical_access_message || "Read-only chart for this patient."}
+                    </p>
+                  ) : (
                   <div className="rounded-xl border border-emerald-100/80 bg-emerald-50/35 px-4 py-3 text-sm leading-relaxed text-slate-700 ring-1 ring-emerald-100/40">
                     Edit fields below, then <span className="font-semibold text-slate-900">Save demographics</span> at the
                     bottom.
                   </div>
+                  )}
 
                   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm">
                     <button
@@ -787,7 +807,7 @@ export function PatientDetailModal({
                       </label>
                     </div>
                   )}
-                  {canSaveIntake && (
+                  {canSaveIntake && !readOnlyChart && (
                     <div className="sticky bottom-0 z-10 -mx-5 border-t border-slate-200/80 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-6 sm:px-6">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="text-xs font-medium text-slate-600">

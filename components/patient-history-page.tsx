@@ -62,6 +62,8 @@ type PatientDetail = {
   first_name: string;
   last_name: string;
   phone: string;
+  clinical_access?: "full" | "read_only";
+  clinical_access_message?: string;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -436,6 +438,12 @@ export function PatientHistoryPage({
           </div>
         </div>
       </div>
+
+      {detail.clinical_access === "read_only" && detail.clinical_access_message ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          {detail.clinical_access_message} Chart notes and bills are view-only.
+        </p>
+      ) : null}
 
       {handoffMsg ? (
         <p

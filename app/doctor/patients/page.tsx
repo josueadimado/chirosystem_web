@@ -185,7 +185,7 @@ export default function DoctorPatientsPage() {
       <DoctorPageIntro
         eyebrow="Directory"
         title="Patients"
-        description="Search the clinic directory, filter by upcoming visits or last-seen dates, and open a chart or history."
+        description="Your list shows chiropractic or massage patients for your role. You can open other charts read-only if needed. Admin can edit everyone."
       />
 
       {error ? (

@@ -83,6 +83,8 @@ type PatientDetail = {
   city_state_zip: string;
   emergency_contact_name: string;
   emergency_contact_phone: string;
+  clinical_access?: "full" | "read_only";
+  clinical_access_message?: string;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -524,11 +526,19 @@ export default function DoctorPatientRecordPage() {
           )}
         </section>
 
+        {detail.clinical_access === "read_only" && detail.clinical_access_message ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            {detail.clinical_access_message}
+          </p>
+        ) : null}
+
         <PatientDemographicsEditor
           patient={detail}
           intakeSavePath="/doctor/patient_intake/"
           detailPath="/doctor/patient_detail"
           onPatientUpdated={(refreshed) => setDetail(refreshed as PatientDetail)}
+          readOnly={detail.clinical_access === "read_only"}
+          readOnlyMessage={detail.clinical_access_message}
         />
       </div>
 
