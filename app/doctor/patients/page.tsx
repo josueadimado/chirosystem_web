@@ -31,7 +31,27 @@ type PaginatedPatients = {
   results: PatientApi[];
 };
 
+/** Must match `apply_patient_directory_list_filter` on the API */
+type DirectoryFilter =
+  | ""
+  | "upcoming"
+  | "no_upcoming"
+  | "seen_recent"
+  | "recall_due"
+  | "never_seen"
+  | "new_patients";
+
 const PAGE_SIZE = 25;
+
+const DIRECTORY_FILTERS: { value: DirectoryFilter; label: string; hint: string }[] = [
+  { value: "", label: "All patients", hint: "Everyone in the clinic, most recent visit first" },
+  { value: "upcoming", label: "Future booking", hint: "Has an upcoming appointment — soonest first" },
+  { value: "no_upcoming", label: "No upcoming visit", hint: "No future appointment on the books" },
+  { value: "seen_recent", label: "Seen last 30 days", hint: "Completed a visit in the last month" },
+  { value: "recall_due", label: "Not seen 6+ months", hint: "Last completed visit was over six months ago" },
+  { value: "never_seen", label: "No visit yet", hint: "Never completed a visit (may still be booked)" },
+  { value: "new_patients", label: "0 visits", hint: "No completed visits on file" },
+];
 
 function patientDirectoryName(p: PatientApi): { last: string; first: string } {
   const last = (p.last_name || "").trim() || "—";
@@ -84,6 +104,10 @@ function nextAppointmentLabel(p: PatientApi): string | null {
   return time ? `${date} · ${time}` : date;
 }
 
+function filterMeta(value: DirectoryFilter) {
+  return DIRECTORY_FILTERS.find((f) => f.value === value) ?? DIRECTORY_FILTERS[0];
+}
+
 export default function DoctorPatientsPage() {
   const router = useRouter();
   const [patients, setPatients] = useState<PatientApi[]>([]);
@@ -93,6 +117,7 @@ export default function DoctorPatientsPage() {
   const [error, setError] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [directoryFilter, setDirectoryFilter] = useState<DirectoryFilter>("");
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -101,7 +126,9 @@ export default function DoctorPatientsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, directoryFilter]);
+
+  const activeFilter = filterMeta(directoryFilter);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -110,6 +137,7 @@ export default function DoctorPatientsPage() {
     params.set("page", String(page));
     params.set("page_size", String(PAGE_SIZE));
     if (debouncedSearch) params.set("search", debouncedSearch);
+    if (directoryFilter) params.set("directory", directoryFilter);
     void apiGetAuth<PaginatedPatients>(`/patients/?${params.toString()}`)
       .then((data) => {
         setPatients(Array.isArray(data.results) ? data.results : []);
@@ -121,9 +149,9 @@ export default function DoctorPatientsPage() {
         setTotalCount(0);
       })
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, directoryFilter]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- load when page/search changes */
+  /* eslint-disable react-hooks/set-state-in-effect -- load when page/search/filter changes */
   useEffect(() => {
     void load();
   }, [load]);
@@ -142,24 +170,32 @@ export default function DoctorPatientsPage() {
   }, [page, totalCount]);
 
   const searching = debouncedSearch.length > 0;
+  const filtering = directoryFilter !== "";
   const showPagination = !loading && totalCount > 0 && totalPages > 1;
+
+  const sortHint =
+    directoryFilter === "upcoming"
+      ? "sorted by next appointment"
+      : directoryFilter === "recall_due"
+        ? "sorted by oldest last visit"
+        : "sorted by most recent visit";
 
   return (
     <div className="space-y-6">
       <DoctorPageIntro
         eyebrow="Directory"
         title="Patients"
-        description="Search the clinic directory. See visit history at a glance and open a chart or appointment history."
+        description="Search the clinic directory, filter by upcoming visits or last-seen dates, and open a chart or history."
       />
 
       {error ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
       ) : null}
 
-      <div className="doctor-panel">
+      <div className="doctor-panel space-y-4">
         <label className="block">
           <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Search patients by name or phone
+            Search by name or phone
           </span>
           <input
             type="search"
@@ -172,27 +208,70 @@ export default function DoctorPatientsPage() {
           />
         </label>
 
+        <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Filter list</span>
+            {filtering ? (
+              <button
+                type="button"
+                onClick={() => setDirectoryFilter("")}
+                className="text-xs font-semibold text-[#16a349] hover:underline"
+              >
+                Clear filter
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {DIRECTORY_FILTERS.map((f) => {
+              const active = directoryFilter === f.value;
+              return (
+                <button
+                  key={f.value || "all"}
+                  type="button"
+                  title={f.hint}
+                  onClick={() => setDirectoryFilter(f.value)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-sm font-medium transition",
+                    active
+                      ? "bg-[#16a349] text-white shadow-sm"
+                      : "border border-slate-200 bg-white text-slate-700 hover:border-[#16a349]/30 hover:bg-emerald-50/50",
+                  )}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-slate-600">{activeFilter.hint}</p>
+        </div>
+
         {loading ? (
           <div className="py-12">
             <Loader variant="page" label="Loading patients" />
           </div>
         ) : patients.length === 0 ? (
-          <p className="mt-6 text-center text-slate-600">
-            {totalCount === 0 && !searching
-              ? "No patients are on file yet."
-              : "No patients found matching your search."}
+          <p className="py-8 text-center text-slate-600">
+            {searching || filtering
+              ? "No patients match your search or filter. Try clearing filters or widening your search."
+              : "No patients are on file yet."}
           </p>
         ) : (
           <>
             {rangeLabel ? (
-              <p className="mt-4 text-sm text-slate-600">
+              <p className="text-sm text-slate-600">
                 Showing <span className="tabular-nums font-medium text-slate-800">{rangeLabel}</span> of{" "}
                 <span className="tabular-nums">{totalCount}</span>
-                {searching ? " matching" : ""} — sorted by most recent visit
+                {filtering ? (
+                  <>
+                    {" "}
+                    · <span className="font-medium text-[#0d5c2e]">{activeFilter.label}</span>
+                  </>
+                ) : null}
+                {searching ? " (search)" : ""} — {sortHint}
               </p>
             ) : null}
 
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
               <table className="w-full min-w-[720px] border-collapse text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50/95">
                   <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -339,7 +418,7 @@ export default function DoctorPatientsPage() {
         )}
 
         {showPagination ? (
-          <div className="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-center text-sm text-slate-600 sm:text-left">
               Page {page} of {totalPages}
               {rangeLabel ? (
@@ -370,20 +449,15 @@ export default function DoctorPatientsPage() {
           </div>
         ) : null}
 
-        {!loading && totalCount > 0 && (
-          <p className="mt-4 text-center text-xs text-slate-500">
-            {searching ? (
-              <>
-                {totalCount} match{totalCount === 1 ? "" : "es"}
-                {totalPages > 1 ? " — use Previous / Next to see more" : ""}
-              </>
-            ) : (
-              `${totalCount} patient${totalCount === 1 ? "" : "s"} — use search to narrow the list`
-            )}
-          </p>
-        )}
-
-        <div className="mt-4 flex justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {!loading && totalCount > 0 ? (
+            <p className="text-xs text-slate-500">
+              {totalCount} patient{totalCount === 1 ? "" : "s"}
+              {filtering || searching ? " in this view" : ""}
+            </p>
+          ) : (
+            <span />
+          )}
           <button
             type="button"
             onClick={() => void load()}
