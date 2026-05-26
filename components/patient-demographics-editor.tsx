@@ -145,7 +145,7 @@ export function PatientDemographicsEditor({
           <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
             {formatDemographicsDate(patient.last_seen)}
           </p>
-          <p className="mt-0.5 text-[10px] text-slate-500">Last visit or appointment</p>
+          <p className="mt-0.5 text-[10px] text-slate-500">Last completed visit</p>
         </div>
       </div>
 
