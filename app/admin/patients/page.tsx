@@ -245,6 +245,10 @@ export default function AdminPatientsPage() {
       setAddError("Enter a valid phone number.");
       return;
     }
+    if (!addDob.trim()) {
+      setAddError("Date of birth is required so we can avoid duplicate patient records.");
+      return;
+    }
     if (addEmergPhone && !isValidPhoneNumber(addEmergPhone)) {
       setAddError("Emergency contact phone doesn’t look valid. Clear it or enter a full number.");
       return;
@@ -257,7 +261,7 @@ export default function AdminPatientsPage() {
         phone: addPhone,
         email: addEmail.trim(),
       };
-      if (addDob.trim()) payload.date_of_birth = addDob.trim();
+      payload.date_of_birth = addDob.trim();
       if (addAddress1.trim()) payload.address_line1 = addAddress1.trim();
       if (addAddress2.trim()) payload.address_line2 = addAddress2.trim();
       if (addCityStateZip.trim()) payload.city_state_zip = addCityStateZip.trim();
@@ -631,6 +635,22 @@ export default function AdminPatientsPage() {
 
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Date of birth <span className="text-rose-600">*</span>
+                </span>
+                <input
+                  type="date"
+                  className={`${inputClass} max-w-xs`}
+                  value={addDob}
+                  onChange={(e) => setAddDob(e.target.value)}
+                  required
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Used with name and phone to block duplicate profiles.
+                </p>
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">
                   Email <span className="font-normal text-slate-400">· optional</span>
                 </span>
                 <input
@@ -650,7 +670,7 @@ export default function AdminPatientsPage() {
                   aria-expanded={addShowExtras}
                   onClick={() => setAddShowExtras((v) => !v)}
                 >
-                  <span>Optional: address, date of birth, emergency contact</span>
+                  <span>Optional: address, emergency contact</span>
                   <span className={cn("text-slate-400 transition", addShowExtras && "rotate-180")} aria-hidden>
                     ▼
                   </span>
@@ -658,16 +678,6 @@ export default function AdminPatientsPage() {
 
                 {addShowExtras ? (
                   <div className="mt-3 space-y-4 border-t border-slate-100 pt-4">
-                    <label className="block">
-                      <span className="mb-1.5 block text-sm font-medium text-slate-700">Date of birth</span>
-                      <input
-                        type="date"
-                        className={`${inputClass} max-w-xs`}
-                        value={addDob}
-                        onChange={(e) => setAddDob(e.target.value)}
-                      />
-                    </label>
-
                     <div>
                       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Home address</p>
                       <div className="grid gap-3 sm:grid-cols-2">
