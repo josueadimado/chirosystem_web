@@ -3,11 +3,13 @@
 import { DoctorPageIntro } from "@/components/doctor-shell";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { formatMonthDayYear } from "@/lib/format-date";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-/** Matches `PatientSerializer` — each item in `GET /patients/` `results` */
+/** Matches `PatientListSerializer` on `GET /patients/` */
 type PatientApi = {
   id: number;
   first_name: string;
@@ -15,9 +17,13 @@ type PatientApi = {
   phone: string;
   email?: string;
   date_of_birth: string | null;
+  visit_count: number;
+  last_visit: string | null;
+  last_service: string | null;
+  next_appointment_date: string | null;
+  next_appointment_time: string | null;
 };
 
-/** DRF paginated list (`page` + `page_size` query params) */
 type PaginatedPatients = {
   count: number;
   next: string | null;
@@ -27,11 +33,59 @@ type PaginatedPatients = {
 
 const PAGE_SIZE = 25;
 
-function fullName(p: PatientApi): string {
-  return `${p.first_name || ""} ${p.last_name || ""}`.trim() || "Patient";
+function patientDirectoryName(p: PatientApi): { last: string; first: string } {
+  const last = (p.last_name || "").trim() || "—";
+  const first = (p.first_name || "").trim() || "—";
+  return { last, first };
+}
+
+function patientInitials(p: PatientApi): string {
+  const { last, first } = patientDirectoryName(p);
+  const a = first.charAt(0);
+  const b = last.charAt(0);
+  const s = `${a}${b}`.trim().toUpperCase();
+  return s || "?";
+}
+
+function formatPhoneCompact(raw: string): string | null {
+  const digits = (raw || "").replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  const t = (raw || "").trim();
+  return t || null;
+}
+
+function lastVisitLabel(p: PatientApi): string {
+  if (p.last_visit == null || String(p.last_visit).trim() === "") return "No visit yet";
+  return formatMonthDayYear(p.last_visit);
+}
+
+function formatApiTime12h(raw: string | null | undefined): string | null {
+  if (raw == null || String(raw).trim() === "") return null;
+  const s = String(raw).trim();
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+  if (!m) return s;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? "PM" : "AM";
+  if (h === 0) h = 12;
+  else if (h > 12) h -= 12;
+  return `${h}:${min} ${ampm}`;
+}
+
+function nextAppointmentLabel(p: PatientApi): string | null {
+  if (!p.next_appointment_date) return null;
+  const date = formatMonthDayYear(p.next_appointment_date);
+  const time = formatApiTime12h(p.next_appointment_time);
+  return time ? `${date} · ${time}` : date;
 }
 
 export default function DoctorPatientsPage() {
+  const router = useRouter();
   const [patients, setPatients] = useState<PatientApi[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -45,7 +99,6 @@ export default function DoctorPatientsPage() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  // New search → start from page 1 (server filters + paginates)
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch]);
@@ -96,7 +149,7 @@ export default function DoctorPatientsPage() {
       <DoctorPageIntro
         eyebrow="Directory"
         title="Patients"
-        description="Search anyone in the clinic by name or phone and open their full medical record."
+        description="Search the clinic directory. See visit history at a glance and open a chart or appointment history."
       />
 
       {error ? (
@@ -130,31 +183,159 @@ export default function DoctorPatientsPage() {
               : "No patients found matching your search."}
           </p>
         ) : (
-          <ul className="mt-6 divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-            {patients.map((p) => (
-              <li key={p.id}>
-                <Link
-                  href={`/doctor/patients/${p.id}/record`}
-                  className="flex flex-col gap-1 px-4 py-4 transition hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="font-semibold text-slate-900">{fullName(p)}</p>
-                    <p className="text-sm text-slate-600">{p.phone || "—"}</p>
-                  </div>
-                  <div className="text-sm text-slate-500 sm:text-right">
-                    {p.date_of_birth ? (
-                      <>
-                        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">DOB </span>
-                        {formatMonthDayYear(p.date_of_birth)}
-                      </>
-                    ) : (
-                      <span className="text-slate-400">DOB not on file</span>
-                    )}
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <>
+            {rangeLabel ? (
+              <p className="mt-4 text-sm text-slate-600">
+                Showing <span className="tabular-nums font-medium text-slate-800">{rangeLabel}</span> of{" "}
+                <span className="tabular-nums">{totalCount}</span>
+                {searching ? " matching" : ""} — sorted by most recent visit
+              </p>
+            ) : null}
+
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50/95">
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3 pl-4">Patient</th>
+                    <th className="px-3 py-3">Last visit</th>
+                    <th className="px-3 py-3 text-center">Visits</th>
+                    <th className="hidden px-3 py-3 md:table-cell">Last service</th>
+                    <th className="hidden px-3 py-3 lg:table-cell">Next appointment</th>
+                    <th className="px-3 py-3 pr-4 text-right">Open</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {patients.map((p) => {
+                    const { last, first } = patientDirectoryName(p);
+                    const phoneLine = formatPhoneCompact(p.phone);
+                    const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
+                    const nextAppt = nextAppointmentLabel(p);
+                    const service = (p.last_service || "").trim();
+                    const recordHref = `/doctor/patients/${p.id}/record`;
+                    const historyHref = `/doctor/patients/${p.id}/history`;
+
+                    return (
+                      <tr
+                        key={p.id}
+                        tabIndex={0}
+                        className={cn(
+                          "group cursor-pointer border-t border-slate-100 transition hover:bg-emerald-50/40",
+                          "focus-visible:bg-emerald-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#16a349]",
+                        )}
+                        onClick={() => router.push(recordHref)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            router.push(recordHref);
+                          }
+                        }}
+                        aria-label={`Open chart for ${last}, ${first}`}
+                      >
+                        <td className="px-4 py-3.5 pl-4 align-middle">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] text-[11px] font-bold uppercase tracking-[0.08em] text-[#065f46] ring-1 ring-[#16a349]/15"
+                              aria-hidden
+                            >
+                              {patientInitials(p)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="leading-snug text-slate-900">
+                                <span className="font-semibold tracking-tight">{last}</span>
+                                <span className="font-normal text-slate-400">, </span>
+                                <span className="font-medium text-slate-700">{first}</span>
+                              </p>
+                              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+                                <span className="font-mono tabular-nums text-slate-400">
+                                  PT-{String(p.id).padStart(4, "0")}
+                                </span>
+                                {phoneLine ? (
+                                  <>
+                                    <span className="text-slate-300" aria-hidden>
+                                      ·
+                                    </span>
+                                    <span className="tabular-nums">{phoneLine}</span>
+                                  </>
+                                ) : null}
+                                {p.date_of_birth ? (
+                                  <>
+                                    <span className="text-slate-300" aria-hidden>
+                                      ·
+                                    </span>
+                                    <span>DOB {formatMonthDayYear(p.date_of_birth)}</span>
+                                  </>
+                                ) : null}
+                              </p>
+                              {nextAppt ? (
+                                <p className="mt-1 text-xs font-medium text-[#047857] lg:hidden">
+                                  Next: {nextAppt}
+                                </p>
+                              ) : null}
+                              {service ? (
+                                <p className="mt-0.5 truncate text-xs text-slate-500 md:hidden">
+                                  {service}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3.5 align-middle text-slate-700">
+                          <span
+                            className={cn(
+                              "tabular-nums",
+                              !p.last_visit && "italic text-slate-500",
+                            )}
+                          >
+                            {lastVisitLabel(p)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3.5 align-middle text-center">
+                          <span
+                            className={cn(
+                              "inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 text-sm font-semibold tabular-nums",
+                              visits > 0
+                                ? "bg-slate-100 text-slate-800"
+                                : "bg-slate-50 text-slate-400",
+                            )}
+                          >
+                            {visits}
+                          </span>
+                        </td>
+                        <td className="hidden max-w-[12rem] truncate px-3 py-3.5 align-middle text-slate-600 md:table-cell">
+                          {service || <span className="text-slate-400">—</span>}
+                        </td>
+                        <td className="hidden px-3 py-3.5 align-middle lg:table-cell">
+                          {nextAppt ? (
+                            <span className="text-sm font-medium text-[#047857]">{nextAppt}</span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3.5 pr-4 align-middle text-right">
+                          <div className="flex flex-col items-end gap-1 sm:flex-row sm:justify-end sm:gap-3">
+                            <Link
+                              href={recordHref}
+                              className="text-xs font-semibold text-[#16a349] underline-offset-2 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Chart
+                            </Link>
+                            <Link
+                              href={historyHref}
+                              className="text-xs font-semibold text-slate-600 underline-offset-2 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              History
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         {showPagination ? (
@@ -197,7 +378,7 @@ export default function DoctorPatientsPage() {
                 {totalPages > 1 ? " — use Previous / Next to see more" : ""}
               </>
             ) : (
-              `${totalCount} patient${totalCount === 1 ? "" : "s"} — use search to narrow`
+              `${totalCount} patient${totalCount === 1 ? "" : "s"} — use search to narrow the list`
             )}
           </p>
         )}

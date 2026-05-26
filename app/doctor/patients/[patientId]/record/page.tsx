@@ -2,9 +2,11 @@
 
 import { ChartNoteReaderPanel } from "@/components/chart-note-document";
 import { Loader } from "@/components/loader";
+import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { appointmentStatusPillClass } from "@/components/status-chip";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth } from "@/lib/api";
+import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import {
   formatMonthDayYear,
   formatNowMonthDayYearTime,
@@ -14,7 +16,7 @@ import {
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { flushSync } from "react-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 // --- Types aligned with `GET /doctor/patient_detail/?patient_id=` (same as patient chart modal) ---
 
@@ -48,6 +50,7 @@ type AppointmentHistoryRow = {
   clinical_handoff_notes: string;
   visit: VisitHistory | null;
   invoice: {
+    id: number;
     invoice_number: string;
     subtotal: string;
     discount: string;
@@ -123,6 +126,9 @@ export default function DoctorPatientRecordPage() {
   const [printGeneratedAt, setPrintGeneratedAt] = useState("");
   const [printStart, setPrintStart] = useState("");
   const [printEnd, setPrintEnd] = useState("");
+  const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+  const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
+  const [billLoadError, setBillLoadError] = useState("");
 
   /* eslint-disable react-hooks/set-state-in-effect -- load chart when patient id changes */
   useEffect(() => {
@@ -188,6 +194,25 @@ export default function DoctorPatientRecordPage() {
     });
     window.print();
   };
+
+  const openBillPreview = useCallback(async (invoiceId: number, invoiceStatus: string) => {
+    setBillLoadError("");
+    setPrintingInvoiceId(invoiceId);
+    try {
+      const preview = invoiceStatus !== "paid";
+      const q = `invoice_id=${invoiceId}${preview ? "&preview=1" : ""}`;
+      const bill = await apiGetAuth<PatientBillPayload>(`/doctor/invoice_bill/?${q}`, {
+        timeoutMs: 30_000,
+      });
+      setPatientBillModal(bill);
+    } catch (e) {
+      setBillLoadError(e instanceof ApiError ? e.message : "Could not load bill for preview.");
+    } finally {
+      setPrintingInvoiceId(null);
+    }
+  }, []);
+
+  const billVisitCount = detail?.appointments.filter((a) => a.invoice?.id).length ?? 0;
 
   if (!Number.isFinite(id) || id <= 0) {
     return <div className="p-6 text-sm text-rose-700">Invalid patient id.</div>;
@@ -435,14 +460,25 @@ export default function DoctorPatientRecordPage() {
             <p className="mt-2 text-sm font-medium text-slate-500">
               Patient ID <span className="font-semibold text-slate-700">#{detail.id}</span>
             </p>
+            <Link
+              href={`/doctor/patients/${detail.id}/history`}
+              className="mt-3 inline-flex rounded-xl border border-[#16a349]/40 bg-[#ecfdf5] px-4 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-[#d1fae5]"
+            >
+              Bill history — preview &amp; print all visits
+              {billVisitCount > 0 ? ` (${billVisitCount})` : ""}
+            </Link>
           </div>
         </div>
+
+        {billLoadError ? (
+          <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{billLoadError}</p>
+        ) : null}
 
         {/* Visit history — opens detail in a side drawer (no inline expansion). */}
         <section className="space-y-3">
           <h2 className="text-lg font-bold tracking-tight text-slate-900">Visit history</h2>
           <p className="text-sm text-slate-600">
-            All appointments, most recent first. Select a row to read chart and handoff notes in the panel on the right.
+            All appointments, most recent first. Select a row for chart notes and to preview or print that visit&apos;s patient bill.
           </p>
 
           {visitsNewestFirst.length === 0 ? (
@@ -533,6 +569,26 @@ export default function DoctorPatientRecordPage() {
                 </span>
               </div>
               <p className="mt-4 text-sm font-semibold text-slate-900">{pricePaidLabel(selectedVisit.invoice)}</p>
+              {selectedVisit.invoice?.id ? (
+                <button
+                  type="button"
+                  disabled={printingInvoiceId === selectedVisit.invoice.id}
+                  onClick={() =>
+                    void openBillPreview(selectedVisit.invoice!.id, selectedVisit.invoice!.status)
+                  }
+                  className="mt-3 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
+                >
+                  {printingInvoiceId === selectedVisit.invoice.id
+                    ? "Opening bill…"
+                    : selectedVisit.invoice.status === "paid"
+                      ? "Preview / reprint bill"
+                      : "Preview bill"}
+                </button>
+              ) : (
+                <p className="mt-3 text-xs text-slate-500">
+                  No printable bill for this visit yet (billing may still be in progress).
+                </p>
+              )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -569,6 +625,8 @@ export default function DoctorPatientRecordPage() {
           </SheetContent>
         ) : null}
       </Sheet>
+
+      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
 
       {/* Print-only layout — hidden until print; demographics + date-filtered visit narrative */}
       <div id="patient-file-print-root" className="hidden">
