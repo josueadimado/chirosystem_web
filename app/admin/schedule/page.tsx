@@ -25,17 +25,20 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import {
   addDays,
+  apiTimeToTimeInputValue,
   endOfMonth,
   filterAppointmentsForScheduleGrid,
   minutesToApiTime,
+  minutesToTimeInputValue,
   mondayOfWeekContaining,
   parseTimeToMinutes,
   providerColorForId,
+  SCHEDULE_DESK_DAY_END_MIN,
   startOfMonth,
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
-import { formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { estimatedPriceFromSnapshot, type VisitSnapshot } from "@/lib/visit-panel-types";
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -159,6 +162,8 @@ function AdminSchedulePageContent() {
   const [checkingIn, setCheckingIn] = useState(false);
   const [savingDesk, setSavingDesk] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
+  const [showAdjustDuration, setShowAdjustDuration] = useState(false);
+  const [adjustEndTime, setAdjustEndTime] = useState("");
   const [waiveLateCancelFee, setWaiveLateCancelFee] = useState(false);
   const [resDate, setResDate] = useState("");
   const [resTime, setResTime] = useState("09:00");
@@ -207,7 +212,7 @@ function AdminSchedulePageContent() {
     return `Showing: ${provLabel} · ${statusLabel}`;
   }, [providerFilter, statusFilter, providers]);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = clinicTodayIso();
 
   const bookNext = useBookNextVisit({
     todayMinIso: todayStr,
@@ -378,14 +383,23 @@ function AdminSchedulePageContent() {
 
   useEffect(() => {
     setShowReschedule(false);
+    setShowAdjustDuration(false);
     setWaiveLateCancelFee(false);
     if (selected) {
       setResDate(selected.appointment_date);
       const raw = selected.start_time;
       setResTime(raw.length >= 5 ? raw.slice(0, 5) : "09:00");
       setResProviderId(String(selected.provider));
+      setAdjustEndTime(apiTimeToTimeInputValue(selected.end_time));
     }
   }, [selected?.id]);
+
+  const adjustDurationPreviewMin = useMemo(() => {
+    if (!selected) return 15;
+    const startMin = parseTimeToMinutes(selected.start_time);
+    const endMin = parseTimeToMinutes(adjustEndTime || selected.end_time);
+    return Math.max(15, endMin - startMin);
+  }, [selected, adjustEndTime]);
 
   const handleCheckIn = async () => {
     if (!selected) return;
@@ -458,6 +472,33 @@ function AdminSchedulePageContent() {
       }
     );
     if (saved) setShowReschedule(false);
+  };
+
+  const applyDurationDelta = (delta: number) => {
+    if (!selected) return;
+    const startMin = parseTimeToMinutes(selected.start_time);
+    const endMin = parseTimeToMinutes(adjustEndTime || selected.end_time);
+    const newEnd = Math.max(startMin + 15, endMin + delta);
+    const capped = Math.min(newEnd, SCHEDULE_DESK_DAY_END_MIN);
+    setAdjustEndTime(minutesToTimeInputValue(capped));
+  };
+
+  const submitAdjustDuration = async () => {
+    if (!selected || !adjustEndTime) return;
+    const endApi = adjustEndTime.length === 5 ? `${adjustEndTime}:00` : adjustEndTime;
+    let saved = false;
+    await runWithFeedback(
+      async () => {
+        await patchAppointment(selected.id, { end_time: endApi });
+        saved = true;
+      },
+      {
+        loadingMessage: "Updating duration…",
+        successMessage: "Visit duration updated on the calendar.",
+        errorFallback: "Could not update duration — check for conflicts or booking hours.",
+      },
+    );
+    if (saved) setShowAdjustDuration(false);
   };
 
   const handleRescheduleFromGrid = async (pick: {
@@ -777,6 +818,17 @@ function AdminSchedulePageContent() {
                     onTimeChange: setResTime,
                     onProviderChange: setResProviderId,
                     onSave: () => void submitReschedule(),
+                  }}
+                  adjustDuration={{
+                    open: showAdjustDuration,
+                    startTimeDisplay:
+                      selected.start_time_display || formatTime(selected.start_time),
+                    currentDurationMin: adjustDurationPreviewMin,
+                    endTime: adjustEndTime,
+                    onToggle: () => setShowAdjustDuration((v) => !v),
+                    onEndTimeChange: setAdjustEndTime,
+                    onAddMinutes: applyDurationDelta,
+                    onSave: () => void submitAdjustDuration(),
                   }}
                   billing={
                     selected.status === "awaiting_payment"

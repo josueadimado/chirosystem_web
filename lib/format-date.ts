@@ -2,6 +2,16 @@
 
 const LOCALE = "en-US";
 
+/** IANA timezone for the clinic (Michigan). Override via NEXT_PUBLIC_CLINIC_TIMEZONE in web .env. */
+export const CLINIC_TIMEZONE =
+  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_CLINIC_TIMEZONE?.trim()) ||
+  "America/Detroit";
+
+/** Today's date at the clinic as YYYY-MM-DD (not UTC / not the developer's browser TZ). */
+export function clinicTodayIso(timeZone: string = CLINIC_TIMEZONE): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone });
+}
+
 const MONTH_DAY_YEAR: Intl.DateTimeFormatOptions = {
   month: "long",
   day: "numeric",

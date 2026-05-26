@@ -24,7 +24,7 @@ import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-check
 import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
-import { formatMonthDayYear } from "@/lib/format-date";
+import { clinicTodayIso, formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -120,7 +120,7 @@ type PaymentFollowUp = {
 
 export default function DoctorDashboardPage() {
   const { runWithFeedback, toast } = useAppFeedback();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = clinicTodayIso();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [services, setServices] = useState<ServiceOpt[]>([]);
   const [loading, setLoading] = useState(true);

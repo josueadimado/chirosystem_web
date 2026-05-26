@@ -26,6 +26,8 @@ export type PatientBillPayload = {
   address_line1: string;
   city_state_zip: string;
   phone: string;
+  /** Clinic-wide or per-doctor billing provider ID (e.g. NPI) — shown on every bill. */
+  provider_billing_id?: string;
   /** Printed next to provider block when set in Admin → Settings. */
   employer_tax_id?: string;
   email?: string;
@@ -190,6 +192,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
       ? `${esc(b.patient_name)} #${b.patient_id}`
       : esc(b.patient_name);
 
+  const providerBillingId = (b.provider_billing_id || b.employer_tax_id || "").trim();
   const employerId = (b.employer_tax_id || "").trim();
   const discountAmt = parseFloat((b.discount || "0").replace(/,/g, "")) || 0;
 
@@ -214,9 +217,15 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
       ? `<section class="prov">
     <h2 class="sec-title">Provider</h2>
     <p class="prov-line"><strong>Provider:</strong> ${esc(b.provider_name!)}${providerCred} — ${esc(clinicStreetCity)}</p>
+    <p class="prov-line"><strong>Provider ID:</strong> ${providerBillingId ? esc(providerBillingId) : "—"}</p>
     <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${employerId ? esc(employerId) : "—"}</p>
   </section>`
-      : "";
+      : providerBillingId
+        ? `<section class="prov">
+    <h2 class="sec-title">Provider</h2>
+    <p class="prov-line"><strong>Provider ID:</strong> ${esc(providerBillingId)}</p>
+  </section>`
+        : "";
 
   const chargesTitle = esc(`Charges for Bill #${b.invoice_number}`);
   const totalsTitle = esc(`Bill #${b.invoice_number} Totals`);
@@ -385,6 +394,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
 
   <div class="meta-lines">
     <p><span class="lbl">Billing Date:</span> ${esc(billingDate)}</p>
+    <p><span class="lbl">Provider ID:</span> ${providerBillingId ? esc(providerBillingId) : "—"}</p>
     <p><span class="lbl">Patient:</span> ${patientLine}</p>
     <p><span class="lbl">Address:</span> ${esc(patientAddressForPrint)}</p>
   </div>

@@ -16,7 +16,9 @@ type ClinicProfile = {
   city_state_zip: string;
   phone: string;
   email: string;
-  /** EIN / office ID printed on patient bills (optional). */
+  /** Billing provider ID printed on all patient bills (e.g. NPI). */
+  provider_billing_id: string;
+  /** EIN / office employer ID on bills (optional, separate from Provider ID). */
   employer_tax_id: string;
   pos_default: string;
   /** USD amount charged on no-show (0 = no fee / no auto-invoice). */
@@ -48,6 +50,7 @@ function emptyProfile(): ClinicProfile {
     city_state_zip: "",
     phone: "",
     email: "",
+    provider_billing_id: "",
     employer_tax_id: "",
     pos_default: "11",
     no_show_fee: "25.00",
@@ -80,6 +83,7 @@ export default function AdminSettingsPage() {
         city_state_zip: data.city_state_zip ?? "",
         phone: data.phone ?? "",
         email: data.email ?? "",
+        provider_billing_id: data.provider_billing_id ?? "",
         employer_tax_id: data.employer_tax_id ?? "",
         pos_default: data.pos_default ?? "11",
         no_show_fee: data.no_show_fee ?? "25.00",
@@ -172,6 +176,7 @@ export default function AdminSettingsPage() {
           city_state_zip: draft.city_state_zip,
           phone: draft.phone,
           email: draft.email,
+          provider_billing_id: draft.provider_billing_id,
           employer_tax_id: draft.employer_tax_id,
           pos_default: draft.pos_default,
           no_show_fee: draft.no_show_fee,
@@ -183,6 +188,7 @@ export default function AdminSettingsPage() {
           city_state_zip: updated.city_state_zip ?? "",
           phone: updated.phone ?? "",
           email: updated.email ?? "",
+          provider_billing_id: updated.provider_billing_id ?? "",
           employer_tax_id: updated.employer_tax_id ?? "",
           pos_default: updated.pos_default ?? "11",
           no_show_fee: updated.no_show_fee ?? "25.00",
@@ -263,6 +269,22 @@ export default function AdminSettingsPage() {
                   onChange={(e) => updateField("email", e.target.value)}
                   disabled={!canSave}
                   placeholder="optional"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Provider ID (on all bills)
+                  <HelpTip label="Provider ID">
+                    Billing provider identifier printed on every patient bill (e.g. NPI like 453798678). Required for insurance-style statements.
+                  </HelpTip>
+                </label>
+                <input
+                  className="admin-input w-full max-w-[14rem] py-2.5 text-sm font-mono"
+                  value={draft.provider_billing_id}
+                  onChange={(e) => updateField("provider_billing_id", e.target.value)}
+                  disabled={!canSave}
+                  placeholder="e.g. 453798678"
+                  autoComplete="off"
                 />
               </div>
               <div>

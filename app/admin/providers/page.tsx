@@ -26,6 +26,7 @@ type Provider = {
   localDisplayName?: string;
   title: string;
   credential: string;
+  billing_provider_id?: string;
   specialty: string;
   active: boolean;
   notification_phone: string;
@@ -139,6 +140,7 @@ export default function AdminProvidersPage() {
           services: provider.services,
           notification_phone: provider.notification_phone?.trim() ?? "",
           credential: provider.credential?.trim() ?? "",
+          billing_provider_id: provider.billing_provider_id?.trim() ?? "",
           display_name: displayNameFor(provider).trim(),
         });
         await load("refresh");
@@ -558,6 +560,29 @@ export default function AdminProvidersPage() {
                         placeholder="e.g. DC"
                         className="admin-input py-2.5 text-sm"
                         aria-label={`Credential for ${editorProvider.provider_name}`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Provider ID (on bills)
+                        <HelpTip label="Provider ID">
+                          Optional. Overrides the clinic-wide Provider ID from Settings for this doctor&apos;s bills only (e.g. NPI).
+                        </HelpTip>
+                      </label>
+                      <input
+                        type="text"
+                        value={editorProvider.billing_provider_id ?? ""}
+                        onChange={(e) =>
+                          setProviders((prev) =>
+                            prev.map((p) =>
+                              p.id === editorProvider.id ? { ...p, billing_provider_id: e.target.value } : p,
+                            ),
+                          )
+                        }
+                        placeholder="Leave blank to use clinic default"
+                        className="admin-input max-w-[14rem] py-2.5 font-mono text-sm"
+                        aria-label={`Provider ID for ${editorProvider.provider_name}`}
                       />
                     </div>
 

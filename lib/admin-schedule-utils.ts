@@ -206,6 +206,19 @@ export function minutesToApiTime(totalMin: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
 }
 
+/** Value for HTML `<input type="time">` from minutes since midnight. */
+export function minutesToTimeInputValue(totalMin: number): string {
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** HH:MM for `<input type="time">` from API time strings. */
+export function apiTimeToTimeInputValue(t: string): string {
+  const m = parseTimeToMinutes(t);
+  return minutesToTimeInputValue(m);
+}
+
 /** Visits that can be dragged on the desk day grid (same rules as drawer reschedule). */
 export function canDragAppointmentOnSchedule(status: string): boolean {
   return status !== "completed" && status !== "cancelled" && status !== "no_show";

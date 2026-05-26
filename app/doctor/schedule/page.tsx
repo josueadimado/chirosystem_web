@@ -32,7 +32,7 @@ import { ChartNoteWorkspace } from "@/components/chart-note-document";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
-import { formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
@@ -142,7 +142,7 @@ function DoctorSchedulePageInner() {
   const navSigRef = useRef<{ view: ScheduleViewMode; focusMs: number } | null>(null);
   const openedFromUrlRef = useRef<number | null>(null);
   const pendingAppointmentIdRef = useRef<number | null>(null);
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = clinicTodayIso();
 
   const bookNext = useBookNextVisit({
     todayMinIso: todayStr,

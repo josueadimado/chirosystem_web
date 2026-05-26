@@ -24,6 +24,17 @@ type RescheduleState = {
   onSave: () => void;
 };
 
+type AdjustDurationState = {
+  open: boolean;
+  startTimeDisplay: string;
+  currentDurationMin: number;
+  endTime: string;
+  onToggle: () => void;
+  onEndTimeChange: (v: string) => void;
+  onAddMinutes: (delta: number) => void;
+  onSave: () => void;
+};
+
 type BillingActionsState = {
   invoiceId: number | null;
   hintLoading: boolean;
@@ -46,6 +57,7 @@ export function VisitDeskActions({
   canNoShowOrCancel,
   canMarkCompleted,
   reschedule,
+  adjustDuration,
   billing,
   onCheckIn,
   onNoShow,
@@ -64,6 +76,7 @@ export function VisitDeskActions({
   canNoShowOrCancel: (status: string) => boolean;
   canMarkCompleted: (status: string) => boolean;
   reschedule: RescheduleState;
+  adjustDuration?: AdjustDurationState;
   billing?: BillingActionsState;
   onCheckIn: () => void;
   onNoShow: () => void;
@@ -152,6 +165,75 @@ export function VisitDeskActions({
             Records arrival for this appointment (same API as the kiosk). The assigned doctor may get an SMS if their alert number is
             set under Providers.
           </HelpTip>
+        </div>
+      ) : null}
+
+      {canReschedule(appointment.status) && adjustDuration ? (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={adjustDuration.onToggle}
+            disabled={savingDesk}
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {adjustDuration.open ? "Hide duration" : "Adjust duration"}
+          </button>
+          {adjustDuration.open ? (
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+              <p className="text-xs text-slate-600">
+                Start stays at <span className="font-semibold text-slate-800">{adjustDuration.startTimeDisplay}</span>.
+                Current block:{" "}
+                <span className="font-semibold text-slate-800">{adjustDuration.currentDurationMin} min</span>.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={savingDesk || adjustDuration.currentDurationMin <= 15}
+                  onClick={() => adjustDuration.onAddMinutes(-15)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  −15 min
+                </button>
+                <button
+                  type="button"
+                  disabled={savingDesk}
+                  onClick={() => adjustDuration.onAddMinutes(15)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  +15 min
+                </button>
+                <button
+                  type="button"
+                  disabled={savingDesk}
+                  onClick={() => adjustDuration.onAddMinutes(30)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  +30 min
+                </button>
+              </div>
+              <label className="block text-xs font-semibold text-slate-600">
+                End time
+                <input
+                  type="time"
+                  value={adjustDuration.endTime}
+                  onChange={(e) => adjustDuration.onEndTimeChange(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={savingDesk || !adjustDuration.endTime}
+                onClick={adjustDuration.onSave}
+                className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {savingDesk ? "Saving…" : "Save duration"}
+              </button>
+              <p className="text-[11px] text-slate-500">
+                Use this when a visit needs more or less time than the booked service length. The calendar block updates;
+                the server blocks double-booking and provider time-off.
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
