@@ -18,7 +18,6 @@ import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-heade
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useAppFeedback } from "@/components/app-feedback";
-import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -199,18 +198,6 @@ function AdminSchedulePageContent() {
     providerFilter: string;
     statusFilter: string;
   } | null>(null);
-
-  const filterSummaryLabel = useMemo(() => {
-    const provLabel =
-      providerFilter === ""
-        ? "All providers"
-        : providers.find((p) => String(p.id) === providerFilter)?.provider_name ?? "Selected provider";
-    const statusLabel =
-      statusFilter === ""
-        ? "Active on calendar"
-        : STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter;
-    return `Showing: ${provLabel} · ${statusLabel}`;
-  }, [providerFilter, statusFilter, providers]);
 
   const todayStr = clinicTodayIso();
 
@@ -603,115 +590,105 @@ function AdminSchedulePageContent() {
         description="See who is coming in, filter by doctor or status, and check patients in from the front desk when they arrive."
         pageHelp={
           <>
-            Use <strong>Day</strong> for the front-desk time grid (open gaps through 9:00 PM for staff) — click an open strip to book a patient.{" "}
-            <strong>Week</strong> for Mon–Fri overview, <strong>Month</strong> for counts at a glance. Filters reload appointments from the
-            server. <strong>Check In</strong> marks arrival like the kiosk.
+            <strong>Day</strong> — time grid; click open white space to book (staff hours through 9:00 PM). Gray stripes = online-only blocks.{" "}
+            <strong>Week</strong> — Mon–Fri overview. <strong>Month</strong> — counts; click a day for Day view. Provider and status filters reload
+            from the server. <strong>Active on calendar</strong> hides cancelled/no-show so those slots look open. Click a visit for check-in,
+            reschedule, and billing.
           </>
         }
       />
       <section className="admin-panel w-full max-w-none">
-        <div className="sticky top-0 z-10 mb-4 space-y-3 rounded-xl border border-slate-200/90 bg-white/95 px-3 py-3 shadow-sm ring-1 ring-slate-100/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-slate-600">View</span>
-              <HelpTip label="Calendar views">
-                Day shows a time grid by provider — click any open strip to book (staff may run past public closing, through 9:00 PM). Week shows Monday–Friday with
-                overlapping visits stacked. Month shows appointment counts; click a day to open it in Day view.
-              </HelpTip>
-              <button
-                type="button"
-                onClick={() => setView("day")}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  view === "day"
-                    ? "bg-[#16a349] text-white shadow-sm"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                Day
-              </button>
-              <button
-                type="button"
-                onClick={() => setView("week")}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  view === "week"
-                    ? "bg-[#16a349] text-white shadow-sm"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                Week
-              </button>
-              <button
-                type="button"
-                onClick={() => setView("month")}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  view === "month"
-                    ? "bg-[#16a349] text-white shadow-sm"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                Month
-              </button>
+        <div className="sticky top-0 z-10 mb-4 rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-sm ring-1 ring-slate-100/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div
+              className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5"
+              role="tablist"
+              aria-label="Calendar view"
+            >
+              {(["day", "week", "month"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === mode}
+                  onClick={() => setView(mode)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition ${
+                    view === mode
+                      ? "bg-[#16a349] text-white shadow-sm"
+                      : "text-slate-600 hover:bg-white/80 hover:text-slate-900"
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+
+            <div className="inline-flex min-w-0 items-center rounded-lg border border-slate-200 bg-white shadow-sm">
               <button
                 type="button"
                 aria-label="Previous period"
                 onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
-                className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
+                className="rounded-l-lg px-2.5 py-2 text-slate-600 hover:bg-slate-50"
               >
                 ←
               </button>
+              <span className="max-w-[min(14rem,42vw)] truncate border-x border-slate-100 px-3 py-2 text-center text-sm font-semibold text-slate-800 sm:max-w-none">
+                {schedulePeriodLabel(view, focusDate)}
+              </span>
               <button
                 type="button"
                 aria-label="Next period"
                 onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
-                className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
+                className="rounded-r-lg px-2.5 py-2 text-slate-600 hover:bg-slate-50"
               >
                 →
               </button>
-              <button
-                type="button"
-                onClick={() => setFocusDate(new Date())}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-              >
-                Today
-              </button>
-              <span className="text-sm font-semibold text-slate-800">{schedulePeriodLabel(view, focusDate)}</span>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-slate-500">Filters</span>
-              <HelpTip label="Filters">
-                Provider limits the list to one doctor. <strong>Active on calendar</strong> hides cancelled and no-show visits so those times
-                are open for new bookings; pick <strong>Cancelled</strong> or <strong>No-show</strong> to review them here. Cancelled visits
-                always stay on the patient&apos;s history page. Use the drawer to mark <strong>no-show</strong>, <strong>cancel</strong>, or{" "}
-                <strong>completed</strong>, or to <strong>reschedule</strong>.
-              </HelpTip>
-              <select
-                value={providerFilter}
-                onChange={(e) => setProviderFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
-              >
-                <option value="">All providers</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    {p.provider_name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
-              >
-                {STATUS_OPTIONS.map((o) => (
-                  <option key={o.value || "all"} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <p className="min-w-0 text-sm text-slate-600 sm:ml-auto sm:max-w-[min(100%,28rem)] sm:text-right">{filterSummaryLabel}</p>
+            <button
+              type="button"
+              onClick={() => setFocusDate(new Date())}
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Today
+            </button>
+
+            <span className="hidden h-8 w-px shrink-0 bg-slate-200 sm:block" aria-hidden />
+
+            <label className="sr-only" htmlFor="schedule-provider-filter">
+              Provider
+            </label>
+            <select
+              id="schedule-provider-filter"
+              value={providerFilter}
+              onChange={(e) => setProviderFilter(e.target.value)}
+              title="Filter by provider"
+              className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:max-w-[12rem] sm:flex-none"
+            >
+              <option value="">All providers</option>
+              {providers.map((p) => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.provider_name}
+                </option>
+              ))}
+            </select>
+
+            <label className="sr-only" htmlFor="schedule-status-filter">
+              Visit status
+            </label>
+            <select
+              id="schedule-status-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              title="Filter by visit status"
+              className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:max-w-[12rem] sm:flex-none"
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value || "all"} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

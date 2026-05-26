@@ -520,17 +520,18 @@ export function AdminScheduleCalendar({
     );
   }
 
-  return (
-    <div className="space-y-3">
-      <ProviderLegend providers={visibleProviders} />
+  const showDeskHint = view === "day" && !!onPickOpenSlot;
 
-      {view === "day" && onPickOpenSlot ? (
-        <p className="rounded-xl border border-[#166534]/20 bg-[#ecfdf5]/80 px-4 py-2.5 text-sm leading-relaxed text-slate-700">
-          <span className="font-semibold text-[#0d5c2e]">Staff hours:</span> this day view runs through{" "}
-          <strong>9:00 PM</strong> so you can book past online closing. Gray stripes are still online-only blocks — click any open white
-          strip to book from the desk.
+  return (
+    <div className="space-y-2">
+      {showDeskHint ? (
+        <p className="text-sm text-slate-600">
+          <span className="font-medium text-[#0d5c2e]">Desk booking:</span> click open white space on the grid. Schedule runs through{" "}
+          <strong>9:00 PM</strong> for staff.
         </p>
       ) : null}
+
+      <ScheduleCalendarGuide providers={visibleProviders} showDeskDetails={showDeskHint} />
 
       {view === "day" && (
         <DayGrid
@@ -630,31 +631,62 @@ function ScheduleGridColumnBody({
   );
 }
 
-function ProviderLegend({ providers }: { providers: ProviderRow[] }) {
+function ScheduleCalendarGuide({
+  providers,
+  showDeskDetails,
+}: {
+  providers: ProviderRow[];
+  showDeskDetails: boolean;
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-2xl border border-slate-200/90 bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-slate-100/80">
-      <span className="font-semibold text-slate-500">Providers</span>
-      {providers.map((p) => {
-        const c = providerColorForId(p.id);
-        return (
-          <span key={p.id} className="inline-flex items-center gap-1.5">
-            <span className="h-3 w-3 shrink-0 rounded-sm shadow-sm" style={{ backgroundColor: c }} />
-            <span className="font-medium text-slate-800">{p.provider_name}</span>
+    <details className="group rounded-xl border border-slate-200/90 bg-slate-50/50 text-sm ring-1 ring-slate-100/80 open:bg-white">
+      <summary className="cursor-pointer list-none px-3 py-2 font-medium text-slate-600 marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex items-center gap-2">
+          <span
+            className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-white text-xs text-slate-500 shadow-sm ring-1 ring-slate-200 transition group-open:rotate-180"
+            aria-hidden
+          >
+            ▾
           </span>
-        );
-      })}
-      <span className="inline-flex items-center gap-1.5 border-l border-slate-200 pl-4">
-        <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-rose-200 ring-1 ring-rose-300" />
-        <span className="text-slate-600">Cancelled</span>
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          className="h-2.5 w-8 shrink-0 rounded-sm ring-1 ring-slate-300"
-          style={{ backgroundImage: STRIPE_BG, backgroundColor: "#e5e7eb" }}
-        />
-        <span className="text-slate-600">Blocked</span>
-      </span>
-    </div>
+          Color key &amp; tips
+          <span className="font-normal text-slate-400">(providers, cancelled, blocked)</span>
+        </span>
+      </summary>
+      <div className="space-y-2 border-t border-slate-100 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {providers.map((p) => {
+            const c = providerColorForId(p.id);
+            return (
+              <span key={p.id} className="inline-flex items-center gap-1.5">
+                <span className="h-3 w-3 shrink-0 rounded-sm shadow-sm" style={{ backgroundColor: c }} />
+                <span className="font-medium text-slate-800">{p.provider_name}</span>
+              </span>
+            );
+          })}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-rose-200 ring-1 ring-rose-300" />
+            <span className="text-slate-600">Cancelled</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="h-2.5 w-8 shrink-0 rounded-sm ring-1 ring-slate-300"
+              style={{ backgroundImage: STRIPE_BG, backgroundColor: "#e5e7eb" }}
+            />
+            <span className="text-slate-600">Blocked (online only)</span>
+          </span>
+        </div>
+        {showDeskDetails ? (
+          <p className="text-xs leading-relaxed text-slate-500">
+            Gray stripes block online booking only — staff can still book in open white areas. Cancelled and no-show visits are hidden when
+            status is <strong>Active on calendar</strong>; use the status filter to review them.
+          </p>
+        ) : (
+          <p className="text-xs leading-relaxed text-slate-500">
+            Week and month views summarize visits. Switch to <strong>Day</strong> to book or drag appointments on the time grid.
+          </p>
+        )}
+      </div>
+    </details>
   );
 }
 
