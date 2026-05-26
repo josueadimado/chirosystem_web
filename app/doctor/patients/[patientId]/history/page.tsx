@@ -16,6 +16,7 @@ export default function DoctorPatientHistoryRoute() {
       detailPath="/doctor/patient_detail"
       handoffSavePath="/doctor/appointment_handoff/"
       backHref="/doctor/patients"
+      chartHref={`/doctor/patients/${id}/record`}
       scheduleHrefPrefix="/doctor/schedule"
       invoiceBillPath="/doctor/invoice_bill"
     />

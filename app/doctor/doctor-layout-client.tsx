@@ -84,8 +84,10 @@ function DoctorHeader({
       ? userName
         ? `${userName}'s Dashboard`
         : "My Dashboard"
+      : pathname.endsWith("/history")
+        ? "Visit history"
       : pathname.startsWith("/doctor/patients/") && pathname !== "/doctor/patients"
-        ? "Patient record"
+        ? "Patient chart"
         : PAGE_TITLES[pathname] ?? "Dashboard";
 
   const handleLogout = () => {

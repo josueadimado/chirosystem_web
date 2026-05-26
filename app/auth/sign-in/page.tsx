@@ -230,6 +230,7 @@ export default function SignInPage() {
                       autoCapitalize="off"
                       autoCorrect="off"
                       spellCheck={false}
+                      autoFocus
                       className="h-11 px-4"
                       placeholder="Clinic username or your email"
                       value={username}

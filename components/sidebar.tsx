@@ -33,6 +33,12 @@ function navIconClass(accent: "default" | "doctor" | "admin", active: boolean): 
   return "text-foreground";
 }
 
+/** Highlight parent nav when viewing nested routes (e.g. patient chart under Patients). */
+function isNavItemActive(pathname: string, href: string): boolean {
+  if (pathname === href) return true;
+  return href.length > 1 && pathname.startsWith(`${href}/`);
+}
+
 function NavLink({
   item,
   pathname,
@@ -46,7 +52,7 @@ function NavLink({
   accent: "default" | "doctor" | "admin";
   onNavigate?: () => void;
 }) {
-  const active = pathname === item.href;
+  const active = isNavItemActive(pathname, item.href);
   return (
     <Link
       href={item.href}

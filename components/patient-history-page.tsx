@@ -303,6 +303,7 @@ export function PatientHistoryPage({
   detailPath,
   handoffSavePath,
   backHref,
+  chartHref,
   scheduleHrefPrefix,
   invoiceBillPath,
 }: {
@@ -310,6 +311,8 @@ export function PatientHistoryPage({
   detailPath: string;
   handoffSavePath: string;
   backHref: string;
+  /** When set, shows a shortcut to the full chart (doctor record page). */
+  chartHref?: string;
   scheduleHrefPrefix: string;
   /** e.g. `/admin/invoice_bill` or `/doctor/invoice_bill` */
   invoiceBillPath: string;
@@ -415,12 +418,22 @@ export function PatientHistoryPage({
               {billCount > 0 ? ` · ${billCount} with printable bill${billCount === 1 ? "" : "s"}` : ""}
             </p>
           </div>
-          <Link
-            href={backHref}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Back
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {chartHref ? (
+              <Link
+                href={chartHref}
+                className="rounded-xl border border-[#16a349]/30 bg-[#f0fdf4] px-4 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-[#dcfce7]"
+              >
+                Chart
+              </Link>
+            ) : null}
+            <Link
+              href={backHref}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              ← All patients
+            </Link>
+          </div>
         </div>
       </div>
 
