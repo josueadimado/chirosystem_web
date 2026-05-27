@@ -92,7 +92,8 @@ function balanceDueHints(p: Patient): string[] {
   return hints;
 }
 
-function parseBalanceNum(balanceStr: string): number {
+function parseBalanceNum(balanceStr: string | null | undefined): number {
+  if (balanceStr == null || String(balanceStr).trim() === "") return 0;
   const n = parseFloat(balanceStr);
   return Number.isFinite(n) ? n : 0;
 }
