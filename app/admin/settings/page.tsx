@@ -7,6 +7,12 @@ import { Loader } from "@/components/loader";
 import { Button } from "@/components/ui/button";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ClinicTimezoneCombobox,
+  formatClinicLocalTime,
+  isValidIanaTimezone,
+  type TimezoneGrouped,
+} from "@/components/clinic-timezone-combobox";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { getRoleCookie } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -18,6 +24,7 @@ type ClinicProfile = {
   city_state_zip: string;
   phone: string;
   email: string;
+  timezone: string;
   provider_billing_id: string;
   employer_tax_id: string;
   pos_default: string;
@@ -50,6 +57,7 @@ function emptyProfile(): ClinicProfile {
     city_state_zip: "",
     phone: "",
     email: "",
+    timezone: "America/Detroit",
     provider_billing_id: "",
     employer_tax_id: "",
     pos_default: "11",
@@ -99,6 +107,21 @@ export default function AdminSettingsPage() {
   const [payError, setPayError] = useState("");
   const [terminalTestAmount, setTerminalTestAmount] = useState("1.00");
   const [terminalTestCheckoutId, setTerminalTestCheckoutId] = useState<string | null>(null);
+  const [timezonesGrouped, setTimezonesGrouped] = useState<TimezoneGrouped | null>(null);
+  const [timezonesLoading, setTimezonesLoading] = useState(true);
+  const [timezoneError, setTimezoneError] = useState("");
+
+  const loadTimezones = useCallback(async () => {
+    setTimezonesLoading(true);
+    try {
+      const data = await apiGetAuth<TimezoneGrouped>("/admin/timezones/");
+      setTimezonesGrouped(data);
+    } catch {
+      setTimezonesGrouped(null);
+    } finally {
+      setTimezonesLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,6 +134,7 @@ export default function AdminSettingsPage() {
         city_state_zip: data.city_state_zip ?? "",
         phone: data.phone ?? "",
         email: data.email ?? "",
+        timezone: data.timezone?.trim() || "America/Detroit",
         provider_billing_id: data.provider_billing_id ?? "",
         employer_tax_id: data.employer_tax_id ?? "",
         pos_default: data.pos_default ?? "11",
@@ -127,7 +151,8 @@ export default function AdminSettingsPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadTimezones();
+  }, [load, loadTimezones]);
 
   const loadPaymentStatus = useCallback(async () => {
     const role = getRoleCookie();
@@ -192,8 +217,14 @@ export default function AdminSettingsPage() {
 
   const handleSave = async () => {
     if (!canSave) return;
+    if (!isValidIanaTimezone(draft.timezone)) {
+      setTimezoneError("Please select a valid timezone");
+      return;
+    }
     setSaving(true);
     setError("");
+    setTimezoneError("");
+    const timezoneBeforeSave = draft.timezone;
     await runWithFeedback(
       async () => {
         const updated = await apiPatch<ClinicProfile>("/admin/clinic_profile/", {
@@ -202,6 +233,7 @@ export default function AdminSettingsPage() {
           city_state_zip: draft.city_state_zip,
           phone: draft.phone,
           email: draft.email,
+          timezone: draft.timezone,
           provider_billing_id: draft.provider_billing_id,
           employer_tax_id: draft.employer_tax_id,
           pos_default: draft.pos_default,
@@ -214,16 +246,26 @@ export default function AdminSettingsPage() {
           city_state_zip: updated.city_state_zip ?? "",
           phone: updated.phone ?? "",
           email: updated.email ?? "",
+          timezone: updated.timezone?.trim() || "America/Detroit",
           provider_billing_id: updated.provider_billing_id ?? "",
           employer_tax_id: updated.employer_tax_id ?? "",
           pos_default: updated.pos_default ?? "11",
           no_show_fee: updated.no_show_fee ?? "25.00",
           business_hours: Array.isArray(updated.business_hours) ? updated.business_hours : [],
         });
+        return updated;
       },
       {
         loadingMessage: "Saving clinic settings…",
-        successMessage: "Settings saved.",
+        successMessage: (updated) => {
+          const tz = updated.timezone?.trim() || timezoneBeforeSave;
+          if (tz !== timezoneBeforeSave) {
+            const name = tz.replace(/_/g, " ");
+            const time = formatClinicLocalTime(tz);
+            return `Timezone updated to ${name}. Current clinic time is now ${time}.`;
+          }
+          return "Settings saved.";
+        },
         errorFallback: "Could not save settings.",
       },
     );
@@ -317,6 +359,28 @@ export default function AdminSettingsPage() {
                     placeholder="optional"
                   />
                 </SettingsField>
+                <div className="space-y-2 sm:col-span-2">
+                  <SettingsField
+                    label="Clinic timezone"
+                    help="Used for scheduling, AI phone booking, appointment slots, and reminders."
+                  >
+                    <ClinicTimezoneCombobox
+                      value={draft.timezone}
+                      disabled={!canSave}
+                      grouped={timezonesGrouped}
+                      loading={timezonesLoading}
+                      error={timezoneError}
+                      onChange={(tz) => {
+                        setTimezoneError("");
+                        updateField("timezone", tz);
+                      }}
+                    />
+                  </SettingsField>
+                  <p className="rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-sm leading-relaxed text-amber-950">
+                    Changing the timezone affects AI voice booking, appointment slot filtering, and SMS
+                    reminders. After changing, refresh the booking site to confirm.
+                  </p>
+                </div>
               </div>
             </div>
           </TabsContent>
