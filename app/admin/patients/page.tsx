@@ -28,9 +28,69 @@ type Patient = {
   date_established: string | null;
   no_show_count?: number;
   balance: string;
+  balance_visit?: string;
+  balance_no_show_fee?: string;
+  balance_late_cancel_fee?: string;
+  has_overdue?: boolean;
 };
 
 type SortMode = "name_asc" | "visit_desc" | "visit_asc" | "balance_desc" | "balance_asc";
+
+/** Who shows up in the list — matches unpaid invoice kinds and no-show history. */
+type PatientListFilter =
+  | ""
+  | "balance_due"
+  | "overdue"
+  | "no_show_fee"
+  | "late_cancel_fee"
+  | "penalty_fees"
+  | "no_show_history";
+
+const PATIENT_LIST_FILTER_OPTIONS: { value: PatientListFilter; label: string }[] = [
+  { value: "", label: "All patients" },
+  { value: "balance_due", label: "Has balance due" },
+  { value: "overdue", label: "Overdue payment" },
+  { value: "no_show_fee", label: "Owes no-show fee" },
+  { value: "late_cancel_fee", label: "Owes cancellation fee" },
+  { value: "penalty_fees", label: "Owes penalty fee (any)" },
+  { value: "no_show_history", label: "Has no-show on record" },
+];
+
+function penaltyBalanceDue(p: Patient): number {
+  return parseBalanceNum(p.balance_no_show_fee) + parseBalanceNum(p.balance_late_cancel_fee);
+}
+
+function matchesPatientListFilter(p: Patient, filter: PatientListFilter): boolean {
+  if (!filter) return true;
+  switch (filter) {
+    case "balance_due":
+      return parseBalanceNum(p.balance) > 0.009;
+    case "overdue":
+      return !!p.has_overdue;
+    case "no_show_fee":
+      return parseBalanceNum(p.balance_no_show_fee) > 0.009;
+    case "late_cancel_fee":
+      return parseBalanceNum(p.balance_late_cancel_fee) > 0.009;
+    case "penalty_fees":
+      return penaltyBalanceDue(p) > 0.009;
+    case "no_show_history":
+      return (p.no_show_count ?? 0) > 0;
+    default:
+      return true;
+  }
+}
+
+function balanceDueHints(p: Patient): string[] {
+  const hints: string[] = [];
+  const visit = parseBalanceNum(p.balance_visit);
+  const ns = parseBalanceNum(p.balance_no_show_fee);
+  const lc = parseBalanceNum(p.balance_late_cancel_fee);
+  if (p.has_overdue) hints.push("Overdue");
+  if (ns > 0.009) hints.push(`No-show ${formatBalance(p.balance_no_show_fee ?? "0")}`);
+  if (lc > 0.009) hints.push(`Cancel ${formatBalance(p.balance_late_cancel_fee ?? "0")}`);
+  if (visit > 0.009 && ns < 0.009 && lc < 0.009) hints.push("Visit due");
+  return hints;
+}
 
 function parseBalanceNum(balanceStr: string): number {
   const n = parseFloat(balanceStr);
@@ -147,7 +207,7 @@ export default function AdminPatientsPage() {
     setDocumentBodyReady(true);
   }, []);
   const [sortMode, setSortMode] = useState<SortMode>("name_asc");
-  const [balanceOnly, setBalanceOnly] = useState(false);
+  const [listFilter, setListFilter] = useState<PatientListFilter>("");
 
   const loadPatients = useCallback(() => {
     return apiGetAuth<Patient[]>("/admin/patients/")
@@ -161,6 +221,10 @@ export default function AdminPatientsPage() {
             next_appointment_time: row.next_appointment_time ?? null,
             date_established: row.date_established ?? null,
             no_show_count: row.no_show_count ?? 0,
+            balance_visit: row.balance_visit ?? "0",
+            balance_no_show_fee: row.balance_no_show_fee ?? "0",
+            balance_late_cancel_fee: row.balance_late_cancel_fee ?? "0",
+            has_overdue: row.has_overdue ?? false,
           })),
         );
         setError("");
@@ -189,10 +253,9 @@ export default function AdminPatientsPage() {
         `${p.first_name} ${p.last_name}`.toLowerCase().includes(q) ||
         p.phone.includes(search.trim()) ||
         (p.email && p.email.toLowerCase().includes(q));
-      const matchesBalance = !balanceOnly || parseBalanceNum(p.balance) > 0.009;
-      return matchesSearch && matchesBalance;
+      return matchesSearch && matchesPatientListFilter(p, listFilter);
     });
-  }, [patients, search, balanceOnly]);
+  }, [patients, search, listFilter]);
 
   const sortedList = useMemo(() => {
     const list = [...filtered];
@@ -223,7 +286,9 @@ export default function AdminPatientsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, sortMode, balanceOnly]);
+  }, [search, sortMode, listFilter]);
+
+  const hasActiveFilters = search.trim().length > 0 || listFilter !== "";
 
   useEffect(() => {
     setPage((p) => Math.min(Math.max(1, p), totalPages));
@@ -328,7 +393,8 @@ export default function AdminPatientsPage() {
       <div className="card">
         <h1 className="mb-3 text-2xl font-bold">All Patients</h1>
         <p className="mb-4 text-sm text-slate-600">
-          Click a row or <span className="font-medium text-slate-800">View</span> to open the chart. Press{" "}
+          Use <span className="font-medium text-slate-800">Filter</span> to find overdue bills, no-show fees, cancellation fees, or patients
+          with no-shows on record. Click a row or <span className="font-medium text-slate-800">View</span> to open the chart. Press{" "}
           <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
             Enter
           </kbd>{" "}
@@ -375,15 +441,24 @@ export default function AdminPatientsPage() {
             </Button>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={balanceOnly}
-                onChange={(e) => setBalanceOnly(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]/30"
-              />
-              <span>Only show patients with a balance</span>
-            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="patient-list-filter" className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Filter
+              </label>
+              <select
+                id="patient-list-filter"
+                value={listFilter}
+                onChange={(e) => setListFilter(e.target.value as PatientListFilter)}
+                className="max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                aria-label="Filter patients"
+              >
+                {PATIENT_LIST_FILTER_OPTIONS.map((o) => (
+                  <option key={o.value || "all"} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sort</span>
               <select
@@ -407,24 +482,24 @@ export default function AdminPatientsPage() {
         ) : sortedList.length === 0 ? (
           <div className="animate-fade-in py-8 text-center">
             <p className="text-slate-500">
-              {search.trim() || balanceOnly
-                ? "No patients match your filters. Try clearing search or the balance filter."
+              {hasActiveFilters
+                ? "No patients match your filters. Try clearing search or choosing a different filter."
                 : "No patients yet."}
             </p>
-            {(search.trim() || balanceOnly) && (
+            {hasActiveFilters && (
               <Button
                 type="button"
                 variant="outline"
                 className="mt-4 rounded-xl"
                 onClick={() => {
                   setSearch("");
-                  setBalanceOnly(false);
+                  setListFilter("");
                 }}
               >
                 Clear filters
               </Button>
             )}
-            {!search.trim() && !balanceOnly && (
+            {!hasActiveFilters && (
               <Button
                 type="button"
                 onClick={openAddModal}
@@ -442,7 +517,7 @@ export default function AdminPatientsPage() {
                 {rangeStart}&ndash;{rangeEnd}
               </span>{" "}
               of <span className="tabular-nums text-slate-600">{totalFiltered}</span>{" "}
-              {search.trim() || balanceOnly ? "matching patients" : "patients"}
+              {hasActiveFilters ? "matching patients" : "patients"}
             </p>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
@@ -468,6 +543,7 @@ export default function AdminPatientsPage() {
                       const phoneLine = formatPhoneCompact(p.phone);
                       const owed = parseBalanceNum(p.balance);
                       const hasBalance = owed > 0.009;
+                      const dueHints = hasBalance ? balanceDueHints(p) : [];
                       const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
                       const nextAppt = nextAppointmentLabel(p);
                       const service = (p.last_service || "").trim();
@@ -572,9 +648,19 @@ export default function AdminPatientsPage() {
                             {hasBalance ? (
                               <span className="inline-flex flex-col items-end gap-0.5 sm:inline-flex">
                                 <span>{formatBalance(p.balance)}</span>
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                                  Due
+                                <span
+                                  className={cn(
+                                    "text-[10px] font-semibold uppercase tracking-wide",
+                                    p.has_overdue ? "text-rose-700" : "text-amber-700",
+                                  )}
+                                >
+                                  {p.has_overdue ? "Overdue" : "Due"}
                                 </span>
+                                {dueHints.length > 0 ? (
+                                  <span className="max-w-[8.5rem] text-right text-[10px] font-medium leading-tight text-slate-500">
+                                    {dueHints.join(" · ")}
+                                  </span>
+                                ) : null}
                               </span>
                             ) : (
                               formatBalance(p.balance)
