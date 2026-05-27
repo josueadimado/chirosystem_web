@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdminPageIntro } from "@/components/admin-shell";
 import { DoctorPageIntro } from "@/components/doctor-shell";
@@ -21,7 +23,147 @@ type ManualSection = {
   bullets?: string[];
   blocks?: ManualBlock[];
   tip?: string;
+  /** Public path under /guide/ — drop the PNG in apps/web/public/guide/ */
+  image?: string;
+  imageAlt?: string;
+  /** Shown until the screenshot file exists at `image` */
+  imagePlaceholder?: string;
 };
+
+function ManualSectionBody({ section }: { section: ManualSection }) {
+  return (
+    <>
+      {section.bullets?.length ? (
+        <ul className="manual-prose list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
+          {section.bullets.map((b, i) => (
+            <li key={`${section.id}-top-${i}`}>{b}</li>
+          ))}
+        </ul>
+      ) : null}
+      {section.blocks?.map((block) => (
+        <section key={`${section.id}-${block.heading}`} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">{block.heading}</h3>
+          <ul className="manual-prose mt-2 list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
+            {block.bullets.map((b, i) => (
+              <li key={`${section.id}-${block.heading}-${i}`}>{b}</li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {section.tip ? (
+        <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-sm text-amber-950">
+          <span className="font-semibold">Tip: </span>
+          {section.tip}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function GuideScreenshotPlaceholder({ label }: { label: string }) {
+  return (
+    <div
+      className="flex aspect-video w-full items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-[#f0f0f0] px-4 py-6 text-center shadow-sm"
+      role="img"
+      aria-label={label}
+    >
+      <p className="max-w-xs text-sm font-medium leading-snug text-slate-600">{label}</p>
+    </div>
+  );
+}
+
+function GuideScreenshot({
+  src,
+  alt,
+  placeholderLabel,
+}: {
+  src?: string;
+  alt: string;
+  placeholderLabel?: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(!src);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  const closeLightbox = useCallback(() => setLightboxOpen(false), []);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeLightbox();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen, closeLightbox]);
+
+  if (!src || failed) {
+    if (placeholderLabel) {
+      return <GuideScreenshotPlaceholder label={placeholderLabel} />;
+    }
+    return null;
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setLightboxOpen(true)}
+        className="group block w-full rounded-lg border border-slate-200/90 bg-white p-1 shadow-md shadow-black/10 transition hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#16a349]/40"
+        aria-label={`View full size: ${alt}`}
+      >
+        <span className="relative block aspect-video w-full overflow-hidden rounded-md bg-slate-100">
+          {!loaded ? <GuideScreenshotPlaceholder label={placeholderLabel || alt} /> : null}
+          <Image
+            src={src}
+            alt={alt}
+            fill
+            className={`object-cover object-top transition group-hover:opacity-95 ${loaded ? "opacity-100" : "opacity-0"}`}
+            sizes="(max-width: 1024px) 100vw, 360px"
+            onLoad={() => setLoaded(true)}
+            onError={() => setFailed(true)}
+          />
+        </span>
+        <span className="mt-1 block text-center text-xs text-muted-foreground group-hover:text-primary">
+          Click to enlarge
+        </span>
+      </button>
+
+      {lightboxOpen ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={alt}
+          onClick={closeLightbox}
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white hover:bg-white/20"
+            onClick={closeLightbox}
+          >
+            Close
+          </button>
+          <a
+            href={src}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute left-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white hover:bg-white/20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Open in new tab
+          </a>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt}
+            className="max-h-[90vh] max-w-full rounded-lg border border-white/20 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 const SECTIONS: ManualSection[] = [
   {
@@ -117,12 +259,15 @@ const SECTIONS: ManualSection[] = [
     description:
       "Relief Chiropractic uses this app for your daily workflow — patients, schedule, visits, billing, and records.",
     bullets: [
-      "Sign in at book.reliefchiropractic.net/doctor with the email and password your admin gave you.",
+      "Sign in at book.reliefchiropractic.net/auth/sign-in with the email and password your admin gave you.",
       "Install as an app on your phone or iPad: tap Share → Add to Home Screen (iPhone) or use the install icon in Chrome (Android).",
       "The bell icon (top right) shows alerts for new check-ins and schedule changes.",
       "Always log out when using a shared device.",
       "If something looks wrong, refresh the page. Contact your admin if the problem continues.",
     ],
+    image: "/guide/doctor-welcome.png",
+    imageAlt: "Sign-in page for the doctor portal",
+    imagePlaceholder: "Screenshot: Sign-in page at /auth/sign-in",
   },
   {
     id: "doctor-dashboard",
@@ -130,6 +275,9 @@ const SECTIONS: ManualSection[] = [
     subtitle: "Your daily command center",
     roles: ["doctor"],
     description: "The dashboard is where you run your day. It opens on today's date automatically.",
+    image: "/guide/doctor-dashboard.png",
+    imageAlt: "Doctor dashboard showing today's appointment list with action buttons",
+    imagePlaceholder: "Screenshot: Doctor dashboard — appointment list with action buttons",
     blocks: [
       {
         heading: "Viewing a different day",
@@ -211,6 +359,9 @@ const SECTIONS: ManualSection[] = [
     subtitle: "Your personal calendar",
     roles: ["doctor"],
     description: "Your schedule shows only your appointments — filtered to your provider account.",
+    image: "/guide/doctor-schedule.png",
+    imageAlt: "Doctor schedule calendar in day view with appointment blocks",
+    imagePlaceholder: "Screenshot: My Schedule — day view with appointment blocks and side panel",
     blocks: [
       {
         heading: "Views",
@@ -263,6 +414,9 @@ const SECTIONS: ManualSection[] = [
     subtitle: "Your patient directory",
     roles: ["doctor"],
     description: "The Patients page shows all clinic patients you are authorized to view.",
+    image: "/guide/doctor-patients.png",
+    imageAlt: "Patient directory with search, filters, and Chart / History links",
+    imagePlaceholder: "Screenshot: Patients page — search bar, filters, and patient list",
     blocks: [
       {
         heading: "Searching and filtering",
@@ -286,6 +440,9 @@ const SECTIONS: ManualSection[] = [
     subtitle: "Full record for one patient",
     roles: ["doctor"],
     description: "Open the chart from Patients → Chart or by clicking a patient name anywhere in the app.",
+    image: "/guide/doctor-chart.png",
+    imageAlt: "Patient chart with demographics, visit history, and print options",
+    imagePlaceholder: "Screenshot: Patient chart — demographics and visit history",
     blocks: [
       {
         heading: "What you can see",
@@ -324,6 +481,9 @@ const SECTIONS: ManualSection[] = [
     subtitle: "Your personal performance stats",
     roles: ["doctor"],
     description: "The Analytics page shows how your practice is performing.",
+    image: "/guide/doctor-analytics.png",
+    imageAlt: "Analytics page with KPIs, attention lists, and weekly sessions chart",
+    imagePlaceholder: "Screenshot: Analytics — monthly stats, needs-attention lists, weekly chart",
     blocks: [
       {
         heading: "Today at a glance",
@@ -367,6 +527,9 @@ const SECTIONS: ManualSection[] = [
     roles: ["doctor"],
     description:
       "The kiosk is a self-service check-in screen at the front desk. URL: book.reliefchiropractic.net/kiosk",
+    image: "/guide/doctor-kiosk.png",
+    imageAlt: "Kiosk check-in screen with phone number entry",
+    imagePlaceholder: "Screenshot: Kiosk check-in — phone lookup and confirm screen",
     blocks: [
       {
         heading: "How it works",
@@ -394,6 +557,9 @@ const SECTIONS: ManualSection[] = [
     subtitle: "After completing a visit",
     roles: ["doctor"],
     description: "After you complete a visit, the payment panel appears automatically.",
+    image: "/guide/doctor-payments.png",
+    imageAlt: "Payment panel with Square Terminal, saved card, and bill preview options",
+    imagePlaceholder: "Screenshot: Payment panel after Complete Visit — Terminal, card, preview bill",
     blocks: [
       {
         heading: "Payment options",
@@ -426,6 +592,9 @@ const SECTIONS: ManualSection[] = [
     id: "doctor-tips",
     title: "Tips and shortcuts",
     roles: ["doctor"],
+    image: "/guide/doctor-tips.png",
+    imageAlt: "Doctor portal sidebar and notification bell",
+    imagePlaceholder: "Screenshot: Sidebar navigation and notification bell with alerts",
     blocks: [
       {
         heading: "Daily workflow (recommended order)",
@@ -479,8 +648,13 @@ function sectionAnchorLabel(title: string) {
   return title.replace(/^Admin — /, "");
 }
 
+function sectionHasVisual(s: ManualSection) {
+  return Boolean(s.image || s.imagePlaceholder);
+}
+
 export function PortalManual({ role }: { role: PortalRole }) {
   const sections = SECTIONS.filter((s) => s.roles.includes(role));
+  const hasGuideImages = sections.some(sectionHasVisual);
   const intro =
     role === "admin" ? (
       <AdminPageIntro
@@ -496,7 +670,7 @@ export function PortalManual({ role }: { role: PortalRole }) {
     );
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8 pb-8">
+    <div className={`mx-auto space-y-8 pb-8 ${hasGuideImages ? "max-w-5xl" : "max-w-3xl"}`}>
       {intro}
 
       <div className="manual-prose rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-card to-card px-4 py-4 sm:px-5 sm:py-5">
@@ -516,42 +690,42 @@ export function PortalManual({ role }: { role: PortalRole }) {
       </div>
 
       <div className="stagger-children space-y-5">
-        {sections.map((s) => (
-          <Card key={s.id} id={s.id} className="scroll-mt-24 border-border/90 shadow-md shadow-black/[0.05]">
-            <CardHeader className="border-b border-border/60 bg-muted/30">
-              <CardTitle className="text-lg">{s.title}</CardTitle>
-              {s.subtitle ? (
-                <p className="text-sm font-medium text-muted-foreground">{s.subtitle}</p>
-              ) : null}
-              {s.description ? <CardDescription className="text-base leading-relaxed">{s.description}</CardDescription> : null}
-            </CardHeader>
-            <CardContent className="space-y-5 pt-5">
-              {s.bullets?.length ? (
-                <ul className="manual-prose list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
-                  {s.bullets.map((b, i) => (
-                    <li key={`${s.id}-top-${i}`}>{b}</li>
-                  ))}
-                </ul>
-              ) : null}
-              {s.blocks?.map((block) => (
-                <section key={`${s.id}-${block.heading}`} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">{block.heading}</h3>
-                  <ul className="manual-prose mt-2 list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
-                    {block.bullets.map((b, i) => (
-                      <li key={`${s.id}-${block.heading}-${i}`}>{b}</li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
-              {s.tip ? (
-                <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-sm text-amber-950">
-                  <span className="font-semibold">Tip: </span>
-                  {s.tip}
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-        ))}
+        {sections.map((s) => {
+          const showVisual = sectionHasVisual(s);
+          return (
+            <Card key={s.id} id={s.id} className="scroll-mt-24 border-border/90 shadow-md shadow-black/[0.05]">
+              <CardHeader className="border-b border-border/60 bg-muted/30">
+                <CardTitle className="text-lg">{s.title}</CardTitle>
+                {s.subtitle ? (
+                  <p className="text-sm font-medium text-muted-foreground">{s.subtitle}</p>
+                ) : null}
+                {s.description ? <CardDescription className="text-base leading-relaxed">{s.description}</CardDescription> : null}
+              </CardHeader>
+              <CardContent className="pt-5">
+                <div
+                  className={
+                    showVisual
+                      ? "flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8"
+                      : "space-y-5"
+                  }
+                >
+                  <div className={showVisual ? "min-w-0 flex-1 space-y-5" : "space-y-5"}>
+                    <ManualSectionBody section={s} />
+                  </div>
+                  {showVisual ? (
+                    <div className="w-full shrink-0 lg:max-w-[min(42%,22rem)]">
+                      <GuideScreenshot
+                        src={s.image}
+                        alt={s.imageAlt || s.imagePlaceholder || s.title}
+                        placeholderLabel={s.imagePlaceholder}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <p className="text-center text-sm text-muted-foreground">
