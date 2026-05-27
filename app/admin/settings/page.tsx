@@ -233,7 +233,7 @@ export default function AdminSettingsPage() {
   const inputClass = "admin-input w-full py-2.5 text-sm";
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 pb-24">
+    <div className="w-full space-y-6 pb-24">
       <AdminPageIntro
         title="Settings"
         description="Clinic details, billing defaults, and payment connection checks. Pick a section below — you don’t need everything on one screen."
@@ -248,26 +248,23 @@ export default function AdminSettingsPage() {
         <Loader variant="page" label="Loading settings" sublabel="Reading clinic profile…" />
       ) : (
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettingsTab)} className="gap-6">
-          <TabsList
-            variant="line"
-            className="h-auto w-full flex-wrap justify-start gap-0 border-b border-slate-200 bg-transparent p-0"
-          >
+          <TabsList className="flex h-auto w-full max-w-2xl flex-wrap gap-1 rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner shadow-slate-200/30">
             <TabsTrigger
               value="clinic"
-              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#0d5c2e] data-active:shadow-none"
+              className="min-w-[7rem] flex-1 rounded-lg border-0 px-4 py-2 text-sm font-medium text-slate-600 shadow-none after:hidden hover:text-slate-900 data-active:bg-white data-active:text-slate-900 data-active:shadow-sm sm:flex-none"
             >
               Clinic info
             </TabsTrigger>
             <TabsTrigger
               value="billing"
-              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#0d5c2e] data-active:shadow-none"
+              className="min-w-[7rem] flex-1 rounded-lg border-0 px-4 py-2 text-sm font-medium text-slate-600 shadow-none after:hidden hover:text-slate-900 data-active:bg-white data-active:text-slate-900 data-active:shadow-sm sm:flex-none"
             >
               Billing & hours
             </TabsTrigger>
             {canSave ? (
               <TabsTrigger
                 value="payments"
-                className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#0d5c2e] data-active:shadow-none"
+                className="min-w-[7rem] flex-1 rounded-lg border-0 px-4 py-2 text-sm font-medium text-slate-600 shadow-none after:hidden hover:text-slate-900 data-active:bg-white data-active:text-slate-900 data-active:shadow-sm sm:flex-none"
               >
                 Payments
               </TabsTrigger>
@@ -571,7 +568,7 @@ export default function AdminSettingsPage() {
       )}
 
       {!loading && activeTab !== "payments" ? (
-        <div className="sticky bottom-0 z-10 -mx-[max(1rem,env(safe-area-inset-left))] border-t border-slate-200/90 bg-background/95 px-[max(1rem,env(safe-area-inset-left))] py-4 pr-[max(1rem,env(safe-area-inset-right))] backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
+        <div className="sticky bottom-0 z-10 border-t border-slate-200/90 bg-background/95 py-4 backdrop-blur-md sm:static sm:border-0 sm:bg-transparent sm:py-0 sm:backdrop-blur-none">
           <div className="flex flex-wrap items-center gap-3">
             {canSave ? (
               <Button
