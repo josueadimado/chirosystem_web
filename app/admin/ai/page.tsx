@@ -224,6 +224,7 @@ export default function AdminAIPage() {
                 </p>
               </div>
             ) : (
+              <>
               <div className="overflow-x-auto rounded-xl border border-slate-200/90">
                 <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -367,6 +368,7 @@ export default function AdminAIPage() {
                   ) : null}
                 </DialogContent>
               </Dialog>
+              </>
             )}
           </div>
         </>
