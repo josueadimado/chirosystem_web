@@ -60,6 +60,7 @@ type Appointment = {
   start_time_display?: string;
   end_time_display?: string;
   status: string;
+  reason_for_visit?: string;
 };
 
 type Provider = {
@@ -764,6 +765,7 @@ function AdminSchedulePageContent() {
               status={selected.status}
               estimatedPrice={estimatedPriceFromSnapshot(visitSnapshot)}
               appointmentId={selected.id}
+              reasonForVisit={visitSnapshot?.reason_for_visit || selected.reason_for_visit}
             />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

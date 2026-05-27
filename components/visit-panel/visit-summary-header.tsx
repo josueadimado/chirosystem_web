@@ -1,6 +1,7 @@
 "use client";
 
 import { AppointmentStatusBadge } from "@/components/status-chip";
+import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
 
 /** Shared header for appointment visit panels (admin schedule sheet, etc.). */
 export function VisitSummaryHeader({
@@ -13,6 +14,7 @@ export function VisitSummaryHeader({
   status,
   estimatedPrice,
   appointmentId,
+  reasonForVisit,
 }: {
   patientName: string;
   serviceName?: string;
@@ -23,11 +25,14 @@ export function VisitSummaryHeader({
   status: string;
   estimatedPrice?: string;
   appointmentId: number;
+  /** What the patient typed when booking online (if any). */
+  reasonForVisit?: string | null;
 }) {
   return (
     <div className="shrink-0 border-b border-slate-100 px-5 pb-4 pt-14">
       <h2 className="text-xl font-bold tracking-tight text-slate-900">{patientName}</h2>
       <p className="mt-1 text-sm font-medium text-slate-600">{serviceName || "—"}</p>
+      <AppointmentClientReason reason={reasonForVisit} className="mt-3" />
       <p className="mt-3 text-sm text-slate-800">{dateTimeLabel}</p>
       {durationLabel ? <p className="mt-1 text-sm text-slate-600">Duration · {durationLabel}</p> : null}
       <div className="mt-4 flex items-center gap-2">

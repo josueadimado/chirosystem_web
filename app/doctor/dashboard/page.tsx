@@ -20,6 +20,7 @@ import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { AppointmentStatusBadge } from "@/components/status-chip";
+import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
@@ -1109,12 +1110,15 @@ export default function DoctorDashboardPage() {
           ))}
         </nav>
         <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for visit (chart)</p>
-          <p className="text-sm text-slate-700">
-            {activeAppt.reason_for_visit?.trim()
-              ? activeAppt.reason_for_visit
-              : "Not recorded yet — add details in Visit notes below or in the patient chart."}
-          </p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for visit</p>
+          {activeAppt.reason_for_visit?.trim() ? (
+            <AppointmentClientReason reason={activeAppt.reason_for_visit} />
+          ) : (
+            <p className="text-sm text-slate-700">
+              Not recorded yet — the patient may add a reason when booking online, or you can note details in Visit notes
+              below.
+            </p>
+          )}
         </div>
         <div id="consult-chart" className="scroll-mt-24 rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -1693,6 +1697,7 @@ export default function DoctorDashboardPage() {
                         {appt.start_time} – {appt.end_time}
                         {appt.service ? ` · ${appt.service}` : " · Follow-up"}
                       </p>
+                      <AppointmentClientReason reason={appt.reason_for_visit} compact className="mt-2" />
                     </div>
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
                       <AppointmentStatusBadge

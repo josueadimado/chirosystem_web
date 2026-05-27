@@ -59,6 +59,7 @@ type AppointmentRow = {
   start_time_display?: string;
   end_time_display?: string;
   status: string;
+  reason_for_visit?: string;
 };
 
 type ScheduleViewMode = "day" | "week" | "month";
@@ -696,6 +697,7 @@ function DoctorSchedulePageInner() {
               providerColor="#16a349"
               status={selected.status}
               appointmentId={selected.id}
+              reasonForVisit={selected.reason_for_visit}
             />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

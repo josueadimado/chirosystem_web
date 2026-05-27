@@ -48,8 +48,8 @@ export function VisitSnapshotDisplay({
                 <span className="capitalize">{snapshot.visit_status.replace(/_/g, " ")}</span>
               </p>
             )}
+            <SnapshotField label="Patient&apos;s reason (from booking)" value={snapshot.reason_for_visit} />
             <SnapshotField label="Chart note for the team" value={snapshot.clinical_handoff_notes} />
-            <SnapshotField label="Reason for visit" value={snapshot.reason_for_visit} />
             <SnapshotField label="Doctor notes" value={snapshot.doctor_notes} />
             <SnapshotField label="Diagnosis" value={snapshot.diagnosis} />
             {snapshot.rendered_services.length > 0 ? (

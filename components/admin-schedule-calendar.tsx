@@ -46,6 +46,7 @@ export type ScheduleAppointment = {
   start_time_display?: string;
   end_time_display?: string;
   status: string;
+  reason_for_visit?: string;
 };
 
 export type ProviderRow = { id: number; provider_name: string };
@@ -303,6 +304,7 @@ function AppointmentBlockTooltip({
   endLabel,
   providerName,
   status,
+  reasonForVisit,
   children,
 }: {
   patientName: string;
@@ -311,8 +313,10 @@ function AppointmentBlockTooltip({
   endLabel: string;
   providerName: string;
   status: string;
+  reasonForVisit?: string;
   children: ReactNode;
 }) {
+  const reason = (reasonForVisit || "").trim();
   const [visible, setVisible] = useState(false);
   const [place, setPlace] = useState<"top" | "bottom">("top");
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -356,6 +360,12 @@ function AppointmentBlockTooltip({
           </p>
           <p className="mt-1 text-slate-600">{providerName}</p>
           <p className="mt-1 capitalize text-slate-500">{appointmentTooltipStatus(status)}</p>
+          {reason ? (
+            <p className="mt-1.5 border-t border-slate-100 pt-1.5 text-sky-900">
+              <span className="font-semibold text-sky-800">Reason: </span>
+              <span className="line-clamp-3">{reason}</span>
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1120,6 +1130,7 @@ function DayProviderColumn({
                     endLabel={endShown}
                     providerName={a.provider_name}
                     status={a.status}
+                    reasonForVisit={a.reason_for_visit}
                   >
                     <div className="flex min-h-0 flex-1 flex-col">
                       <div
@@ -1466,13 +1477,14 @@ function WeekDayStack({
                 endLabel={endShown}
                 providerName={a.provider_name}
                 status={a.status}
+                reasonForVisit={a.reason_for_visit}
               >
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div
                     className={cn(
                       "shrink-0 border-b px-1 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
                       a.status === "cancelled" && "border-rose-800/20 text-rose-950",
-                      a.status === "no_show" && "border-amber-900/20 text-amber-950",
+                      a.status === "no_show" && "border-red-800/25 text-red-950",
                       a.status === "completed" && "border-slate-400/40 text-slate-900",
                       !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
                       a.status !== "cancelled" && styles.text,
