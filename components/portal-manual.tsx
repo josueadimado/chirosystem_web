@@ -496,8 +496,9 @@ const SECTIONS: ManualSection[] = [
     roles: ["doctor"],
     description: "The Analytics page shows how your practice is performing.",
     image: "/guide/doctor-analytics.png",
-    imageAlt: "Analytics page with KPIs, attention lists, and weekly sessions chart",
+    imageAlt: "My analytics with today stats, monthly KPIs, outreach lists, and session chart",
     imagePlaceholder: "Screenshot: Analytics — monthly stats, needs-attention lists, weekly chart",
+    imageLayout: "portrait",
     blocks: [
       {
         heading: "Today at a glance",
