@@ -5,7 +5,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdminPageIntro } from "@/components/admin-shell";
-import { IconArrowRight, IconCalendar, IconStethoscope, IconUsers } from "@/components/icons";
+import {
+  IconArrowRight,
+  IconCalendar,
+  IconFileDollar,
+  IconLayoutGrid,
+  IconStethoscope,
+  IconUsers,
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 export type PortalRole = "admin" | "doctor";
@@ -35,6 +42,8 @@ type ManualSection = {
   href?: string;
   /** Short caption under the screenshot */
   imageCaption?: string;
+  /** Admin guide: 200px-tall placeholder below text (not side-by-side) */
+  placeholderCompact?: boolean;
 };
 
 const DOCTOR_WORKFLOW_ID = "doctor-workflow";
@@ -54,6 +63,13 @@ const DOCTOR_QUICK_LINKS = [
   { label: "My Dashboard", href: "/doctor/dashboard", icon: IconStethoscope },
   { label: "My Schedule", href: "/doctor/schedule", icon: IconCalendar },
   { label: "Patients", href: "/doctor/patients", icon: IconUsers },
+] as const;
+
+const ADMIN_QUICK_LINKS = [
+  { label: "Dashboard", href: "/admin/dashboard", icon: IconLayoutGrid },
+  { label: "Schedule", href: "/admin/schedule", icon: IconCalendar },
+  { label: "Patients", href: "/admin/patients", icon: IconUsers },
+  { label: "Billing", href: "/admin/billing", icon: IconFileDollar },
 ] as const;
 
 function ManualSectionBody({ section }: { section: ManualSection }) {
@@ -86,7 +102,18 @@ function ManualSectionBody({ section }: { section: ManualSection }) {
   );
 }
 
-function GuideScreenshotPlaceholder({ label }: { label: string }) {
+function GuideScreenshotPlaceholder({ label, compact }: { label: string; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div
+        className="mt-4 flex h-[200px] w-full items-center justify-center rounded-lg border-2 border-dashed border-[#d0d0d0] bg-[#f0f0f0] px-4 text-center"
+        role="img"
+        aria-label={label}
+      >
+        <p className="max-w-md text-sm italic leading-snug text-slate-600">{label}</p>
+      </div>
+    );
+  }
   return (
     <div
       className="flex aspect-video w-full items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-[#f0f0f0] px-4 py-6 text-center shadow-sm"
@@ -105,6 +132,7 @@ function GuideScreenshot({
   layout = "landscape",
   caption,
   figureLabel,
+  placeholderCompact,
 }: {
   src?: string;
   alt: string;
@@ -112,6 +140,7 @@ function GuideScreenshot({
   layout?: "landscape" | "portrait";
   caption?: string;
   figureLabel?: string;
+  placeholderCompact?: boolean;
 }) {
   const frameClass =
     layout === "portrait"
@@ -138,7 +167,7 @@ function GuideScreenshot({
 
   if (!src || failed) {
     if (placeholderLabel) {
-      return <GuideScreenshotPlaceholder label={placeholderLabel} />;
+      return <GuideScreenshotPlaceholder label={placeholderLabel} compact={placeholderCompact} />;
     }
     return null;
   }
@@ -152,7 +181,9 @@ function GuideScreenshot({
         aria-label={`View full size: ${alt}`}
       >
         <span className={frameClass}>
-          {!loaded ? <GuideScreenshotPlaceholder label={placeholderLabel || alt} /> : null}
+          {!loaded ? (
+            <GuideScreenshotPlaceholder label={placeholderLabel || alt} compact={placeholderCompact} />
+          ) : null}
           <Image
             src={src}
             alt={alt}
@@ -213,92 +244,642 @@ function GuideScreenshot({
 
 const SECTIONS: ManualSection[] = [
   {
-    id: "overview",
-    title: "Welcome to your portal",
+    id: "admin-welcome",
+    title: "Welcome to your admin portal",
     roles: ["admin"],
     description:
-      "Relief Chiropractic uses this app for schedules, patients, and day-of operations. Sign in with the email and password your clinic gave you.",
+      "Relief Chiropractic uses this app to manage schedules, patients, billing, and clinic operations.",
     bullets: [
-      "Install this site as an app for quick access: on iPad/iPhone use Share → Add to Home Screen; on Chrome/Edge use the install icon in the address bar (needs HTTPS in production).",
-      "Use the bell icon (top right) for in-app alerts — e.g. new bookings or patient check-in.",
-      "Log out when you finish on a shared computer.",
-      "If something looks wrong, try a refresh; contact your admin if it persists.",
+      "Sign in at book.reliefchiropractic.net/auth/sign-in with the email and password your clinic owner gave you.",
+      "Install as an app on your iPad or computer for faster access: iPad/iPhone use Share → Add to Home Screen; Chrome use the install icon in the address bar.",
+      "The bell icon (top right) shows alerts for check-ins and schedule changes.",
+      "Always log out on shared computers.",
+      "If something looks wrong, refresh the page. Contact your owner if it persists.",
     ],
+    image: "/guide/admin-welcome.png",
+    imageAlt: "Admin staff sign-in page",
+    imagePlaceholder: "Screenshot: Admin sign-in page",
+    imageCaption: "Staff sign-in for the admin portal.",
+    placeholderCompact: true,
+    href: "/auth/sign-in",
   },
   {
-    id: "kiosk",
-    title: "Patient check-in kiosk (tablet)",
+    id: "admin-kiosk",
+    title: "Patient check-in kiosk",
+    subtitle: "Front desk tablet",
     roles: ["admin"],
     description:
-      "The kiosk is a simple check-in screen for patients who already have an appointment today. It does not replace the public booking website.",
-    bullets: [
-      "Open the kiosk URL on a tablet at the front desk (same site as booking, path /kiosk).",
-      "The patient enters the phone number used when they booked (same format as on file: usually10 digits or +1…).",
-      "The system looks up an appointment for today only — not tomorrow or last week.",
-      "After check-in, the visit shows as checked-in for staff; the assigned doctor may get an SMS if alerts are configured.",
-      "If lookup fails, the patient may have the wrong number, no visit today, or a cancelled visit — use the front desk or Schedule to help.",
+      "The kiosk is a self-service check-in screen for patients who already have an appointment today. URL: book.reliefchiropractic.net/kiosk — bookmark this on your front desk tablet for one-tap access.",
+    blocks: [
+      {
+        heading: "How it works",
+        bullets: [
+          "Patient enters the phone number they used when booking.",
+          "System finds their appointment for today.",
+          "Patient confirms and checks in.",
+          "The schedule updates to show them as checked in.",
+          "Their doctor sees them as ready.",
+        ],
+      },
+      {
+        heading: "Important",
+        bullets: [
+          "The kiosk only shows today's appointments.",
+          "It does not replace the public booking site.",
+          "If a patient cannot check in: wrong number, no appointment today, or cancelled visit — help them from the Schedule page.",
+        ],
+      },
     ],
-    tip: "Bookmark the kiosk page in the tablet browser for one-tap access.",
+    image: "/guide/admin-kiosk.png",
+    imageAlt: "Kiosk check-in screen with phone number entry",
+    imagePlaceholder: "Screenshot: Kiosk check-in screen",
+    imageCaption: "Front-desk tablet — patient enters the phone number from booking.",
+    placeholderCompact: true,
+    href: "/kiosk",
   },
   {
     id: "admin-dashboard",
-    title: "Admin — Dashboard & day-at-a-glance",
+    title: "Dashboard",
+    subtitle: "Your daily overview",
     roles: ["admin"],
-    bullets: [
-      "Review today’s volume, arrivals, and quick links to common tasks.",
-      "Use this page to spot who has completed check-in and what still needs attention.",
+    description: "The dashboard gives you a snapshot of today at a glance.",
+    blocks: [
+      {
+        heading: "What you see",
+        bullets: [
+          "Today's appointment volume.",
+          "How many patients have checked in.",
+          "How many visits are in progress.",
+          "Outstanding (unpaid) invoices.",
+          "Today's revenue collected.",
+          "Recent activity feed.",
+          "Quick links to common tasks.",
+        ],
+      },
+      {
+        heading: "Use the dashboard to",
+        bullets: [
+          "Spot who has arrived and who hasn't.",
+          "See unpaid balances that need attention.",
+          "Jump quickly to the schedule.",
+          "Check today's revenue total.",
+        ],
+      },
     ],
+    image: "/guide/admin-dashboard.png",
+    imageAlt: "Admin dashboard with today's stats and activity",
+    imagePlaceholder: "Screenshot: Admin dashboard overview",
+    imageCaption: "Today's volume, check-ins, revenue, and quick links.",
+    placeholderCompact: true,
+    href: "/admin/dashboard",
+  },
+  {
+    id: "admin-analytics",
+    title: "Analytics",
+    subtitle: "Business performance overview",
+    roles: ["admin"],
+    description: "Analytics gives the owner and staff a view of how the clinic is performing.",
+    blocks: [
+      {
+        heading: "Business KPIs (top row)",
+        bullets: [
+          "Total active clients.",
+          "Revenue this month vs last month.",
+          "Outstanding balance owed.",
+          "New clients this month.",
+        ],
+      },
+      {
+        heading: "Charts and summaries",
+        bullets: [
+          "Revenue chart — monthly revenue for the last 6 months (collected vs outstanding).",
+          "Appointments this week — scheduled, completed, cancelled, no-show count and rate.",
+          "Billing summary — billed, collected, outstanding, no-show fees pending, collection rate.",
+          "Revenue by service — top 5 services by revenue this month.",
+          "Client health — active (last 30 days), at risk (60–89 days), inactive (90+ days).",
+          "AI voice summary — calls this month, booked via AI, failed or dropped calls.",
+        ],
+      },
+      {
+        heading: "Note",
+        bullets: ["Analytics is visible to owner and staff accounts only."],
+      },
+    ],
+    image: "/guide/admin-analytics.png",
+    imageAlt: "Analytics dashboard with KPIs and charts",
+    imagePlaceholder: "Screenshot: Analytics dashboard with charts",
+    imageCaption: "Business KPIs, revenue trends, and voice booking stats.",
+    placeholderCompact: true,
+    href: "/admin/analytics",
   },
   {
     id: "admin-schedule",
-    title: "Admin — Schedule",
+    title: "Schedule",
+    subtitle: "Multi-provider calendar",
     roles: ["admin"],
-    bullets: [
-      "View and manage appointments by day.",
-      "You can complete check-in for a patient from here (same action as the kiosk) when someone walks in without using the tablet.",
-      "Drag or edit according to your clinic’s workflow where the UI allows.",
+    description: "The schedule shows all providers and all appointments in one calendar view.",
+    blocks: [
+      {
+        heading: "Views",
+        bullets: [
+          "Switch between Day, Week, and Month.",
+          "Use the arrows to move between periods.",
+          "Click Today to return to the current date.",
+        ],
+      },
+      {
+        heading: "Filtering by provider",
+        bullets: ["Use the provider filter at the top to show one provider or all providers."],
+      },
+      {
+        heading: "Reading the calendar",
+        bullets: [
+          "Each block shows patient name, time, service, and status (colour coded).",
+          "Click any appointment to open the visit panel on the right side.",
+        ],
+      },
+      {
+        heading: "Visit panel actions",
+        bullets: [
+          "See patient contact details.",
+          "Check in the patient manually (same as kiosk — for walk-ins without the tablet).",
+          "View handoff / chart notes.",
+          "Reschedule the appointment.",
+          "Book next visit.",
+          "Cancel or mark no-show.",
+        ],
+      },
+      {
+        heading: "Booking from an open slot",
+        bullets: [
+          "Click any empty time slot to open the booking form.",
+          "Select patient, service, provider, date and time, then confirm.",
+        ],
+      },
+      {
+        heading: "Desk check-in",
+        bullets: [
+          "When a patient walks in without the kiosk, find their appointment in the schedule and click Check In.",
+          "Their doctor will see them as ready.",
+        ],
+      },
     ],
+    image: "/guide/admin-schedule.png",
+    imageAlt: "Admin schedule week view with multiple providers",
+    imagePlaceholder: "Screenshot: Admin schedule calendar — week view with multiple providers",
+    imageCaption: "All providers on one calendar — click a block for the visit panel.",
+    placeholderCompact: true,
+    href: "/admin/schedule",
   },
   {
     id: "admin-patients",
-    title: "Admin — Patients",
+    title: "Patients",
+    subtitle: "Full patient directory",
     roles: ["admin"],
-    bullets: [
-      "Search and open patient records, contact info, and visit history as exposed in the UI.",
-      "Keep phone numbers accurate — they power SMS reminders and kiosk lookup.",
+    description: "The Patients page shows every patient in the clinic system.",
+    blocks: [
+      {
+        heading: "Searching and filtering",
+        bullets: [
+          "Search by name or phone number.",
+          "Filter: all patients; upcoming appointment; no upcoming; seen recently; not seen in a long time; never visited.",
+        ],
+      },
+      {
+        heading: "Adding a new patient",
+        bullets: [
+          "Click Add Patient at the top right.",
+          "Fill in name, phone, email.",
+          "Phone number is required — it powers SMS reminders and kiosk lookup.",
+        ],
+      },
+      {
+        heading: "Patient row actions",
+        bullets: ["Open chart → full patient record.", "History → all visits and bills."],
+      },
+      {
+        heading: "Patient chart",
+        bullets: [
+          "Demographics (name, phone, email, date of birth, address).",
+          "Medical history fields.",
+          "Visit list with billing status.",
+          "Notes from previous visits.",
+        ],
+      },
+      {
+        heading: "Editing patient information",
+        bullets: [
+          "Admins can edit all patient fields.",
+          "Keep phone numbers accurate — used for SMS reminders, kiosk check-in, and AI voice recognition.",
+        ],
+      },
+      {
+        heading: "Visit history",
+        bullets: [
+          "Click History on any patient to see every visit with date, service, provider, invoice amount, and payment status.",
+          "Print any old bill.",
+        ],
+      },
     ],
+    image: "/guide/admin-patients.png",
+    imageAlt: "Patients list with search and filters",
+    imagePlaceholder: "Screenshot: Patients list with search and filter options",
+    imageCaption: "Search, filter, add patients, and open chart or history.",
+    placeholderCompact: true,
+    href: "/admin/patients",
   },
   {
-    id: "admin-operations",
-    title: "Admin — Billing, services, providers, blocks",
+    id: "admin-billing",
+    title: "Invoices & Billing",
+    subtitle: "Payments and outstanding balances",
     roles: ["admin"],
-    bullets: [
-      "Invoices & billing: manage charges and payment-related flows your clinic uses.",
-      "Services & codes: what can be booked and how it appears publicly.",
-      "Doctors & providers: who appears on the schedule and in booking.",
-      "Booking blocks: times when online booking should not offer slots.",
+    description: "The Billing page is your payment desk.",
+    blocks: [
+      {
+        heading: "Invoice list",
+        bullets: [
+          "Shows all invoices with patient name, service, amount, status (paid, partial, overdue, pending), and date.",
+          "Filter: all invoices; unpaid only; overdue only; by date range; by patient.",
+        ],
+      },
+      {
+        heading: "Taking payment on an invoice",
+        bullets: [
+          "Find the invoice and click Pay.",
+          "Saved card on file — charge with one tap.",
+          "Square Terminal — sends to card reader.",
+          "Square POS — opens iPad POS app.",
+          "Payment link — sends text or email to patient.",
+          "Patient credit — apply existing balance.",
+        ],
+      },
+      {
+        heading: "Patient credit",
+        bullets: [
+          "Credit is a balance the patient has with the clinic.",
+          "To add credit: open the patient → Add Credit → enter amount and reason.",
+          "To use credit on an invoice: Pay → Apply Credit.",
+        ],
+      },
+      {
+        heading: "Credit top-up via Terminal",
+        bullets: [
+          "Patient Credit Top-up → enter amount → sends to Square Terminal.",
+        ],
+      },
+      {
+        heading: "Preview and print bills",
+        bullets: [
+          "Preview — see the full bill before printing.",
+          "Print — get a printable version.",
+        ],
+      },
+      {
+        heading: "No-show fees",
+        bullets: [
+          "No-show fees appear as invoices when a patient is marked no-show.",
+          "Waive or collect them like any other invoice.",
+        ],
+      },
     ],
+    image: "/guide/admin-billing.png",
+    imageAlt: "Billing page with invoice list and payment options",
+    imagePlaceholder: "Screenshot: Billing page with invoice list and payment options",
+    imageCaption: "Invoice desk — search, pay, credit, and print.",
+    placeholderCompact: true,
+    href: "/admin/billing",
+  },
+  {
+    id: "admin-services",
+    title: "Services & Codes",
+    subtitle: "What patients can book",
+    roles: ["admin"],
+    description: "Services are the visit types patients can book and doctors can bill for.",
+    blocks: [
+      {
+        heading: "What you can do here",
+        bullets: [
+          "Add new service types.",
+          "Edit service names, duration, price.",
+          "Set which services show in public booking.",
+          "Mark services as active or inactive.",
+          "Set which providers offer each service.",
+        ],
+      },
+      {
+        heading: "Adding a service",
+        bullets: [
+          "Click Add Service.",
+          "Fill in name (shown on public booking), duration, price, service type (chiropractic or massage), show in public booking, and assign to providers.",
+        ],
+      },
+      {
+        heading: "Editing and hiding",
+        bullets: [
+          "Click any service to edit — changes apply to new bookings immediately.",
+          "Uncheck Show in public booking to hide from the patient site without deleting; doctors can still bill for it.",
+        ],
+      },
+      {
+        heading: "Note",
+        bullets: [
+          "Deleting a service that has existing appointments is not allowed — mark it inactive instead.",
+        ],
+      },
+    ],
+    image: "/guide/admin-services.png",
+    imageAlt: "Services list with add and edit options",
+    imagePlaceholder: "Screenshot: Services list with add and edit options",
+    imageCaption: "Visit types for booking and billing.",
+    placeholderCompact: true,
+    href: "/admin/services",
+  },
+  {
+    id: "admin-providers",
+    title: "Doctors & Providers",
+    subtitle: "Provider profiles and settings",
+    roles: ["admin"],
+    description: "This page manages everyone who appears on the schedule and in online booking.",
+    blocks: [
+      {
+        heading: "Provider profiles",
+        bullets: [
+          "Full name (shown to patients), title (e.g. Dr., LMT), email, phone.",
+          "Services they provide.",
+          "Active/inactive status.",
+        ],
+      },
+      {
+        heading: "Adding a provider",
+        bullets: [
+          "Click Add Provider — fill in name, title, email, assign services, set active to show in booking.",
+        ],
+      },
+      {
+        heading: "Creating a doctor login",
+        bullets: [
+          "From the provider record click Create Login.",
+          "Creates a doctor portal account; they receive email with login details.",
+        ],
+      },
+      {
+        heading: "Deactivating and reassigning",
+        bullets: [
+          "Mark inactive to remove from new bookings; existing appointments stay.",
+          "Reassign appointments to another provider if someone leaves.",
+        ],
+      },
+    ],
+    image: "/guide/admin-providers.png",
+    imageAlt: "Providers list with provider detail panel",
+    imagePlaceholder: "Screenshot: Providers list with provider detail panel",
+    imageCaption: "Schedule and booking profiles for each provider.",
+    placeholderCompact: true,
+    href: "/admin/providers",
+  },
+  {
+    id: "admin-booking-blocks",
+    title: "Booking Blocks",
+    subtitle: "Control when patients can book online",
+    roles: ["admin"],
+    description:
+      "Booking blocks prevent patients from booking appointments during specific times through the public booking site.",
+    blocks: [
+      {
+        heading: "Use cases",
+        bullets: [
+          "Clinic closed for a holiday.",
+          "Provider unavailable for a day.",
+          "Limiting online booking to certain hours.",
+          "Blocking a lunch break.",
+        ],
+      },
+      {
+        heading: "Adding a block",
+        bullets: [
+          "Click Add Block.",
+          "Select provider (or all), date or date range, start and end time, reason (internal note only).",
+          "Patients will not see available slots during blocked times on the booking site.",
+        ],
+      },
+      {
+        heading: "Note",
+        bullets: [
+          "Blocks only affect the public booking site.",
+          "You can still manually book during blocked times from the Admin Schedule page.",
+        ],
+      },
+    ],
+    image: "/guide/admin-booking-blocks.png",
+    imageAlt: "Booking blocks list with add block form",
+    imagePlaceholder: "Screenshot: Booking blocks list with add block form",
+    imageCaption: "Block dates and times from online booking.",
+    placeholderCompact: true,
+    href: "/admin/booking-blocks",
   },
   {
     id: "admin-team",
-    title: "Admin — Team & logins (owner)",
+    title: "Team & Logins",
+    subtitle: "Visible to owner accounts only",
     roles: ["admin"],
-    description: "Visible only to owner-level admins in the sidebar.",
-    bullets: [
-      "Invite or manage staff accounts and roles as your clinic policy allows.",
-      "Never share passwords; use password reset if someone forgets.",
+    description: "This section is only visible in the sidebar for owner-level admin accounts.",
+    blocks: [
+      {
+        heading: "What you can do",
+        bullets: [
+          "See all staff accounts.",
+          "Invite new team members.",
+          "Change account roles.",
+          "Deactivate accounts.",
+        ],
+      },
+      {
+        heading: "Account roles",
+        bullets: [
+          "Owner — full access including Team page and all clinic settings.",
+          "Staff/Admin — full access except Team page.",
+          "Doctor — doctor portal only.",
+        ],
+      },
+      {
+        heading: "Inviting a team member",
+        bullets: [
+          "Click Invite.",
+          "Enter their email and select their role.",
+          "They receive an email invitation with login instructions.",
+        ],
+      },
+      {
+        heading: "Security rules",
+        bullets: [
+          "Never share passwords.",
+          "Use reset password if someone forgets.",
+          "Deactivate accounts immediately when someone leaves.",
+          "Only give owner access to people who need it.",
+        ],
+      },
     ],
+    image: "/guide/admin-team.png",
+    imageAlt: "Team page with staff account list",
+    imagePlaceholder: "Screenshot: Team page with staff account list",
+    imageCaption: "Owner-only — manage admin, staff, and doctor logins.",
+    placeholderCompact: true,
+    href: "/admin/team",
   },
   {
-    id: "admin-ai-settings",
-    title: "Admin — AI assistant & settings",
+    id: "admin-ai",
+    title: "AI Assistant",
+    subtitle: "Voice booking statistics",
     roles: ["admin"],
-    bullets: [
-      "AI assistant: configuration for clinic-wide AI features (when enabled).",
-      "Settings: clinic profile, hours, integrations — keep public booking URLs and Twilio/voice settings aligned with production.",
+    description: "The AI Assistant page shows how the AI phone booking system is performing.",
+    blocks: [
+      {
+        heading: "What you see",
+        bullets: [
+          "Total calls today.",
+          "How many calls resulted in a booking.",
+          "How many calls were dropped or failed.",
+          "Recent call log with outcomes.",
+        ],
+      },
+      {
+        heading: "Call log",
+        bullets: [
+          "Call time.",
+          "Caller phone number.",
+          "Outcome (booked, disconnected, failed).",
+          "Transcript of what was said.",
+        ],
+      },
+      {
+        heading: "Use this page to",
+        bullets: [
+          "Monitor if the AI is working correctly.",
+          "See what patients are calling about.",
+          "Identify patterns in failed calls.",
+          "Share data with your developer if something seems wrong.",
+        ],
+      },
+      {
+        heading: "Note",
+        bullets: [
+          "The AI handles new bookings, cancellations, and rescheduling by phone automatically.",
+          "It uses the services and availability already set up in your system.",
+        ],
+      },
     ],
+    image: "/guide/admin-ai.png",
+    imageAlt: "AI assistant page with call stats and call log",
+    imagePlaceholder: "Screenshot: AI assistant page with call stats and recent call log",
+    imageCaption: "Voice booking performance and transcripts.",
+    placeholderCompact: true,
+    href: "/admin/ai",
   },
   {
+    id: "admin-settings",
+    title: "Settings",
+    subtitle: "Clinic profile and integrations",
+    roles: ["admin"],
+    description: "Settings has three tabs: Clinic Profile, Hours, and Integrations.",
+    blocks: [
+      {
+        heading: "Clinic profile tab",
+        bullets: [
+          "Update clinic name, address, phone, and email.",
+          "This information appears on printed bills and patient receipts — keep it accurate.",
+        ],
+      },
+      {
+        heading: "Hours tab",
+        bullets: [
+          "Set business hours for each day of the week.",
+          "Hours affect public booking availability and what the AI voice assistant tells callers.",
+        ],
+      },
+      {
+        heading: "Integrations tab",
+        bullets: [
+          "Square payment connection status.",
+          "Test your Square Terminal connection.",
+          "Other integration settings.",
+        ],
+      },
+      {
+        heading: "Important",
+        bullets: [
+          "After changing settings, refresh the booking site to confirm changes are visible.",
+          "Coordinate Twilio and voice settings changes with your developer before making changes.",
+        ],
+      },
+    ],
+    image: "/guide/admin-settings.png",
+    imageAlt: "Settings page showing clinic profile tab",
+    imagePlaceholder: "Screenshot: Settings page showing clinic profile tab",
+    imageCaption: "Clinic profile, hours, and payment integrations.",
+    placeholderCompact: true,
+    href: "/admin/settings",
+  },
+  {
+    id: "admin-workflow",
+    title: "Daily front desk workflow",
+    subtitle: "Recommended order of operations",
+    roles: ["admin"],
+    blocks: [
+      {
+        heading: "Morning (before clinic opens)",
+        bullets: [
+          "Open the Dashboard — check today's appointment volume.",
+          "Open the Schedule — confirm all appointments are correct.",
+          "Make sure the kiosk tablet is on and showing the kiosk page.",
+        ],
+      },
+      {
+        heading: "When patients arrive",
+        bullets: [
+          "Patient uses the kiosk to check in, OR you check them in from the Schedule.",
+          "Their doctor sees them as ready on their dashboard.",
+          "Doctor starts the visit.",
+        ],
+      },
+      {
+        heading: "After each visit",
+        bullets: [
+          "Doctor completes the visit in their portal.",
+          "Patient comes to front desk to pay.",
+          "Find the invoice in Billing OR it appears as a notification.",
+          "Take payment (card reader, card on file, payment link, or credit).",
+          "Print or email receipt if requested.",
+        ],
+      },
+      {
+        heading: "End of day",
+        bullets: [
+          "Check Billing for any unpaid invoices.",
+          "Note the outstanding balance total.",
+          "Check Dashboard for final revenue total.",
+          "Log out of all devices.",
+        ],
+      },
+      {
+        heading: "Common tasks — quick reference",
+        bullets: [
+          "Add a new patient: Patients → Add Patient.",
+          "Book manually: Schedule → click empty slot → fill form.",
+          "Check in a walk-in: Schedule → find appointment → Check In.",
+          "Reprint an old bill: Billing → search by patient or date → Print.",
+          "Add patient credit: Patients → open patient → Add Credit.",
+          "Block online booking: Booking Blocks → Add Block → select date.",
+        ],
+      },
+    ],
+    image: "/guide/admin-workflow.png",
+    imageAlt: "Admin schedule with check-in action",
+    imagePlaceholder: "Screenshot: Admin schedule with check-in action highlighted",
+    imageCaption: "Example: manual check-in from the schedule.",
+    placeholderCompact: true,
+    href: "/admin/schedule",
+  },
+    {
     id: "doctor-welcome",
     title: "Welcome to your portal",
     roles: ["doctor"],
@@ -717,6 +1298,7 @@ function GuideSectionCard({
   figureIndex?: number;
 }) {
   const showVisual = sectionHasVisual(section);
+  const stackImageBelow = section.placeholderCompact === true;
   const figureLabel =
     figureIndex != null && (section.imageCaption || section.image)
       ? `Figure ${figureIndex} — ${section.title}`
@@ -751,33 +1333,52 @@ function GuideSectionCard({
         ) : null}
       </CardHeader>
       <CardContent className="px-4 pt-4 sm:px-5 sm:pt-5">
-        <div
-          className={
-            showVisual ? "flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6 xl:gap-8" : "space-y-4"
-          }
-        >
-          <div className={showVisual ? "min-w-0 flex-1 space-y-4" : "space-y-4"}>
+        {stackImageBelow ? (
+          <div className="space-y-4">
             <ManualSectionBody section={section} />
+            {showVisual ? (
+              <figure className="m-0 w-full">
+                <GuideScreenshot
+                  src={section.image}
+                  alt={section.imageAlt || section.imagePlaceholder || section.title}
+                  placeholderLabel={section.imagePlaceholder}
+                  layout={section.imageLayout}
+                  figureLabel={figureLabel}
+                  caption={section.imageCaption}
+                  placeholderCompact
+                />
+              </figure>
+            ) : null}
           </div>
-          {showVisual ? (
-            <figure
-              className={
-                section.imageLayout === "portrait"
-                  ? "m-0 w-full shrink-0 lg:max-w-[min(48%,18rem)] xl:max-w-[min(44%,22rem)]"
-                  : "m-0 w-full shrink-0 lg:max-w-[min(46%,20rem)] xl:max-w-[min(42%,26rem)]"
-              }
-            >
-              <GuideScreenshot
-                src={section.image}
-                alt={section.imageAlt || section.imagePlaceholder || section.title}
-                placeholderLabel={section.imagePlaceholder}
-                layout={section.imageLayout}
-                figureLabel={figureLabel}
-                caption={section.imageCaption}
-              />
-            </figure>
-          ) : null}
-        </div>
+        ) : (
+          <div
+            className={
+              showVisual ? "flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6 xl:gap-8" : "space-y-4"
+            }
+          >
+            <div className={showVisual ? "min-w-0 flex-1 space-y-4" : "space-y-4"}>
+              <ManualSectionBody section={section} />
+            </div>
+            {showVisual ? (
+              <figure
+                className={
+                  section.imageLayout === "portrait"
+                    ? "m-0 w-full shrink-0 lg:max-w-[min(48%,18rem)] xl:max-w-[min(44%,22rem)]"
+                    : "m-0 w-full shrink-0 lg:max-w-[min(46%,20rem)] xl:max-w-[min(42%,26rem)]"
+                }
+              >
+                <GuideScreenshot
+                  src={section.image}
+                  alt={section.imageAlt || section.imagePlaceholder || section.title}
+                  placeholderLabel={section.imagePlaceholder}
+                  layout={section.imageLayout}
+                  figureLabel={figureLabel}
+                  caption={section.imageCaption}
+                />
+              </figure>
+            ) : null}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -974,13 +1575,46 @@ function DoctorPortalManual({ sections }: { sections: ManualSection[] }) {
   );
 }
 
+function AdminGuideHero() {
+  return (
+    <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card px-4 py-5 shadow-sm sm:px-6 sm:py-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Admin portal</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">User guide</h2>
+          <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted-foreground sm:text-base">
+            Front desk and owner help — schedule, patients, billing, kiosk, team, and settings.
+          </p>
+        </div>
+        <p className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+          ~12 min read
+        </p>
+      </div>
+      <div className="mt-5 flex flex-wrap gap-2">
+        {ADMIN_QUICK_LINKS.map((link) => {
+          const Icon = link.icon;
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+            >
+              <Icon className="h-4 w-4 text-primary" />
+              {link.label}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AdminPortalManual({ sections }: { sections: ManualSection[] }) {
+  let figureCounter = 0;
+
   return (
     <div className="w-full space-y-5 pb-6">
-      <AdminPageIntro
-        title="User guide"
-        description="How to use the admin portal: schedules, patients, billing, and clinic settings. Keep this page bookmarked for training new staff."
-      />
+      <AdminGuideHero />
 
       <div className="manual-prose rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-card to-card px-3 py-3 sm:px-4 sm:py-4">
         <p className="text-[15px] font-medium text-foreground sm:text-base">On this page</p>
@@ -999,9 +1633,10 @@ function AdminPortalManual({ sections }: { sections: ManualSection[] }) {
       </div>
 
       <div className="stagger-children space-y-4">
-        {sections.map((s) => (
-          <GuideSectionCard key={s.id} section={s} />
-        ))}
+        {sections.map((s) => {
+          const figureIndex = sectionHasVisual(s) ? ++figureCounter : undefined;
+          return <GuideSectionCard key={s.id} section={s} figureIndex={figureIndex} />;
+        })}
       </div>
 
       <p className="text-center text-sm text-muted-foreground">
