@@ -5,8 +5,38 @@ import { HelpTip } from "@/components/help-tip";
 import { IconBot } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatInstantMonthDayYearTime } from "@/lib/format-date";
-import { Fragment, useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+
+const CALLS_PAGE_SIZE = 15;
+
+function formatCallWhen(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function outcomeChipClass(outcome: string): string {
+  if (outcome === "booked") return "bg-emerald-100 text-emerald-800";
+  if (outcome === "disconnected" || outcome === "prompted") return "bg-slate-100 text-slate-600";
+  return "bg-amber-50 text-amber-900";
+}
 
 type VoiceAnalytics = {
   calls_today: number;
@@ -66,7 +96,18 @@ export default function AdminAIPage() {
   const [calls, setCalls] = useState<VoiceCallRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [conversationCall, setConversationCall] = useState<VoiceCallRow | null>(null);
+  const [callsPage, setCallsPage] = useState(0);
+
+  const callsPageCount = Math.max(1, Math.ceil(calls.length / CALLS_PAGE_SIZE));
+  const pagedCalls = useMemo(() => {
+    const start = callsPage * CALLS_PAGE_SIZE;
+    return calls.slice(start, start + CALLS_PAGE_SIZE);
+  }, [calls, callsPage]);
+
+  useEffect(() => {
+    if (callsPage >= callsPageCount) setCallsPage(Math.max(0, callsPageCount - 1));
+  }, [callsPage, callsPageCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,9 +203,16 @@ export default function AdminAIPage() {
           </div>
 
           <div className="admin-panel">
-            <AdminSectionLabel help="Click View conversation to see every caller and Sarah line. Older calls may only show the last caller line.">
-              Recent voice calls
-            </AdminSectionLabel>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <AdminSectionLabel help="Compact summary per call. Open a row to read the full conversation in a popup.">
+                Recent voice calls
+              </AdminSectionLabel>
+              {calls.length > 0 ? (
+                <p className="text-xs font-medium text-slate-500">
+                  {calls.length} total · page {callsPage + 1} of {callsPageCount}
+                </p>
+              ) : null}
+            </div>
             {calls.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200/90 bg-gradient-to-b from-slate-50/60 to-white px-6 py-12 text-center">
                 <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
@@ -177,106 +225,148 @@ export default function AdminAIPage() {
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200/90">
-                <table className="w-full min-w-[900px] border-collapse text-left text-sm">
-                  <thead className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                  <thead className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="px-3 py-2.5">When</th>
-                      <th className="px-3 py-2.5">From</th>
-                      <th className="px-3 py-2.5">Outcome</th>
-                      <th className="px-3 py-2.5">Appointment</th>
-                      <th className="px-3 py-2.5 text-center">Turns</th>
-                      <th className="px-3 py-2.5">Last caller line</th>
-                      <th className="px-3 py-2.5">Conversation</th>
+                      <th className="px-3 py-2">When</th>
+                      <th className="px-3 py-2">From</th>
+                      <th className="px-3 py-2">Outcome</th>
+                      <th className="px-3 py-2">Appt</th>
+                      <th className="px-3 py-2 text-right"> </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {calls.map((row) => {
+                    {pagedCalls.map((row) => {
                       const turns = row.conversation_log?.length ?? 0;
-                      const expanded = expandedId === row.id;
                       return (
-                        <Fragment key={row.id}>
-                          <tr
-                            className={`align-top ${expanded ? "bg-slate-50/80" : "hover:bg-slate-50/50"}`}
-                          >
-                            <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
-                              {formatInstantMonthDayYearTime(row.updated_at)}
-                            </td>
-                            <td className="px-3 py-2.5 font-mono text-xs text-slate-700">
-                              {row.from_number || "—"}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <span className="font-medium text-slate-800">{row.outcome_label}</span>
-                              {row.detail ? (
-                                <p className="mt-0.5 max-w-[12rem] truncate text-xs text-slate-500" title={row.detail}>
-                                  {row.detail}
-                                </p>
-                              ) : null}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">
-                              {row.appointment_id ? `#${row.appointment_id}` : "—"}
-                            </td>
-                            <td className="px-3 py-2.5 text-center text-slate-600">{turns > 0 ? turns : "—"}</td>
-                            <td className="max-w-xs px-3 py-2.5 text-slate-600">
-                              <p className="line-clamp-2 text-xs" title={row.transcript}>
-                                {row.transcript || "—"}
-                              </p>
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-2.5">
-                              <button
-                                type="button"
-                                onClick={() => setExpandedId(expanded ? null : row.id)}
-                                className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        <tr key={row.id} className="hover:bg-slate-50/60">
+                          <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">
+                            {formatCallWhen(row.updated_at)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-700">
+                            {row.from_number || "—"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={cn(
+                                "inline-block max-w-[14rem] truncate rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                outcomeChipClass(row.outcome),
+                              )}
+                              title={row.detail ? `${row.outcome_label} — ${row.detail}` : row.outcome_label}
+                            >
+                              {row.outcome_label}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">
+                            {row.appointment_id ? (
+                              <Link
+                                href={`/admin/schedule?appointment=${row.appointment_id}`}
+                                className="font-medium text-[#16a349] hover:underline"
                               >
-                                {expanded ? "Hide" : turns > 0 ? `View (${turns})` : "View"}
-                              </button>
-                            </td>
-                          </tr>
-                          {expanded ? (
-                            <tr key={`${row.id}-conversation`} className="bg-slate-50/50">
-                              <td colSpan={7} className="px-3 py-4">
-                                {turns === 0 ? (
-                                  <p className="text-sm text-slate-500">
-                                    No full transcript was saved for this call (logging may have started after this
-                                    call).
-                                    {row.transcript ? (
-                                      <>
-                                        {" "}
-                                        Last caller line: <em>{row.transcript}</em>
-                                      </>
-                                    ) : null}
-                                  </p>
-                                ) : (
-                                  <ul className="max-h-[28rem] space-y-2 overflow-y-auto">
-                                    {row.conversation_log.map((turn, i) => (
-                                      <li
-                                        key={`${row.id}-${i}`}
-                                        className={`rounded-lg border px-3 py-2 text-sm ${roleStyles(turn.role)}`}
-                                      >
-                                        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide opacity-80">
-                                          <span>{roleLabel(turn.role)}</span>
-                                          {turn.step ? (
-                                            <span className="normal-case font-normal">· step: {turn.step}</span>
-                                          ) : null}
-                                          {turn.at ? (
-                                            <span className="normal-case font-normal text-slate-500">
-                                              · {formatInstantMonthDayYearTime(turn.at)}
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                        <p className="mt-1 whitespace-pre-wrap leading-relaxed">{turn.text}</p>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </td>
-                            </tr>
-                          ) : null}
-                        </Fragment>
+                                #{row.appointment_id}
+                              </Link>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setConversationCall(row)}
+                              className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                            >
+                              {turns > 0 ? `Transcript (${turns})` : "Transcript"}
+                            </button>
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+              {callsPageCount > 1 ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    disabled={callsPage === 0}
+                    onClick={() => setCallsPage((p) => Math.max(0, p - 1))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-slate-500">
+                    Showing {callsPage * CALLS_PAGE_SIZE + 1}–
+                    {Math.min((callsPage + 1) * CALLS_PAGE_SIZE, calls.length)} of {calls.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={callsPage >= callsPageCount - 1}
+                    onClick={() => setCallsPage((p) => Math.min(callsPageCount - 1, p + 1))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              ) : null}
+
+              <Dialog open={conversationCall !== null} onOpenChange={(open) => !open && setConversationCall(null)}>
+                <DialogContent className="flex max-h-[min(90dvh,40rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+                  {conversationCall ? (
+                    <>
+                      <DialogHeader className="border-b border-slate-100 px-5 py-4 pr-12">
+                        <DialogTitle className="text-base font-semibold text-slate-900">Call transcript</DialogTitle>
+                        <DialogDescription className="text-xs text-slate-600">
+                          {formatInstantMonthDayYearTime(conversationCall.updated_at)} ·{" "}
+                          {conversationCall.from_number || "Unknown number"} · {conversationCall.outcome_label}
+                          {conversationCall.appointment_id ? (
+                            <>
+                              {" "}
+                              ·{" "}
+                              <Link
+                                href={`/admin/schedule?appointment=${conversationCall.appointment_id}`}
+                                className="font-medium text-[#16a349] hover:underline"
+                                onClick={() => setConversationCall(null)}
+                              >
+                                Appt #{conversationCall.appointment_id}
+                              </Link>
+                            </>
+                          ) : null}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                        {(conversationCall.conversation_log?.length ?? 0) === 0 ? (
+                          <p className="text-sm text-slate-500">
+                            No full transcript was saved for this call.
+                            {conversationCall.transcript ? (
+                              <>
+                                {" "}
+                                Last caller line: <em>{conversationCall.transcript}</em>
+                              </>
+                            ) : null}
+                          </p>
+                        ) : (
+                          <ul className="space-y-2">
+                            {conversationCall.conversation_log.map((turn, i) => (
+                              <li
+                                key={`${conversationCall.id}-${i}`}
+                                className={`rounded-lg border px-3 py-2 text-sm ${roleStyles(turn.role)}`}
+                              >
+                                <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                                  <span>{roleLabel(turn.role)}</span>
+                                  {turn.step ? (
+                                    <span className="normal-case font-normal">· {turn.step}</span>
+                                  ) : null}
+                                </div>
+                                <p className="mt-1 whitespace-pre-wrap text-sm leading-snug">{turn.text}</p>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </>
+                  ) : null}
+                </DialogContent>
+              </Dialog>
             )}
           </div>
         </>

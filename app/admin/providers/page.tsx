@@ -76,6 +76,7 @@ export default function AdminProvidersPage() {
   const [transferSubmitting, setTransferSubmitting] = useState(false);
   /** Open “Edit provider” dialog for this id (null = closed). */
   const [editingProviderId, setEditingProviderId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
 
   const bookableServices = useMemo(() => services.filter((s) => s.is_active), [services]);
   const bookableIds = useMemo(() => new Set(bookableServices.map((s) => s.id)), [bookableServices]);
@@ -275,9 +276,28 @@ export default function AdminProvidersPage() {
 
   const legacyServiceCount = (p: Provider) => p.services.filter((id) => !bookableIds.has(id)).length;
 
-  const serviceCountLabel = (p: Provider) => {
-    const n = p.services.length;
-    return `${n} visit type${n === 1 ? "" : "s"} on booking site`;
+  const bookingServiceNames = (p: Provider) =>
+    p.services
+      .filter((id) => bookableIds.has(id))
+      .map((id) => bookableServices.find((s) => s.id === id)?.name)
+      .filter((name): name is string => Boolean(name));
+
+  const filteredProviders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return providers;
+    return providers.filter(
+      (p) =>
+        p.provider_name.toLowerCase().includes(q) ||
+        (p.username || "").toLowerCase().includes(q) ||
+        (p.specialty || "").toLowerCase().includes(q) ||
+        (p.title || "").toLowerCase().includes(q),
+    );
+  }, [providers, search]);
+
+  const openAddDoctor = () => {
+    setError("");
+    setAddForm({ ...emptyAddForm, services: [] });
+    setAddOpen(true);
   };
 
   const editorProvider = useMemo(
@@ -301,71 +321,51 @@ export default function AdminProvidersPage() {
   return (
     <div className="space-y-6">
       <AdminPageIntro
-        title="Providers & services"
-        description="Create doctor logins (username + password) with Add doctor, then assign which online visit types each doctor appears under. To add or change visit names and prices on the public booking site, use Services & codes. In-room billing uses the full procedure list on the doctor dashboard—not these checkboxes."
+        title="Doctors & providers"
+        description="Add doctor logins and choose which visit types each doctor offers on the public booking site."
         pageHelp={
           <>
-            <strong>Add doctor</strong> creates a new login (username + password). Use <strong>Edit provider</strong> for display name, SMS,
-            and <strong>which visit types list this doctor on the website</strong> when patients book online.
-            <br />
-            <br />
-            <strong>Patient bill:</strong> when a doctor is in an active visit, they add or remove procedures (CPT lines) from the{" "}
-            <em>whole</em> active clinic catalog, then complete the visit to print the bill. That workflow is on the doctor dashboard, not
-            here.
-            <br />
-            <br />
-            <strong>Checkboxes here</strong> only control the online booking screen: for each visit type, which doctors patients can choose.
-            They do <em>not</em> limit what can be charged on the bill.
-            <br />
-            <br />
-            <strong>Alert SMS</strong> is the doctor&apos;s mobile for automated texts (Twilio on the server + Celery must be running).
+            <strong>Add doctor</strong> creates username and password. <strong>Edit</strong> updates display name, SMS alerts, credentials,
+            and online booking visit types. Visit names and prices are managed under <strong>Services & codes</strong>.
           </>
         }
       />
 
       {!loading && services.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-3 stagger-children">
-          <div className="rounded-2xl border border-border/90 bg-gradient-to-br from-card to-primary/[0.06] px-4 py-3 shadow-sm ring-1 ring-primary/10">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">Listed providers</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 stagger-children">
+          <div className="rounded-2xl border border-[#16a349]/15 bg-gradient-to-br from-white to-[#ecfdf5]/50 px-4 py-3 shadow-sm ring-1 ring-[#16a349]/10">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#13823d]">Doctors</p>
             <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{providers.length}</p>
             <p className="mt-1 text-xs text-slate-500">
-              {providers.filter((p) => p.active).length} active · {providers.filter((p) => !p.active).length} inactive
+              {providers.filter((p) => p.active).length} on booking · {providers.filter((p) => !p.active).length} hidden
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Active visit types</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bookable visit types</p>
             <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{bookableServices.length}</p>
-            {services.length !== bookableServices.length && (
+            {services.length !== bookableServices.length ? (
               <p className="mt-1 text-xs text-amber-700">
-                {services.length - bookableServices.length} service(s) hidden (inactive) — turn them on or delete under Services & codes.
+                {services.length - bookableServices.length} inactive — manage in Services & codes
               </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">Available to assign to doctors</p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-2 rounded-2xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 shadow-sm sm:col-span-1">
-            <button
-              type="button"
-              onClick={() => {
-                setError("");
-                setAddForm({ ...emptyAddForm, services: [] });
-                setAddOpen(true);
-              }}
-              className="text-sm font-semibold text-primary hover:text-primary/80"
-            >
-              Add doctor
-            </button>
-            <span className="text-slate-300">·</span>
-            <button
-              type="button"
-              onClick={() => void load("refresh")}
-              disabled={refreshing}
-              className="text-sm font-semibold text-muted-foreground hover:text-primary disabled:opacity-50"
-            >
-              {refreshing ? "Refreshing…" : "Refresh"}
-            </button>
-            <span className="text-slate-300">·</span>
-            <Link href="/admin/services" className="text-sm font-semibold text-muted-foreground hover:text-primary">
-              Edit services
-            </Link>
+          <div className="flex items-center rounded-2xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 shadow-sm sm:col-span-2 lg:col-span-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+              <button
+                type="button"
+                onClick={() => void load("refresh")}
+                disabled={refreshing}
+                className="font-semibold text-[#16a349] hover:text-[#13823d] disabled:opacity-50"
+              >
+                {refreshing ? "Refreshing…" : "Refresh list"}
+              </button>
+              <span className="text-slate-300">·</span>
+              <Link href="/admin/services" className="font-semibold text-slate-600 hover:text-[#0d5c2e]">
+                Services & codes →
+              </Link>
+            </div>
           </div>
         </div>
       )}
@@ -419,11 +419,7 @@ export default function AdminProvidersPage() {
               </Link>
               <button
                 type="button"
-                onClick={() => {
-                  setError("");
-                  setAddForm({ ...emptyAddForm, services: [] });
-                  setAddOpen(true);
-                }}
+                onClick={openAddDoctor}
                 className={cn(
                   buttonVariants({ variant: "outline" }),
                   "inline-flex h-auto rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm",
@@ -436,61 +432,157 @@ export default function AdminProvidersPage() {
         </div>
       ) : (
         <>
-          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/30 ring-1 ring-slate-100/80">
-            <div className="border-b border-border/90 bg-gradient-to-r from-muted/40 via-card to-primary/[0.05] px-5 py-4">
-              <AdminSectionLabel help="Each card is one doctor. Edit opens a form for name, SMS, and which visit types show this doctor on the public booking site. Transfer and remove stay inside that form.">
-                Providers
-              </AdminSectionLabel>
-            </div>
-            <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
-              {providers.map((provider) => (
-                <div
-                  key={provider.id}
-                  className="flex flex-col rounded-2xl border border-border/90 bg-card p-4 shadow-sm ring-1 ring-foreground/[0.04] transition-shadow hover:shadow-md"
+          <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 ring-1 ring-slate-100/80">
+            <div className="border-b border-slate-200/90 bg-gradient-to-r from-white via-[#ecfdf5]/30 to-white px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <AdminSectionLabel help="Each card is one doctor. Edit updates their profile, SMS number, and which visit types they offer online.">
+                  Your doctors
+                </AdminSectionLabel>
+                <button
+                  type="button"
+                  onClick={openAddDoctor}
+                  className="shrink-0 rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#13823d]"
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-base font-bold text-teal-800 shadow-inner">
-                      {providerInitial(provider.provider_name)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-slate-900">{provider.provider_name}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">{serviceCountLabel(provider)}</p>
-                      {provider.username ? (
-                        <p className="mt-1 font-mono text-[10px] text-slate-400">Login: {provider.username}</p>
-                      ) : null}
-                      {(provider.title || provider.specialty) && (
-                        <p className="mt-1 line-clamp-2 text-xs text-slate-400">
-                          {[provider.title, provider.specialty].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                            provider.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
-                          }`}
-                        >
-                          {provider.active ? "On public list" : "Hidden from booking"}
-                        </span>
-                        {legacyServiceCount(provider) > 0 ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900">
-                            {legacyServiceCount(provider)} legacy type(s)
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    className="mt-4 h-auto w-full rounded-xl py-2.5 text-sm font-semibold shadow-sm"
-                    onClick={() => {
-                      setError("");
-                      setEditingProviderId(provider.id);
-                    }}
-                  >
-                    Edit provider
-                  </Button>
+                  Add doctor
+                </button>
+              </div>
+              {providers.length > 0 ? (
+                <div className="relative mt-3 max-w-md">
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by name, username, specialty…"
+                    className="admin-input w-full py-2.5 pr-10 text-sm"
+                    aria-label="Search doctors"
+                  />
+                  {search.trim() ? (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                      aria-label="Clear search"
+                      onClick={() => setSearch("")}
+                    >
+                      ×
+                    </button>
+                  ) : null}
                 </div>
-              ))}
+              ) : null}
+            </div>
+
+            <div className="p-4 sm:p-5">
+              {providers.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-14 text-center">
+                  <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#ecfdf5] text-[#0d5c2e]">
+                    <IconStethoscope className="h-7 w-7" />
+                  </span>
+                  <p className="mt-4 text-base font-semibold text-slate-900">No doctors yet</p>
+                  <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-600">
+                    Create the first doctor login, then assign which visit types they appear under on the booking site.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openAddDoctor}
+                    className="mt-6 rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+                  >
+                    Add doctor
+                  </button>
+                </div>
+              ) : filteredProviders.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-sm font-medium text-slate-600">No doctors match your search.</p>
+                  <button
+                    type="button"
+                    className="mt-3 text-sm font-semibold text-[#16a349] hover:text-[#13823d]"
+                    onClick={() => setSearch("")}
+                  >
+                    Clear search
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredProviders.map((provider) => {
+                    const names = bookingServiceNames(provider);
+                    return (
+                      <article
+                        key={provider.id}
+                        className="group flex flex-col rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 p-4 shadow-sm transition hover:border-[#16a349]/30 hover:shadow-md"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#16a349]/20 to-teal-100 text-base font-bold text-[#0d5c2e] ring-1 ring-[#16a349]/15">
+                            {providerInitial(provider.provider_name)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-semibold text-slate-900">{provider.provider_name}</p>
+                            {provider.username ? (
+                              <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500">@{provider.username}</p>
+                            ) : null}
+                            {(provider.title || provider.specialty) && (
+                              <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+                                {[provider.title, provider.specialty].filter(Boolean).join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          <span
+                            className={cn(
+                              "rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                              provider.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600",
+                            )}
+                          >
+                            {provider.active ? "Booking on" : "Booking off"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                            {names.length} visit type{names.length === 1 ? "" : "s"}
+                          </span>
+                          {legacyServiceCount(provider) > 0 ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                              {legacyServiceCount(provider)} legacy
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {names.length > 0 ? (
+                          <ul className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                            {provider.services
+                              .filter((id) => bookableIds.has(id))
+                              .slice(0, 3)
+                              .map((id) => {
+                                const svc = bookableServices.find((s) => s.id === id);
+                                if (!svc) return null;
+                                return (
+                                  <li key={id} className="truncate">
+                                    · {svc.name}
+                                  </li>
+                                );
+                              })}
+                            {names.length > 3 ? (
+                              <li className="font-medium text-slate-500">+ {names.length - 3} more</li>
+                            ) : null}
+                          </ul>
+                        ) : (
+                          <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                            No visit types assigned for online booking yet.
+                          </p>
+                        )}
+
+                        <button
+                          type="button"
+                          className="mt-4 w-full rounded-xl border border-[#16a349]/25 bg-[#ecfdf5]/60 py-2.5 text-sm font-semibold text-[#0d5c2e] transition group-hover:bg-[#d1fae5]"
+                          onClick={() => {
+                            setError("");
+                            setEditingProviderId(provider.id);
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -511,8 +603,7 @@ export default function AdminProvidersPage() {
                         {editorProvider.provider_name}
                       </DialogTitle>
                       <DialogDescription className="text-sm text-slate-600">
-                        Update display name, SMS alerts, and which online visit types list this doctor when patients book. Login username is
-                        not changed here. The in-room patient bill is built on the doctor dashboard from the full clinic service list.
+                        Update how this doctor appears on schedules and the booking site. Username cannot be changed here.
                       </DialogDescription>
                       {editorProvider.username ? (
                         <p className="pt-1 font-mono text-xs text-slate-500">Username: {editorProvider.username}</p>
@@ -603,19 +694,11 @@ export default function AdminProvidersPage() {
                       />
                     </div>
 
-                    <div className="rounded-xl border border-sky-200/80 bg-sky-50/90 px-3 py-2.5 text-xs leading-relaxed text-sky-950">
-                      <span className="font-semibold">Website booking only.</span> These choices decide when this doctor appears as an option
-                      after a patient picks a visit type online. The printable patient bill is filled during the visit on the doctor
-                      dashboard using every active procedure from Services & codes—not limited by this list.
-                    </div>
-
                     <div>
                       <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Show on booking site for these visit types
-                        <HelpTip label="Online booking list">
-                          The clinic defines all services under Services & codes. Check a box so this doctor is offered when a patient
-                          books that visit type on the website. Unchecked means they won&apos;t appear for that type online—it does not
-                          stop them from adding that procedure to the bill during a visit.
+                        Online booking visit types
+                        <HelpTip label="Online booking">
+                          Check each visit type this doctor should appear under when patients book on the website.
                         </HelpTip>
                       </p>
                       <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-slate-200/90 bg-slate-50/60 p-3 sm:max-h-64">
@@ -719,16 +802,21 @@ export default function AdminProvidersPage() {
       )}
 
       <Dialog open={addOpen} onOpenChange={onAddDialogOpenChange}>
-        <DialogContent showCloseButton={!addSubmitting} className="gap-0 border-slate-200">
-          <DialogHeader>
-            <DialogTitle id="add-doctor-title">Add doctor</DialogTitle>
-            <DialogDescription>
-              Owner or staff can use this to create a <strong>doctor</strong> account. They sign in at the same site with the username and
-              password you enter below, then tick which online visit types list them for patients.
+        <DialogContent
+          showCloseButton={!addSubmitting}
+          className="gap-0 overflow-hidden border-slate-200 p-0 sm:max-w-lg"
+        >
+          <DialogHeader className="border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 pr-12">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#13823d]">New account</p>
+            <DialogTitle id="add-doctor-title" className="text-xl font-bold text-slate-900">
+              Add doctor
+            </DialogTitle>
+            <DialogDescription className="text-sm text-slate-600">
+              Creates a login they can use on the doctor portal. Assign visit types for online booking below.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="mt-5 space-y-4">
+          <div className="max-h-[min(60dvh,28rem)] space-y-4 overflow-y-auto px-5 py-5">
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Username</label>
                 <input
@@ -816,11 +904,8 @@ export default function AdminProvidersPage() {
               </div>
               {bookableServices.length > 0 && (
                 <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    List on booking site for these visit types
-                  </p>
-                  <p className="mb-2 text-[11px] leading-snug text-slate-500">
-                    Optional. Patients only see this doctor for checked types when booking online. Does not affect the in-room patient bill.
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Online booking visit types (optional)
                   </p>
                   <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-slate-200/90 bg-slate-50/50 p-3">
                     {bookableServices.map((s) => (
@@ -837,9 +922,9 @@ export default function AdminProvidersPage() {
                   </div>
                 </div>
               )}
-            </div>
+          </div>
 
-          <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-border/60 pt-4">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-4">
             <Button
               type="button"
               variant="outline"
@@ -853,7 +938,7 @@ export default function AdminProvidersPage() {
               type="button"
               disabled={addSubmitting}
               onClick={() => void submitAddDoctor()}
-              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm"
+              className="h-auto rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
             >
               {addSubmitting ? "Adding…" : "Create doctor"}
             </Button>

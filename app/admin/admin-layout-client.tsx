@@ -106,7 +106,7 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <div className="flex min-h-[100dvh] min-h-screen">
+      <div className="flex h-[100dvh] overflow-hidden">
         <Sidebar
           title="Relief Chiropractic"
           groups={sidebarGroups}
@@ -121,7 +121,7 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
             onSidebarToggle={() => setSidebarOpen(!sidebarOpen)}
             onLogout={handleLogout}
           />
-          <main className="admin-zone flex-1">
+          <main className="admin-zone min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div
               className={cn(
                 "mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-6 pb-12 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",

@@ -5,6 +5,13 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -65,6 +72,7 @@ export default function AdminServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Service | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
@@ -130,13 +138,21 @@ export default function AdminServicesPage() {
     return `Showing ${n} of ${total} visit type${total === 1 ? "" : "s"}`;
   }, [services.length, filtered.length, search, quickFilter]);
 
-  const startNew = () => {
+  const closeForm = () => {
+    setFormOpen(false);
     setEditing(null);
     setForm({ ...emptyForm });
     setError("");
   };
 
-  const startEdit = (s: Service) => {
+  const openCreate = () => {
+    setEditing(null);
+    setForm({ ...emptyForm });
+    setError("");
+    setFormOpen(true);
+  };
+
+  const openEdit = (s: Service) => {
     setEditing(s);
     setForm({
       name: s.name,
@@ -154,6 +170,7 @@ export default function AdminServicesPage() {
       charges_patient: s.charges_patient !== false,
     });
     setError("");
+    setFormOpen(true);
   };
 
   const save = async () => {
@@ -187,7 +204,7 @@ export default function AdminServicesPage() {
           await apiPost("/services/", payload);
         }
         await load();
-        startNew();
+        closeForm();
       },
       {
         loadingMessage: isEdit ? "Updating visit type…" : "Adding visit type…",
@@ -204,7 +221,7 @@ export default function AdminServicesPage() {
       async () => {
         await apiDelete(`/services/${id}/`);
         await load();
-        if (editing?.id === id) startNew();
+        if (editing?.id === id) closeForm();
       },
       {
         loadingMessage: "Removing visit type…",
@@ -284,17 +301,15 @@ export default function AdminServicesPage() {
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_min(26rem,100%)]">
-        {/* List */}
-        <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 ring-1 ring-slate-100/80">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 ring-1 ring-slate-100/80">
           <div className="sticky top-0 z-10 border-b border-slate-200/90 bg-white/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/85">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <AdminSectionLabel help="Use filters and search to narrow the list. Edit loads the row into the form on the right (or below on small screens). Add service starts a blank form.">
+              <AdminSectionLabel help="Use filters and search to narrow the list. Edit or Add service opens a popup form — close with Esc, X, or Cancel when done.">
                 Visit types
               </AdminSectionLabel>
               <button
                 type="button"
-                onClick={startNew}
+                onClick={openCreate}
                 className="shrink-0 rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-[#13823d]"
               >
                 Add service
@@ -364,7 +379,7 @@ export default function AdminServicesPage() {
                 <p className="mt-2 text-sm text-slate-500">Add your first visit type to enable booking and provider assignment.</p>
                 <button
                   type="button"
-                  onClick={startNew}
+                  onClick={openCreate}
                   className="mt-6 rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
                 >
                   Add service
@@ -387,7 +402,7 @@ export default function AdminServicesPage() {
             ) : (
               <ul className="space-y-2">
                 {filtered.map((s, idx) => {
-                  const selected = editing?.id === s.id;
+                  const selected = formOpen && editing?.id === s.id;
                   const st = s.service_type === "massage" ? "Massage" : "Chiropractic";
                   const visChiro = s.visible_to_chiropractic_staff !== false;
                   const visMassage = s.visible_to_massage_staff !== false;
@@ -470,7 +485,7 @@ export default function AdminServicesPage() {
                         <div className="flex shrink-0 gap-2">
                           <button
                             type="button"
-                            onClick={() => startEdit(s)}
+                            onClick={() => openEdit(s)}
                             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                           >
                             Edit
@@ -490,37 +505,31 @@ export default function AdminServicesPage() {
               </ul>
             )}
           </div>
-        </div>
+      </div>
 
-        {/* Form */}
-        <div className="xl:sticky xl:top-24 xl:z-[5] xl:self-start">
-          <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-lg shadow-slate-200/30 ring-1 ring-slate-100/80">
-            <div className="border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 sm:px-6">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#13823d]">
-                    {isNew ? "Create" : "Editing"}
-                  </p>
-                  <h2 className="mt-1 text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
-                    {isNew ? "New visit type" : editing?.name ?? "Service"}
-                  </h2>
-                  {!isNew && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      ID {editing?.id} · Save updates booking and billing everywhere this type is used.
-                    </p>
-                  )}
-                  {isNew && (
-                    <p className="mt-1 text-xs text-slate-500">Fill in at least the name, then save. You can refine flags after.</p>
-                  )}
-                </div>
-                <HelpTip label="Form overview" align="center">
-                  <strong>Service name</strong> is what doctors and schedules use. <strong>Patient-facing name</strong> (optional) overrides
-                  the label on the public booking site and patient texts only. Duration and price apply everywhere. Billing code is internal.
-                </HelpTip>
-              </div>
+      <Dialog open={formOpen} onOpenChange={(open) => !open && closeForm()}>
+        <DialogContent className="sm:max-w-2xl sm:max-h-[min(calc(100dvh-2rem),52rem)] p-0 gap-0 overflow-hidden">
+          <DialogHeader className="border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 pr-12 sm:px-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#13823d]">
+              {isNew ? "Create" : "Editing"}
+            </p>
+            <DialogTitle className="mt-1 text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
+              {isNew ? "New visit type" : editing?.name ?? "Service"}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              {isNew
+                ? "Fill in at least the name, then save. You can refine flags after."
+                : `ID ${editing?.id} · Save updates booking and billing everywhere this type is used.`}
+            </DialogDescription>
+            <div className="absolute top-4 right-12 hidden sm:block">
+              <HelpTip label="Form overview" align="center">
+                <strong>Service name</strong> is what doctors and schedules use. <strong>Patient-facing name</strong> (optional) overrides
+                the label on the public booking site and patient texts only. Duration and price apply everywhere. Billing code is internal.
+              </HelpTip>
             </div>
+          </DialogHeader>
 
-            <div className="space-y-5 p-5 sm:p-6">
+          <div className="space-y-5 overflow-y-auto p-5 sm:p-6">
               <div className="rounded-xl border border-slate-200/80 bg-slate-50/40 p-4 ring-1 ring-slate-100/60">
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">Basics</p>
                 <div className="space-y-4">
@@ -760,37 +769,44 @@ export default function AdminServicesPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-4 sm:px-6">
-              <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-4 sm:px-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={save}
+                disabled={isSaving}
+                className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {isSaving ? "Saving…" : isNew ? "Create visit type" : "Save changes"}
+              </button>
+              {!isNew && (
                 <button
                   type="button"
-                  onClick={save}
-                  disabled={isSaving}
-                  className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-[#13823d] disabled:opacity-50"
+                  disabled={!formDirty || isSaving}
+                  onClick={() => editing && openEdit(editing)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
                 >
-                  {isSaving ? "Saving…" : isNew ? "Create visit type" : "Save changes"}
+                  Reset
                 </button>
-                {!isNew && (
-                  <button
-                    type="button"
-                    disabled={!formDirty || isSaving}
-                    onClick={() => editing && startEdit(editing)}
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    Reset
-                  </button>
-                )}
-                <HelpTip label="Save">
-                  Writes to the server and refreshes the list. New rows appear immediately for provider assignment if active.
-                </HelpTip>
-              </div>
-              {!isNew && formDirty && (
-                <span className="text-xs font-medium text-amber-800">You have unsaved changes</span>
               )}
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={closeForm}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <HelpTip label="Save">
+                Writes to the server and refreshes the list. New rows appear immediately for provider assignment if active.
+              </HelpTip>
             </div>
+            {!isNew && formDirty && (
+              <span className="text-xs font-medium text-amber-800">You have unsaved changes</span>
+            )}
           </div>
-        </div>
-      </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -192,8 +192,8 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
       ? `${esc(b.patient_name)} #${b.patient_id}`
       : esc(b.patient_name);
 
-  const providerBillingId = (b.provider_billing_id || b.employer_tax_id || "").trim();
-  const employerId = (b.employer_tax_id || "").trim();
+  /** Printed as Provider/Office Employer ID# (clinic or per-doctor provider billing id). */
+  const providerOfficeEmployerId = (b.provider_billing_id || b.employer_tax_id || "").trim();
   const discountAmt = parseFloat((b.discount || "0").replace(/,/g, "")) || 0;
 
   const rows = b.lines
@@ -217,13 +217,12 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
       ? `<section class="prov">
     <h2 class="sec-title">Provider</h2>
     <p class="prov-line"><strong>Provider:</strong> ${esc(b.provider_name!)}${providerCred} — ${esc(clinicStreetCity)}</p>
-    <p class="prov-line"><strong>Provider ID:</strong> ${providerBillingId ? esc(providerBillingId) : "—"}</p>
-    <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${employerId ? esc(employerId) : "—"}</p>
+    <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${providerOfficeEmployerId ? esc(providerOfficeEmployerId) : "—"}</p>
   </section>`
-      : providerBillingId
+      : providerOfficeEmployerId
         ? `<section class="prov">
     <h2 class="sec-title">Provider</h2>
-    <p class="prov-line"><strong>Provider ID:</strong> ${esc(providerBillingId)}</p>
+    <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${esc(providerOfficeEmployerId)}</p>
   </section>`
         : "";
 
@@ -394,7 +393,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
 
   <div class="meta-lines">
     <p><span class="lbl">Billing Date:</span> ${esc(billingDate)}</p>
-    <p><span class="lbl">Provider ID:</span> ${providerBillingId ? esc(providerBillingId) : "—"}</p>
+    <p><span class="lbl">Provider/Office Employer ID#:</span> ${providerOfficeEmployerId ? esc(providerOfficeEmployerId) : "—"}</p>
     <p><span class="lbl">Patient:</span> ${patientLine}</p>
     <p><span class="lbl">Address:</span> ${esc(patientAddressForPrint)}</p>
   </div>
