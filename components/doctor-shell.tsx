@@ -12,6 +12,7 @@ export function DoctorPageIntro({
   description,
   pageHelp,
   children,
+  dense,
 }: {
   eyebrow?: string;
   title: string;
@@ -19,9 +20,11 @@ export function DoctorPageIntro({
   /** Click the small “i” next to the title for extra context */
   pageHelp?: React.ReactNode;
   children?: React.ReactNode;
+  /** Tighter spacing for long-form pages (e.g. user guide) */
+  dense?: boolean;
 }) {
   return (
-    <header className="mb-8 animate-fade-in-up sm:mb-10">
+    <header className={dense ? "mb-4 animate-fade-in-up sm:mb-5" : "mb-8 animate-fade-in-up sm:mb-10"}>
       {eyebrow ? (
         <p className="mb-1 text-[13px] font-semibold uppercase tracking-[0.18em] text-primary leading-normal">{eyebrow}</p>
       ) : null}
@@ -33,7 +36,15 @@ export function DoctorPageIntro({
           </HelpTip>
         ) : null}
       </div>
-      <p className="mt-3 max-w-2xl text-[14px] leading-relaxed text-muted-foreground">{description}</p>
+      <p
+        className={
+          dense
+            ? "mt-2 max-w-none text-[15px] leading-relaxed text-muted-foreground sm:mt-3 sm:text-base"
+            : "mt-3 max-w-2xl text-[14px] leading-relaxed text-muted-foreground"
+        }
+      >
+        {description}
+      </p>
       {children ? <div className="mt-8">{children}</div> : null}
     </header>
   );

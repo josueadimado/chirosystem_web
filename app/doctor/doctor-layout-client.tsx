@@ -29,6 +29,7 @@ const PAGE_TITLES: Record<string, string> = {
 export function DoctorLayoutClient({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const pathname = usePathname();
+  const isUserGuide = pathname === "/doctor/manual";
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
@@ -50,7 +51,10 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
         <main className="doctor-zone min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24">
           <div
             className={cn(
-              "mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-6 pb-12 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",
+              "mx-auto w-full py-6 pb-12",
+              isUserGuide
+                ? "max-w-none px-3 pb-8 sm:px-4 lg:px-5"
+                : "max-w-7xl px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",
               PORTAL_ZONE_CLASSES,
             )}
           >

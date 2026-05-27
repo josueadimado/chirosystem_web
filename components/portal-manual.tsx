@@ -28,13 +28,15 @@ type ManualSection = {
   imageAlt?: string;
   /** Shown until the screenshot file exists at `image` */
   imagePlaceholder?: string;
+  /** Tall full-page captures (e.g. dashboard) — show more height in the preview */
+  imageLayout?: "landscape" | "portrait";
 };
 
 function ManualSectionBody({ section }: { section: ManualSection }) {
   return (
     <>
       {section.bullets?.length ? (
-        <ul className="manual-prose list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
+        <ul className="manual-prose list-inside list-disc space-y-2.5 text-[15px] leading-relaxed text-foreground marker:text-primary sm:text-base">
           {section.bullets.map((b, i) => (
             <li key={`${section.id}-top-${i}`}>{b}</li>
           ))}
@@ -42,8 +44,8 @@ function ManualSectionBody({ section }: { section: ManualSection }) {
       ) : null}
       {section.blocks?.map((block) => (
         <section key={`${section.id}-${block.heading}`} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">{block.heading}</h3>
-          <ul className="manual-prose mt-2 list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
+          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-foreground sm:text-sm">{block.heading}</h3>
+          <ul className="manual-prose mt-2 list-inside list-disc space-y-2.5 text-[15px] leading-relaxed text-foreground marker:text-primary sm:text-base">
             {block.bullets.map((b, i) => (
               <li key={`${section.id}-${block.heading}-${i}`}>{b}</li>
             ))}
@@ -76,11 +78,21 @@ function GuideScreenshot({
   src,
   alt,
   placeholderLabel,
+  layout = "landscape",
 }: {
   src?: string;
   alt: string;
   placeholderLabel?: string;
+  layout?: "landscape" | "portrait";
 }) {
+  const frameClass =
+    layout === "portrait"
+      ? "relative block aspect-[3/4] max-h-[min(32rem,70vh)] w-full overflow-hidden rounded-md bg-slate-100 sm:aspect-[2/3]"
+      : "relative block aspect-video w-full overflow-hidden rounded-md bg-slate-100";
+  const imgClass =
+    layout === "portrait"
+      ? "object-contain object-top transition group-hover:opacity-95"
+      : "object-cover object-top transition group-hover:opacity-95";
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(!src);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -111,13 +123,13 @@ function GuideScreenshot({
         className="group block w-full rounded-lg border border-slate-200/90 bg-white p-1 shadow-md shadow-black/10 transition hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#16a349]/40"
         aria-label={`View full size: ${alt}`}
       >
-        <span className="relative block aspect-video w-full overflow-hidden rounded-md bg-slate-100">
+        <span className={frameClass}>
           {!loaded ? <GuideScreenshotPlaceholder label={placeholderLabel || alt} /> : null}
           <Image
             src={src}
             alt={alt}
             fill
-            className={`object-cover object-top transition group-hover:opacity-95 ${loaded ? "opacity-100" : "opacity-0"}`}
+            className={`${imgClass} ${loaded ? "opacity-100" : "opacity-0"}`}
             sizes="(max-width: 1024px) 100vw, 360px"
             onLoad={() => setLoaded(true)}
             onError={() => setFailed(true)}
@@ -278,6 +290,7 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/doctor-dashboard.png",
     imageAlt: "Doctor dashboard showing today's appointment list with action buttons",
     imagePlaceholder: "Screenshot: Doctor dashboard — appointment list with action buttons",
+    imageLayout: "portrait",
     blocks: [
       {
         heading: "Viewing a different day",
@@ -654,7 +667,6 @@ function sectionHasVisual(s: ManualSection) {
 
 export function PortalManual({ role }: { role: PortalRole }) {
   const sections = SECTIONS.filter((s) => s.roles.includes(role));
-  const hasGuideImages = sections.some(sectionHasVisual);
   const intro =
     role === "admin" ? (
       <AdminPageIntro
@@ -666,15 +678,16 @@ export function PortalManual({ role }: { role: PortalRole }) {
         eyebrow="Help"
         title="User guide"
         description="How to use your doctor portal: dashboard, schedule, patients, charts, analytics, payments, and the check-in kiosk."
+        dense
       />
     );
 
   return (
-    <div className={`mx-auto space-y-8 pb-8 ${hasGuideImages ? "max-w-5xl" : "max-w-3xl"}`}>
+    <div className="w-full space-y-5 pb-6">
       {intro}
 
-      <div className="manual-prose rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-card to-card px-4 py-4 sm:px-5 sm:py-5">
-        <p className="text-sm font-medium text-foreground">On this page</p>
+      <div className="manual-prose rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-card to-card px-3 py-3 sm:px-4 sm:py-4">
+        <p className="text-[15px] font-medium text-foreground sm:text-base">On this page</p>
         <ul className="mt-2 flex flex-wrap gap-2">
           {sections.map((s) => (
             <li key={s.id}>
@@ -689,35 +702,49 @@ export function PortalManual({ role }: { role: PortalRole }) {
         </ul>
       </div>
 
-      <div className="stagger-children space-y-5">
+      <div className="stagger-children space-y-4">
         {sections.map((s) => {
           const showVisual = sectionHasVisual(s);
           return (
-            <Card key={s.id} id={s.id} className="scroll-mt-24 border-border/90 shadow-md shadow-black/[0.05]">
-              <CardHeader className="border-b border-border/60 bg-muted/30">
-                <CardTitle className="text-lg">{s.title}</CardTitle>
+            <Card
+              key={s.id}
+              id={s.id}
+              size="sm"
+              className="scroll-mt-24 border-border/90 py-4 shadow-md shadow-black/[0.05] sm:py-5"
+            >
+              <CardHeader className="border-b border-border/60 bg-muted/30 px-4 sm:px-5 [.border-b]:pb-3">
+                <CardTitle className="text-xl font-semibold sm:text-[1.35rem]">{s.title}</CardTitle>
                 {s.subtitle ? (
-                  <p className="text-sm font-medium text-muted-foreground">{s.subtitle}</p>
+                  <p className="text-[15px] font-medium text-muted-foreground sm:text-base">{s.subtitle}</p>
                 ) : null}
-                {s.description ? <CardDescription className="text-base leading-relaxed">{s.description}</CardDescription> : null}
+                {s.description ? (
+                  <CardDescription className="text-[15px] leading-relaxed sm:text-base">{s.description}</CardDescription>
+                ) : null}
               </CardHeader>
-              <CardContent className="pt-5">
+              <CardContent className="px-4 pt-4 sm:px-5 sm:pt-5">
                 <div
                   className={
                     showVisual
-                      ? "flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8"
-                      : "space-y-5"
+                      ? "flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6 xl:gap-8"
+                      : "space-y-4"
                   }
                 >
-                  <div className={showVisual ? "min-w-0 flex-1 space-y-5" : "space-y-5"}>
+                  <div className={showVisual ? "min-w-0 flex-1 space-y-4" : "space-y-4"}>
                     <ManualSectionBody section={s} />
                   </div>
                   {showVisual ? (
-                    <div className="w-full shrink-0 lg:max-w-[min(42%,22rem)]">
+                    <div
+                      className={
+                        s.imageLayout === "portrait"
+                          ? "w-full shrink-0 lg:max-w-[min(48%,18rem)] xl:max-w-[min(44%,22rem)]"
+                          : "w-full shrink-0 lg:max-w-[min(46%,20rem)] xl:max-w-[min(42%,26rem)]"
+                      }
+                    >
                       <GuideScreenshot
                         src={s.image}
                         alt={s.imageAlt || s.imagePlaceholder || s.title}
                         placeholderLabel={s.imagePlaceholder}
+                        layout={s.imageLayout}
                       />
                     </div>
                   ) : null}
