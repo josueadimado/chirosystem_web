@@ -27,6 +27,14 @@ export function parseApiDateOnly(isoDate: string): Date {
   return new Date(s);
 }
 
+/** API date (YYYY-MM-DD) → US slash form for typing/paste, e.g. 05/09/1971. */
+export function formatIsoAsUsSlash(isoDate: string | null | undefined): string {
+  const s = isoDate == null ? "" : String(isoDate).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  const [y, m, d] = s.split("-");
+  return `${parseInt(m, 10)}/${parseInt(d, 10)}/${y}`;
+}
+
 /** "April 30, 2026" from a date-only API value. */
 export function formatMonthDayYear(isoDate: string | null | undefined): string {
   if (isoDate == null || String(isoDate).trim() === "") return "—";

@@ -53,8 +53,17 @@ export type PatientBillPayload = {
   tax: string;
   total_amount: string;
   status?: string;
+  /** All documented charges (patient + insurance-only lines). */
+  bill_charges_total?: string;
+  /** Amount the client pays at Relief Chiropractic (after discount). */
+  patient_charge_total?: string;
+  /** Insurance-only line totals (not charged to the patient). */
+  insurance_remaining_total?: string;
+  /** Card/cash/online + wallet credit actually received. */
+  payments_received_total?: string;
+  /** @deprecated Use insurance_remaining_total — kept for older API responses. */
   insurance_payments_total?: string;
-  /** Card/cash/online payments recorded on the invoice (successful). */
+  /** @deprecated On print = patient_charge_total (clinic charge, not payments received). */
   patient_payments_total?: string;
   payments_card_cash_total?: string;
 };
@@ -229,9 +238,17 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   const chargesTitle = esc(`Charges for Bill #${b.invoice_number}`);
   const totalsTitle = esc(`Bill #${b.invoice_number} Totals`);
 
-  const insPay = moneyLabel(b.insurance_payments_total ?? "0.00");
-  const patientPay = moneyLabel(b.patient_payments_total ?? "0.00");
+  const billCharges = moneyLabel(b.bill_charges_total ?? b.subtotal);
+  const patientCharge = moneyLabel(
+    b.patient_charge_total ?? b.patient_payments_total ?? b.total_amount,
+  );
+  const insuranceRemaining = moneyLabel(
+    b.insurance_remaining_total ?? b.insurance_payments_total ?? "0.00",
+  );
+  const paymentsReceived = moneyLabel(b.payments_received_total ?? "0.00");
   const adjustments = moneyLabel(b.discount ?? "0.00");
+  const showPaymentsReceived =
+    parseFloat((b.payments_received_total ?? "0").replace(/,/g, "")) > 0;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -426,36 +443,40 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
     </thead>
     <tbody>
       <tr>
-        <td class="lab">Bill Charges</td>
-        <td class="amt">${moneyLabel(b.subtotal)}</td>
+        <td class="lab">Bill Charges (total documented)</td>
+        <td class="amt">${billCharges}</td>
       </tr>
       <tr>
         <td class="lab">Sales Tax (*)</td>
         <td class="amt">${moneyLabel(b.tax)}</td>
       </tr>
       <tr>
-        <td class="lab">Ins Co. Payments</td>
-        <td class="amt">${insPay}</td>
-      </tr>
-      <tr>
-        <td class="lab">Patient Payments</td>
-        <td class="amt">${patientPay}</td>
+        <td class="lab">Patient Payments (Relief Chiropractic)</td>
+        <td class="amt">${patientCharge}</td>
       </tr>
       <tr>
         <td class="lab">Adjustments${discountAmt > 0 ? " (discount)" : ""}</td>
         <td class="amt">${adjustments}</td>
       </tr>
       <tr class="balance">
-        <td class="lab">Balance Due</td>
-        <td class="amt">${moneyLabel(b.total_amount)}</td>
+        <td class="lab">Remaining balance (insurance)</td>
+        <td class="amt">${insuranceRemaining}</td>
       </tr>
+      ${
+        showPaymentsReceived
+          ? `<tr>
+        <td class="lab">Payments received</td>
+        <td class="amt">${paymentsReceived}</td>
+      </tr>`
+          : ""
+      }
     </tbody>
   </table>
 
   ${providerBlock}
 
   <p class="foot">
-    (*) Tax shown per clinic settings. Insurance carrier payments are not itemized on this statement unless recorded separately.
+    (*) Tax per clinic settings. Patient Payments = amount charged at Relief Chiropractic. Remaining balance = insurance-only services on this bill (not charged to the patient).
     ${b.status ? ` Invoice status: ${esc(b.status)}.` : ""}
     Generated ${esc(formatNowMonthDayYearTime())}.
   </p>

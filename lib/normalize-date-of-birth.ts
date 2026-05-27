@@ -1,5 +1,5 @@
-/** Normalize pasted or typed birth dates to YYYY-MM-DD for date inputs and the API. */
-export function normalizeDateOfBirthInput(raw: string): string | null {
+/** Normalize pasted or typed US dates (MM/DD/YYYY) to YYYY-MM-DD for the API. */
+export function normalizeUsDateInput(raw: string): string | null {
   const s = raw
     .trim()
     .replace(/^["'([{]+|["')\]}]+$/g, "")
@@ -29,7 +29,7 @@ export function normalizeDateOfBirthInput(raw: string): string | null {
 
   const isoHead = s.match(/^(\d{4}-\d{2}-\d{2})/);
   if (isoHead) {
-    return normalizeDateOfBirthInput(isoHead[1]);
+    return normalizeUsDateInput(isoHead[1]);
   }
 
   const t = Date.parse(s);
@@ -43,3 +43,6 @@ export function normalizeDateOfBirthInput(raw: string): string | null {
 
   return null;
 }
+
+/** @deprecated Use normalizeUsDateInput — kept for existing imports. */
+export const normalizeDateOfBirthInput = normalizeUsDateInput;

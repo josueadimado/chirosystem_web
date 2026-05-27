@@ -6,7 +6,7 @@ import {
   formatMaritalStatus,
   formatPatientAge,
 } from "@/lib/patient-demographics";
-import { normalizeDateOfBirthInput } from "@/lib/normalize-date-of-birth";
+import { UsDateInput } from "@/components/us-date-input";
 import { useEffect, useMemo, useState } from "react";
 
 const inputClass =
@@ -161,11 +161,11 @@ export function PatientDemographicsEditor({
               <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
                 Date established
               </span>
-              <input
-                type="date"
+              <UsDateInput
                 className={inputClass}
                 value={form.date_established}
-                onChange={(e) => setForm((f) => ({ ...f, date_established: e.target.value }))}
+                onChange={(iso) => setForm((f) => ({ ...f, date_established: iso }))}
+                aria-label="Date established"
               />
               <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
                 {patient.first_appointment_date ? (
@@ -235,18 +235,11 @@ export function PatientDemographicsEditor({
             <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
               Date of birth
             </span>
-            <input
-              type="date"
+            <UsDateInput
               className={inputClass}
               value={form.date_of_birth}
-              onChange={(e) => setForm((f) => ({ ...f, date_of_birth: e.target.value }))}
-              onPaste={(e) => {
-                const normalized = normalizeDateOfBirthInput(e.clipboardData.getData("text/plain"));
-                if (normalized) {
-                  e.preventDefault();
-                  setForm((f) => ({ ...f, date_of_birth: normalized }));
-                }
-              }}
+              onChange={(iso) => setForm((f) => ({ ...f, date_of_birth: iso }))}
+              aria-label="Date of birth"
             />
           </label>
           <label>

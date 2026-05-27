@@ -46,6 +46,10 @@ type BillingInvoiceRow = {
   tax: string;
   issued_at: string | null;
   paid_at: string | null;
+  bill_charges_total?: string;
+  patient_charge_total?: string;
+  insurance_remaining_total?: string;
+  payments_received_total?: string;
 };
 
 function formatMoney(amount: string): string {
@@ -71,12 +75,65 @@ function invoiceKindLabel(kind: string): string {
   }
 }
 
-type ListFilter = "all" | "open" | "paid";
+type ListFilter = "all" | "open" | "paid" | "overdue";
+
+type KindFilter = "" | "visit" | "no_show_fee" | "late_cancel_fee";
+
+const KIND_FILTER_OPTIONS: { value: KindFilter; label: string }[] = [
+  { value: "", label: "All types" },
+  { value: "visit", label: "Visit" },
+  { value: "no_show_fee", label: "No-show fee" },
+  { value: "late_cancel_fee", label: "Late cancel fee" },
+];
 
 function matchesListFilter(inv: BillingInvoiceRow, filter: ListFilter): boolean {
   if (filter === "all") return true;
   if (filter === "paid") return inv.status === "paid";
+  if (filter === "overdue") return inv.status === "overdue";
   return inv.status === "issued" || inv.status === "overdue" || inv.status === "draft";
+}
+
+function parseMoneyNum(amount: string | undefined): number {
+  if (amount == null || String(amount).trim() === "") return 0;
+  const n = parseFloat(amount);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function matchesBillingSearch(inv: BillingInvoiceRow, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const hay = `${inv.patient_name} ${inv.invoice_number} ${inv.patient_id}`.toLowerCase();
+  return hay.includes(q);
+}
+
+function matchesVisitDateRange(
+  inv: BillingInvoiceRow,
+  from: string,
+  to: string,
+): boolean {
+  const d = inv.appointment_date;
+  if (!d) return !from && !to;
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
+function hasActiveBillingFilters(args: {
+  search: string;
+  listFilter: ListFilter;
+  kindFilter: KindFilter;
+  visitDateFrom: string;
+  visitDateTo: string;
+  insuranceOnly: boolean;
+}): boolean {
+  return (
+    args.search.trim() !== "" ||
+    args.listFilter !== "all" ||
+    args.kindFilter !== "" ||
+    args.visitDateFrom !== "" ||
+    args.visitDateTo !== "" ||
+    args.insuranceOnly
+  );
 }
 
 export default function AdminBillingPage() {
@@ -97,10 +154,23 @@ export default function AdminBillingPage() {
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
   const [billingEditAppointmentId, setBillingEditAppointmentId] = useState<number | null>(null);
   const [listFilter, setListFilter] = useState<ListFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState<KindFilter>("");
+  const [visitDateFrom, setVisitDateFrom] = useState("");
+  const [visitDateTo, setVisitDateTo] = useState("");
+  const [insuranceOnly, setInsuranceOnly] = useState(false);
 
   const filteredInvoices = useMemo(
-    () => invoices.filter((inv) => matchesListFilter(inv, listFilter)),
-    [invoices, listFilter],
+    () =>
+      invoices.filter((inv) => {
+        if (!matchesListFilter(inv, listFilter)) return false;
+        if (kindFilter && inv.kind !== kindFilter) return false;
+        if (insuranceOnly && parseMoneyNum(inv.insurance_remaining_total) <= 0.009) return false;
+        if (!matchesBillingSearch(inv, searchQuery)) return false;
+        if (!matchesVisitDateRange(inv, visitDateFrom, visitDateTo)) return false;
+        return true;
+      }),
+    [invoices, listFilter, kindFilter, insuranceOnly, searchQuery, visitDateFrom, visitDateTo],
   );
 
   const openCount = useMemo(
@@ -110,6 +180,31 @@ export default function AdminBillingPage() {
       ).length,
     [invoices],
   );
+
+  const overdueCount = useMemo(
+    () => invoices.filter((i) => i.status === "overdue").length,
+    [invoices],
+  );
+
+  const paidCount = useMemo(() => invoices.filter((i) => i.status === "paid").length, [invoices]);
+
+  const filtersActive = hasActiveBillingFilters({
+    search: searchQuery,
+    listFilter,
+    kindFilter,
+    visitDateFrom,
+    visitDateTo,
+    insuranceOnly,
+  });
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setListFilter("all");
+    setKindFilter("");
+    setVisitDateFrom("");
+    setVisitDateTo("");
+    setInsuranceOnly(false);
+  };
 
   const printBill = async (invoiceId: number) => {
     setPrintBusy(true);
@@ -291,7 +386,7 @@ export default function AdminBillingPage() {
       <AdminPageIntro
         title="Invoices & billing"
         description="Browse invoices with dates and status at a glance. Open any row to record payment, apply credit, or print a bill."
-        pageHelp="Use filters for open vs paid invoices. Opening an invoice shows a popup with totals and payment actions — the list stays in place behind it."
+        pageHelp="Search by patient or invoice #, filter by status, visit date, or bills with insurance lines. Open a row for payment, credit, or print."
       />
 
       {error && (
@@ -299,31 +394,127 @@ export default function AdminBillingPage() {
       )}
 
       <section className="admin-panel">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-4 space-y-4">
           <AdminSectionLabel help="Each row is an invoice. Open one to see totals, dates, and record payment if it is still open.">
             Invoice list
           </AdminSectionLabel>
-          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50/80 p-1 text-sm">
-            {(
-              [
-                ["all", "All"],
-                ["open", `Open (${openCount})`],
-                ["paid", "Paid"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setListFilter(key)}
-                className={`rounded-lg px-3 py-1.5 font-medium transition ${
-                  listFilter === key
-                    ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200/90 bg-slate-50/50 p-3 sm:p-4">
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Search
+              </span>
+              <input
+                type="search"
+                className="admin-input w-full"
+                placeholder="Patient name, invoice #, or patient ID…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
+                <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 text-sm">
+                  {(
+                    [
+                      ["all", `All (${invoices.length})`],
+                      ["open", `Open (${openCount})`],
+                      ["overdue", `Overdue (${overdueCount})`],
+                      ["paid", `Paid (${paidCount})`],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setListFilter(key)}
+                      className={`rounded-lg px-3 py-1.5 font-medium transition ${
+                        listFilter === key
+                          ? "bg-[#ecfdf5] text-[#0d5c2e] shadow-sm ring-1 ring-[#16a349]/25"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="min-w-[10rem] flex-1 text-sm sm:max-w-[12rem]">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Invoice type
+                </span>
+                <select
+                  className="admin-input w-full"
+                  value={kindFilter}
+                  onChange={(e) => setKindFilter(e.target.value as KindFilter)}
+                >
+                  {KIND_FILTER_OPTIONS.map((o) => (
+                    <option key={o.value || "all"} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-sm">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Visit date from
+                </span>
+                <input
+                  type="date"
+                  className="admin-input"
+                  value={visitDateFrom}
+                  onChange={(e) => setVisitDateFrom(e.target.value)}
+                />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Visit date to
+                </span>
+                <input
+                  type="date"
+                  className="admin-input"
+                  value={visitDateTo}
+                  onChange={(e) => setVisitDateTo(e.target.value)}
+                />
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]/30"
+                  checked={insuranceOnly}
+                  onChange={(e) => setInsuranceOnly(e.target.checked)}
+                />
+                <span>Has insurance lines only</span>
+                <HelpTip label="Insurance lines">
+                  Shows invoices where part of the bill is documented for insurance (not charged to the patient at the
+                  desk).
+                </HelpTip>
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-3 text-sm">
+              <p className="text-slate-600">
+                Showing{" "}
+                <span className="font-semibold text-slate-900">{filteredInvoices.length}</span> of{" "}
+                <span className="font-semibold text-slate-900">{invoices.length}</span> invoice
+                {invoices.length === 1 ? "" : "s"}
+              </p>
+              {filtersActive ? (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Clear all filters
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
         {loading ? (
@@ -331,10 +522,21 @@ export default function AdminBillingPage() {
         ) : invoices.length === 0 ? (
           <p className="py-8 text-center text-sm text-slate-500">No invoices yet. They appear when visits are completed.</p>
         ) : filteredInvoices.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-500">No invoices match this filter.</p>
+          <div className="py-8 text-center text-sm text-slate-500">
+            <p>No invoices match your filters.</p>
+            {filtersActive ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-3 text-sm font-semibold text-[#16a349] hover:underline"
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-sm">
+            <table className="w-full min-w-[1020px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-slate-500">
                   <th className="pb-2 pr-3 font-semibold">Issued</th>
@@ -350,7 +552,18 @@ export default function AdminBillingPage() {
                       </HelpTip>
                     </span>
                   </th>
-                  <th className="pb-2 pr-3 font-semibold text-right">Amount</th>
+                  <th className="pb-2 pr-3 font-semibold text-right">
+                    <span className="inline-flex items-center gap-1">
+                      Patient charge
+                      <HelpTip label="Patient charge">Amount the client pays at Relief Chiropractic.</HelpTip>
+                    </span>
+                  </th>
+                  <th className="pb-2 pr-3 font-semibold text-right">
+                    <span className="inline-flex items-center gap-1">
+                      Insurance
+                      <HelpTip label="Insurance">Portion documented for insurance (not charged to patient).</HelpTip>
+                    </span>
+                  </th>
                   <th className="pb-2 font-semibold text-right"> </th>
                 </tr>
               </thead>
@@ -373,7 +586,14 @@ export default function AdminBillingPage() {
                     <td className="py-2.5 pr-3">
                       <StatusChipView status={inv.status} />
                     </td>
-                    <td className="py-2.5 pr-3 text-right font-medium tabular-nums">{formatMoney(inv.total_amount)}</td>
+                    <td className="py-2.5 pr-3 text-right font-medium tabular-nums text-[#0d5c2e]">
+                      {formatMoney(inv.patient_charge_total ?? inv.total_amount)}
+                    </td>
+                    <td className="py-2.5 pr-3 text-right tabular-nums text-slate-600">
+                      {parseMoneyNum(inv.insurance_remaining_total) > 0.009
+                        ? formatMoney(inv.insurance_remaining_total!)
+                        : "—"}
+                    </td>
                     <td className="py-2.5 text-right">
                       <button
                         type="button"
@@ -442,12 +662,45 @@ export default function AdminBillingPage() {
                   ) : null}
                 </dl>
                 <dl className="mt-3 space-y-1 border-t border-slate-200/80 pt-3 text-sm">
-                  <div className="flex justify-between gap-2">
+                  <p className="pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Bill breakdown
+                  </p>
+                  {selected.bill_charges_total ? (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Total documented (all lines)</dt>
+                      <dd className="font-medium tabular-nums">{formatMoney(selected.bill_charges_total)}</dd>
+                    </div>
+                  ) : null}
+                  {selected.patient_charge_total ? (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Patient charge (Relief Chiropractic)</dt>
+                      <dd className="font-medium tabular-nums text-[#0d5c2e]">
+                        {formatMoney(selected.patient_charge_total)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {selected.insurance_remaining_total &&
+                  parseFloat(selected.insurance_remaining_total) > 0 ? (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Remaining balance (insurance)</dt>
+                      <dd className="font-medium tabular-nums text-slate-800">
+                        {formatMoney(selected.insurance_remaining_total)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {selected.payments_received_total &&
+                  parseFloat(selected.payments_received_total) > 0 ? (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Payments received</dt>
+                      <dd className="font-medium tabular-nums">{formatMoney(selected.payments_received_total)}</dd>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-between gap-2 border-t border-slate-200/60 pt-2">
                     <dt className="text-slate-500">Patient credit balance</dt>
                     <dd className="font-medium tabular-nums text-emerald-700">{formatMoney(selected.patient_credit_balance)}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500">Subtotal</dt>
+                    <dt className="text-slate-500">Patient portion (before discount)</dt>
                     <dd className="font-medium tabular-nums">{formatMoney(selected.subtotal)}</dd>
                   </div>
                   <div className="flex justify-between gap-2">

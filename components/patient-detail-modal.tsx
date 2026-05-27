@@ -6,6 +6,7 @@ import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
+import { UsDateInput } from "@/components/us-date-input";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import {
   formatDemographicsDate,
@@ -95,57 +96,6 @@ type PatientDetail = {
 };
 
 type Tab = "overview" | "intake" | "history";
-
-/**
- * Turns pasted or free-typed birth dates into YYYY-MM-DD for the date field and API.
- * Accepts ISO dates, US-style M/D/YYYY (and variants), and a few copy-paste quirks.
- */
-function normalizeDateOfBirthInput(raw: string): string | null {
-  const s = raw
-    .trim()
-    .replace(/^["'([{]+|["')\]}]+$/g, "")
-    .trim();
-  if (!s) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const [y, m, d] = s.split("-").map((x) => parseInt(x, 10));
-    const dt = new Date(y, m - 1, d);
-    if (dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d) return s;
-    return null;
-  }
-
-  const us = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
-  if (us) {
-    const month = parseInt(us[1], 10);
-    const day = parseInt(us[2], 10);
-    let year = parseInt(us[3], 10);
-    if (us[3].length === 2) {
-      // Common pivot: 00–69 → 2000s, 70–99 → 1900s (works well for real birth years)
-      year += year >= 70 ? 1900 : 2000;
-    }
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    const dt = new Date(year, month - 1, day);
-    if (dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return null;
-    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  }
-
-  // Spreadsheet / API paste often includes a time; use the date part only (no timezone shift).
-  const isoHead = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (isoHead) {
-    return normalizeDateOfBirthInput(isoHead[1]);
-  }
-
-  const t = Date.parse(s);
-  if (!Number.isNaN(t)) {
-    const dt = new Date(t);
-    const y = dt.getFullYear();
-    const m = dt.getMonth() + 1;
-    const d = dt.getDate();
-    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  }
-
-  return null;
-}
 
 export function PatientDetailModal({
   patientId,
@@ -929,21 +879,12 @@ export function PatientDetailModal({
                           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Date of birth
                           </span>
-                          <input
-                            type="date"
+                          <UsDateInput
                             className={`${inputClass} max-w-xs`}
                             value={intakeForm.date_of_birth}
                             onFocus={() => setActiveIntakeSection("dob")}
-                            onChange={(e) => setIntakeForm((f) => ({ ...f, date_of_birth: e.target.value }))}
-                            onPaste={(e) => {
-                              const text = e.clipboardData.getData("text/plain");
-                              const normalized = normalizeDateOfBirthInput(text);
-                              if (normalized) {
-                                e.preventDefault();
-                                setIntakeForm((f) => ({ ...f, date_of_birth: normalized }));
-                              }
-                            }}
-                            title="Pick a date or paste one, e.g. 4/15/1985 or 1985-04-15"
+                            onChange={(iso) => setIntakeForm((f) => ({ ...f, date_of_birth: iso }))}
+                            aria-label="Date of birth"
                           />
                         </label>
                         <label>
@@ -962,7 +903,10 @@ export function PatientDetailModal({
                           </select>
                         </label>
                       </div>
-                      <p className="mt-2 text-xs text-slate-500">Age and last seen update automatically from visits.</p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Use MM/DD/YYYY (e.g. 05/09/1971). You can paste from a spreadsheet or chart. Age and last seen
+                        update automatically from visits.
+                      </p>
                     </section>
 
                     {isAdminChart && !readOnlyChart ? (
@@ -973,11 +917,11 @@ export function PatientDetailModal({
                             <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                               Established with clinic
                             </span>
-                            <input
-                              type="date"
+                            <UsDateInput
                               className={`${inputClass} max-w-xs`}
                               value={intakeForm.date_established}
-                              onChange={(e) => setIntakeForm((f) => ({ ...f, date_established: e.target.value }))}
+                              onChange={(iso) => setIntakeForm((f) => ({ ...f, date_established: iso }))}
+                              aria-label="Date established with clinic"
                             />
                           </label>
                           <p className="mt-2 text-xs leading-relaxed text-slate-500">
@@ -988,7 +932,8 @@ export function PatientDetailModal({
                               </>
                             ) : (
                               <>Override when the real start date differs from the first booked visit.</>
-                            )}
+                            )}{" "}
+                            Format: MM/DD/YYYY — paste OK.
                           </p>
                         </div>
                       </section>

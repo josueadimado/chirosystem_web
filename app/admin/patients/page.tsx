@@ -3,6 +3,7 @@
 import { Loader } from "@/components/loader";
 import { PatientNoShowBadge } from "@/components/status-chip";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
+import { UsDateInput } from "@/components/us-date-input";
 import { Button } from "@/components/ui/button";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
@@ -805,15 +806,14 @@ export default function AdminPatientsPage() {
                 <span className="mb-1.5 block text-sm font-medium text-slate-700">
                   Date of birth <span className="text-rose-600">*</span>
                 </span>
-                <input
-                  type="date"
+                <UsDateInput
                   className={`${inputClass} max-w-xs`}
                   value={addDob}
-                  onChange={(e) => setAddDob(e.target.value)}
-                  required
+                  onChange={setAddDob}
+                  aria-label="Date of birth"
                 />
                 <p className="mt-1 text-xs text-slate-500">
-                  Used with name and phone to block duplicate profiles.
+                  MM/DD/YYYY — paste OK. Used with name and phone to block duplicate profiles.
                 </p>
               </label>
 
