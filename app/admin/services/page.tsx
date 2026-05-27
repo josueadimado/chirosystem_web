@@ -67,6 +67,9 @@ const fieldLabel =
   "mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500";
 const inputWrap = "rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80 transition focus-within:border-[#16a349]/35 focus-within:ring-2 focus-within:ring-[#16a349]/12";
 
+/** Visit types shown per page — keeps the list easy to scan */
+const SERVICES_PAGE_SIZE = 12;
+
 export default function AdminServicesPage() {
   const { runWithFeedback } = useAppFeedback();
   const [services, setServices] = useState<Service[]>([]);
@@ -79,6 +82,7 @@ export default function AdminServicesPage() {
   const [search, setSearch] = useState("");
   type QuickFilter = "all" | "active" | "inactive" | "chiropractic" | "massage";
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [listPage, setListPage] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -128,15 +132,36 @@ export default function AdminServicesPage() {
     );
   }, [services, search, quickFilter]);
 
+  const listPageCount = Math.max(1, Math.ceil(filtered.length / SERVICES_PAGE_SIZE));
+
+  const pagedFiltered = useMemo(() => {
+    const start = listPage * SERVICES_PAGE_SIZE;
+    return filtered.slice(start, start + SERVICES_PAGE_SIZE);
+  }, [filtered, listPage]);
+
+  useEffect(() => {
+    setListPage(0);
+  }, [search, quickFilter]);
+
+  useEffect(() => {
+    if (listPage >= listPageCount) setListPage(Math.max(0, listPageCount - 1));
+  }, [listPage, listPageCount]);
+
   const listSummary = useMemo(() => {
     const total = services.length;
     const n = filtered.length;
     if (total === 0) return null;
+    const rangeStart = n === 0 ? 0 : listPage * SERVICES_PAGE_SIZE + 1;
+    const rangeEnd = Math.min((listPage + 1) * SERVICES_PAGE_SIZE, n);
+    const pagePart = listPageCount > 1 ? ` · page ${listPage + 1} of ${listPageCount}` : "";
     if (n === total && !search.trim() && quickFilter === "all") {
-      return `Showing all ${total} visit type${total === 1 ? "" : "s"}`;
+      if (listPageCount <= 1) {
+        return `Showing all ${total} visit type${total === 1 ? "" : "s"}`;
+      }
+      return `Showing ${rangeStart}–${rangeEnd} of ${total} visit types${pagePart}`;
     }
-    return `Showing ${n} of ${total} visit type${total === 1 ? "" : "s"}`;
-  }, [services.length, filtered.length, search, quickFilter]);
+    return `Showing ${rangeStart}–${rangeEnd} of ${n} matching (${total} total)${pagePart}`;
+  }, [services.length, filtered.length, search, quickFilter, listPage, listPageCount]);
 
   const closeForm = () => {
     setFormOpen(false);
@@ -400,8 +425,9 @@ export default function AdminServicesPage() {
                 </button>
               </div>
             ) : (
+              <>
               <ul className="space-y-2">
-                {filtered.map((s, idx) => {
+                {pagedFiltered.map((s, idx) => {
                   const selected = formOpen && editing?.id === s.id;
                   const st = s.service_type === "massage" ? "Massage" : "Chiropractic";
                   const visChiro = s.visible_to_chiropractic_staff !== false;
@@ -503,13 +529,43 @@ export default function AdminServicesPage() {
                   );
                 })}
               </ul>
+              {listPageCount > 1 ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                  <button
+                    type="button"
+                    disabled={listPage === 0}
+                    onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <p className="text-xs font-medium text-slate-500">
+                    {listPage * SERVICES_PAGE_SIZE + 1}–
+                    {Math.min((listPage + 1) * SERVICES_PAGE_SIZE, filtered.length)} of {filtered.length}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={listPage >= listPageCount - 1}
+                    onClick={() => setListPage((p) => Math.min(listPageCount - 1, p + 1))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              ) : null}
+              </>
             )}
           </div>
       </div>
 
       <Dialog open={formOpen} onOpenChange={(open) => !open && closeForm()}>
-        <DialogContent className="sm:max-w-2xl sm:max-h-[min(calc(100dvh-2rem),52rem)] p-0 gap-0 overflow-hidden">
-          <DialogHeader className="border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 pr-12 sm:px-6">
+        <DialogContent
+          className={cn(
+            "flex w-[calc(100%-2rem)] max-h-[min(92dvh,52rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0",
+            "top-[max(1rem,4dvh)] translate-y-0 sm:min-w-[32rem]",
+          )}
+        >
+          <DialogHeader className="shrink-0 border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 pr-12 sm:px-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#13823d]">
               {isNew ? "Create" : "Editing"}
             </p>
@@ -529,7 +585,7 @@ export default function AdminServicesPage() {
             </div>
           </DialogHeader>
 
-          <div className="space-y-5 overflow-y-auto p-5 sm:p-6">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-6">
               <div className="rounded-xl border border-slate-200/80 bg-slate-50/40 p-4 ring-1 ring-slate-100/60">
                 <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">Basics</p>
                 <div className="space-y-4">
@@ -769,7 +825,7 @@ export default function AdminServicesPage() {
               </div>
             </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-4 sm:px-6">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-4 sm:px-6">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"

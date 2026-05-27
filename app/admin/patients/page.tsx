@@ -19,7 +19,12 @@ type Patient = {
   last_name: string;
   phone: string;
   email: string;
+  visit_count: number;
   last_visit: string | null;
+  last_service: string | null;
+  next_appointment_date: string | null;
+  next_appointment_time: string | null;
+  date_established: string | null;
   balance: string;
 };
 
@@ -30,10 +35,35 @@ function parseBalanceNum(balanceStr: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Plain-language label when we have no completed appointment date on file. */
+/** Plain-language label when we have no completed visit on file. */
 function lastVisitLabel(p: Patient): string {
   if (p.last_visit == null || String(p.last_visit).trim() === "") return "No visit yet";
   return formatMonthDayYear(p.last_visit);
+}
+
+function establishedLabel(p: Patient): string {
+  if (p.date_established == null || String(p.date_established).trim() === "") return "—";
+  return formatMonthDayYear(p.date_established);
+}
+
+function formatApiTime12h(raw: string | null | undefined): string | null {
+  if (raw == null || String(raw).trim() === "") return null;
+  const s = String(raw).trim();
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+  if (!m) return s;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? "PM" : "AM";
+  if (h === 0) h = 12;
+  else if (h > 12) h -= 12;
+  return `${h}:${min} ${ampm}`;
+}
+
+function nextAppointmentLabel(p: Patient): string | null {
+  if (!p.next_appointment_date) return null;
+  const date = formatMonthDayYear(p.next_appointment_date);
+  const time = formatApiTime12h(p.next_appointment_time);
+  return time ? `${date} · ${time}` : date;
 }
 
 function formatBalance(balanceStr: string): string {
@@ -120,7 +150,16 @@ export default function AdminPatientsPage() {
   const loadPatients = useCallback(() => {
     return apiGetAuth<Patient[]>("/admin/patients/")
       .then((data) => {
-        setPatients(data);
+        setPatients(
+          data.map((row) => ({
+            ...row,
+            visit_count: row.visit_count ?? 0,
+            last_service: row.last_service ?? null,
+            next_appointment_date: row.next_appointment_date ?? null,
+            next_appointment_time: row.next_appointment_time ?? null,
+            date_established: row.date_established ?? null,
+          })),
+        );
         setError("");
       })
       .catch((e) => {
@@ -405,16 +444,17 @@ export default function AdminPatientsPage() {
 
             <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
               <div className="max-h-[min(520px,65vh)] overflow-y-auto overscroll-contain">
-                <table className="w-full min-w-[560px] border-collapse text-sm">
+                <table className="w-full min-w-[880px] border-collapse text-sm">
                   <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
-                    <tr className="text-left text-slate-500">
-                      <th className="px-3 py-3 pl-4 text-left align-bottom font-semibold">Patient name</th>
-                      <th className="px-3 py-3 align-bottom font-semibold">Last visit</th>
-                      <th className="py-3 pr-2 text-right align-bottom font-semibold">Balance</th>
-                      <th
-                        className="w-[4.5rem] px-2 py-3 pr-4 text-right align-bottom font-semibold text-slate-500"
-                        scope="col"
-                      >
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-3 pl-4 align-bottom">Patient</th>
+                      <th className="hidden px-3 py-3 align-bottom md:table-cell">Established</th>
+                      <th className="px-3 py-3 align-bottom">Last visit</th>
+                      <th className="px-3 py-3 text-center align-bottom">Visits</th>
+                      <th className="hidden px-3 py-3 align-bottom lg:table-cell">Last service</th>
+                      <th className="hidden px-3 py-3 align-bottom xl:table-cell">Next appointment</th>
+                      <th className="py-3 pr-2 text-right align-bottom">Balance</th>
+                      <th className="w-[4.5rem] px-2 py-3 pr-4 text-right align-bottom" scope="col">
                         Open
                       </th>
                     </tr>
@@ -425,6 +465,9 @@ export default function AdminPatientsPage() {
                       const phoneLine = formatPhoneCompact(p.phone);
                       const owed = parseBalanceNum(p.balance);
                       const hasBalance = owed > 0.009;
+                      const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
+                      const nextAppt = nextAppointmentLabel(p);
+                      const service = (p.last_service || "").trim();
                       return (
                         <tr
                           key={p.id}
@@ -469,8 +512,19 @@ export default function AdminPatientsPage() {
                                     </>
                                   ) : null}
                                 </p>
+                                {nextAppt ? (
+                                  <p className="mt-1 text-xs font-medium text-[#047857] xl:hidden">
+                                    Next: {nextAppt}
+                                  </p>
+                                ) : null}
+                                {service ? (
+                                  <p className="mt-0.5 truncate text-xs text-slate-500 lg:hidden">{service}</p>
+                                ) : null}
                               </div>
                             </div>
+                          </td>
+                          <td className="hidden whitespace-nowrap px-3 py-3 align-middle tabular-nums text-slate-600 md:table-cell">
+                            {establishedLabel(p)}
                           </td>
                           <td className="max-w-[11rem] whitespace-normal px-3 py-3 align-middle text-slate-700">
                             <span
@@ -481,6 +535,26 @@ export default function AdminPatientsPage() {
                             >
                               {lastVisitLabel(p)}
                             </span>
+                          </td>
+                          <td className="px-3 py-3 align-middle text-center">
+                            <span
+                              className={cn(
+                                "inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 text-sm font-semibold tabular-nums",
+                                visits > 0 ? "bg-slate-100 text-slate-800" : "bg-slate-50 text-slate-400",
+                              )}
+                            >
+                              {visits}
+                            </span>
+                          </td>
+                          <td className="hidden max-w-[12rem] truncate px-3 py-3 align-middle text-slate-600 lg:table-cell">
+                            {service || <span className="text-slate-400">—</span>}
+                          </td>
+                          <td className="hidden px-3 py-3 align-middle xl:table-cell">
+                            {nextAppt ? (
+                              <span className="text-sm font-medium text-[#047857]">{nextAppt}</span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                           <td
                             className={cn(

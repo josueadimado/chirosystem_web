@@ -311,10 +311,15 @@ export default function AdminAIPage() {
               ) : null}
 
               <Dialog open={conversationCall !== null} onOpenChange={(open) => !open && setConversationCall(null)}>
-                <DialogContent className="flex max-h-[min(90dvh,40rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+                <DialogContent
+                  className={cn(
+                    "flex w-[calc(100%-2rem)] max-h-[min(92dvh,44rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0",
+                    "top-[max(1rem,4dvh)] translate-y-0 sm:min-w-[32rem]",
+                  )}
+                >
                   {conversationCall ? (
                     <>
-                      <DialogHeader className="border-b border-slate-100 px-5 py-4 pr-12">
+                      <DialogHeader className="shrink-0 border-b border-slate-100 px-5 py-4 pr-12 sm:px-6">
                         <DialogTitle className="text-base font-semibold text-slate-900">Call transcript</DialogTitle>
                         <DialogDescription className="text-xs text-slate-600">
                           {formatInstantMonthDayYearTime(conversationCall.updated_at)} ·{" "}
