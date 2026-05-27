@@ -84,7 +84,7 @@ function statusBlockStyles(status: string, baseColor: string): { wrap: string; t
   }
   if (status === "no_show") {
     return {
-      wrap: "border border-amber-300 bg-amber-100/95 text-amber-950 shadow-sm",
+      wrap: "border border-red-400 bg-red-100/95 text-red-950 shadow-sm",
       text: "",
     };
   }
@@ -117,8 +117,11 @@ function AppointmentBlockDecor({ status }: { status: string }) {
   if (status === "cancelled") return null;
   if (status === "no_show") {
     return (
-      <span className="pointer-events-none absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded bg-amber-900/15 text-[10px] font-bold text-amber-900">
-        ✕
+      <span
+        className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-[1.1rem] items-center justify-center rounded bg-red-700 px-0.5 text-[8px] font-black leading-none text-white shadow-sm"
+        title="No-show"
+      >
+        NS
       </span>
     );
   }
@@ -246,6 +249,7 @@ function formatPatientNameShort(fullName: string): string {
 
 function appointmentTooltipStatus(status: string): string {
   const key = status === "booked" ? "scheduled" : status;
+  if (key === "no_show") return "No-show";
   return key.replace(/_/g, " ");
 }
 
@@ -1101,9 +1105,11 @@ function DayProviderColumn({
                     borderColor:
                       a.status === "cancelled"
                         ? "#fecaca"
-                        : selected
-                          ? "#16a349"
-                          : "rgb(148 163 184 / 0.9)",
+                        : a.status === "no_show"
+                          ? "#f87171"
+                          : selected
+                            ? "#16a349"
+                            : "rgb(148 163 184 / 0.9)",
                   }}
                 >
                   <AppointmentBlockDecor status={a.status} />
@@ -1120,7 +1126,7 @@ function DayProviderColumn({
                         className={cn(
                           "shrink-0 border-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
                           a.status === "cancelled" && "border-rose-800/20 text-rose-950",
-                          a.status === "no_show" && "border-amber-900/20 text-amber-950",
+                          a.status === "no_show" && "border-red-800/25 text-red-950",
                           a.status === "completed" && "border-slate-400/40 text-slate-900",
                           !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
                           a.status !== "cancelled" && styles.text,
@@ -1445,9 +1451,11 @@ function WeekDayStack({
                 borderColor:
                   a.status === "cancelled"
                     ? "#fecaca"
-                    : selected
-                      ? "#16a349"
-                      : "rgb(148 163 184 / 0.9)",
+                    : a.status === "no_show"
+                      ? "#f87171"
+                      : selected
+                        ? "#16a349"
+                        : "rgb(148 163 184 / 0.9)",
               }}
             >
               <AppointmentBlockDecor status={a.status} />
@@ -1567,7 +1575,7 @@ function MonthGrid({
                         className="h-1.5 max-w-[40%] flex-1 rounded-full"
                         style={{
                           backgroundColor:
-                            a.status === "cancelled" ? "#fecdd3" : a.status === "no_show" ? "#fde68a" : providerColorForId(a.provider),
+                            a.status === "cancelled" ? "#fecdd3" : a.status === "no_show" ? "#fecaca" : providerColorForId(a.provider),
                         }}
                         title={`${a.patient_name} · ${formatTimeShort(a.start_time)}`}
                       />

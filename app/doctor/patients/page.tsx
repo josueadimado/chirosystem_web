@@ -1,6 +1,7 @@
 "use client";
 
 import { DoctorPageIntro } from "@/components/doctor-shell";
+import { PatientNoShowBadge } from "@/components/status-chip";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ type PatientApi = {
   last_service: string | null;
   next_appointment_date: string | null;
   next_appointment_time: string | null;
+  no_show_count?: number;
 };
 
 type PaginatedPatients = {
@@ -290,6 +292,7 @@ export default function DoctorPatientsPage() {
                     const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
                     const nextAppt = nextAppointmentLabel(p);
                     const service = (p.last_service || "").trim();
+                    const noShows = typeof p.no_show_count === "number" ? p.no_show_count : 0;
                     const recordHref = `/doctor/patients/${p.id}/record`;
                     const historyHref = `/doctor/patients/${p.id}/history`;
 
@@ -319,10 +322,13 @@ export default function DoctorPatientsPage() {
                               {patientInitials(p)}
                             </div>
                             <div className="min-w-0">
-                              <p className="leading-snug text-slate-900">
-                                <span className="font-semibold tracking-tight">{last}</span>
-                                <span className="font-normal text-slate-400">, </span>
-                                <span className="font-medium text-slate-700">{first}</span>
+                              <p className="flex flex-wrap items-center gap-2 leading-snug text-slate-900">
+                                <span>
+                                  <span className="font-semibold tracking-tight">{last}</span>
+                                  <span className="font-normal text-slate-400">, </span>
+                                  <span className="font-medium text-slate-700">{first}</span>
+                                </span>
+                                <PatientNoShowBadge count={noShows} />
                               </p>
                               <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
                                 <span className="font-mono tabular-nums text-slate-400">

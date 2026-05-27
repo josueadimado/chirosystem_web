@@ -18,6 +18,8 @@ export type PatientDemographicsSource = {
   marital_status?: string;
   age?: number | null;
   date_established?: string | null;
+  date_established_override?: string | null;
+  first_appointment_date?: string | null;
   last_seen?: string | null;
   address_line1: string;
   address_line2: string;
@@ -28,6 +30,7 @@ export type PatientDemographicsSource = {
 
 type IntakeForm = {
   date_of_birth: string;
+  date_established: string;
   marital_status: string;
   address_line1: string;
   address_line2: string;
@@ -36,9 +39,10 @@ type IntakeForm = {
   emergency_contact_phone: string;
 };
 
-function detailToForm(d: PatientDemographicsSource): IntakeForm {
+function detailToForm(d: PatientDemographicsSource, includeDateEstablished: boolean): IntakeForm {
   return {
     date_of_birth: d.date_of_birth || "",
+    date_established: includeDateEstablished ? d.date_established_override || "" : "",
     marital_status: d.marital_status || "",
     address_line1: d.address_line1 || "",
     address_line2: d.address_line2 || "",
@@ -58,6 +62,8 @@ type Props = {
   /** Chiropractic vs massage: view-only when patient is outside this doctor's care type */
   readOnly?: boolean;
   readOnlyMessage?: string;
+  /** Owner/staff: allow editing date established (e.g. imported patients). */
+  canEditDateEstablished?: boolean;
 };
 
 /**
@@ -71,17 +77,18 @@ export function PatientDemographicsEditor({
   onPatientUpdated,
   readOnly = false,
   readOnlyMessage = "",
+  canEditDateEstablished = false,
 }: Props) {
-  const [form, setForm] = useState<IntakeForm>(() => detailToForm(patient));
+  const [form, setForm] = useState<IntakeForm>(() => detailToForm(patient, canEditDateEstablished));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    setForm(detailToForm(patient));
-  }, [patient]);
+    setForm(detailToForm(patient, canEditDateEstablished));
+  }, [patient, canEditDateEstablished]);
 
   const dirty = useMemo(() => {
-    const baseline = detailToForm(patient);
+    const baseline = detailToForm(patient, canEditDateEstablished);
     return (Object.keys(baseline) as (keyof IntakeForm)[]).some((k) => form[k] !== baseline[k]);
   }, [form, patient]);
 
@@ -98,6 +105,9 @@ export function PatientDemographicsEditor({
         emergency_contact_phone: form.emergency_contact_phone,
         date_of_birth: form.date_of_birth || null,
         marital_status: form.marital_status || "",
+        ...(canEditDateEstablished
+          ? { date_established: form.date_established.trim() ? form.date_established : null }
+          : {}),
       });
       const refreshed = await apiGetAuth<PatientDemographicsSource>(
         `${detailPath}/?patient_id=${patient.id}`,
@@ -145,13 +155,41 @@ export function PatientDemographicsEditor({
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Age</p>
           <p className="mt-1.5 font-semibold tabular-nums text-slate-900">{formatPatientAge(patient.age)}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date established</p>
-          <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
-            {formatDemographicsDate(patient.date_established)}
-          </p>
-          <p className="mt-0.5 text-[10px] text-slate-500">First appointment</p>
-        </div>
+        {canEditDateEstablished && !readOnly ? (
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:col-span-2">
+            <label>
+              <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Date established
+              </span>
+              <input
+                type="date"
+                className={inputClass}
+                value={form.date_established}
+                onChange={(e) => setForm((f) => ({ ...f, date_established: e.target.value }))}
+              />
+              <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+                {patient.first_appointment_date ? (
+                  <>
+                    First appointment in system: {formatDemographicsDate(patient.first_appointment_date)}. Leave blank to
+                    use that date.
+                  </>
+                ) : (
+                  <>Set when the patient started with the clinic. Leave blank if unknown.</>
+                )}
+              </p>
+            </label>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date established</p>
+            <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
+              {formatDemographicsDate(patient.date_established)}
+            </p>
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              {patient.date_established_override ? "Set by staff" : "From first appointment"}
+            </p>
+          </div>
+        )}
         <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4 sm:col-span-2">
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Last seen</p>
           <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
@@ -285,7 +323,7 @@ export function PatientDemographicsEditor({
           <button
             type="button"
             disabled={!dirty || saving}
-            onClick={() => setForm(detailToForm(patient))}
+            onClick={() => setForm(detailToForm(patient, canEditDateEstablished))}
             className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
           >
             Reset

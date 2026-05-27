@@ -19,7 +19,7 @@ import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
-import { appointmentStatusPillClass } from "@/components/status-chip";
+import { AppointmentStatusBadge } from "@/components/status-chip";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
@@ -1695,11 +1695,11 @@ export default function DoctorDashboardPage() {
                       </p>
                     </div>
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
-                      <span
-                        className={`inline-flex w-fit shrink-0 rounded-full px-3 py-1 text-[13px] font-bold leading-normal ${appointmentStatusPillClass(appt.status)}`}
-                      >
-                        {badgeLabel(statusDisplay(appt.status))}
-                      </span>
+                      <AppointmentStatusBadge
+                        status={statusDisplay(appt.status)}
+                        size="md"
+                        className="w-fit shrink-0 normal-case"
+                      />
                       <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
                     {appt.status === "booked" && (
                       <button

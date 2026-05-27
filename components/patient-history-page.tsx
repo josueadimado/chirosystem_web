@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { Loader } from "@/components/loader";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
-import { appointmentStatusPillClass } from "@/components/status-chip";
+import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { clinicTodayIso } from "@/lib/format-date";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
@@ -66,10 +67,6 @@ type PatientDetail = {
   clinical_access_message?: string;
   appointments: AppointmentHistoryRow[];
 };
-
-function statusBadgeClass(status: string): string {
-  return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
-}
 
 function isVisitToday(appointmentDate: string): boolean {
   return appointmentDate === clinicTodayIso();
@@ -202,8 +199,13 @@ function VisitRecordCard({
   const dateLabel = formatWeekdayMonthDayYear(a.appointment_date);
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <header className="border-b border-slate-100 bg-slate-50/90 px-4 py-4 sm:px-6">
+    <article className={cn("overflow-hidden rounded-2xl border", appointmentHistoryRowClass(a.status))}>
+      <header
+        className={cn(
+          "border-b px-4 py-4 sm:px-6",
+          a.status === "no_show" ? "border-red-200/80 bg-red-50/90" : "border-slate-100 bg-slate-50/90",
+        )}
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0d5c2e]">Visit record</p>
@@ -220,11 +222,7 @@ function VisitRecordCard({
             ) : null}
           </div>
           <div className="flex flex-col items-end gap-2">
-            <span
-              className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
-            >
-              {a.status.replace(/_/g, " ")}
-            </span>
+            <AppointmentStatusBadge status={a.status} size="sm" />
             {isVisitToday(a.appointment_date) ? (
               <Link
                 href={`${scheduleHrefPrefix}?appointment=${a.id}`}

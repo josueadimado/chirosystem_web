@@ -1,6 +1,6 @@
 "use client";
 
-import { visitStatusBadgeClass, visitStatusLabel } from "@/lib/visit-status-utils";
+import { AppointmentStatusBadge } from "@/components/status-chip";
 
 /** Shared header for appointment visit panels (admin schedule sheet, etc.). */
 export function VisitSummaryHeader({
@@ -40,11 +40,7 @@ export function VisitSummaryHeader({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${visitStatusBadgeClass(status)}`}
-        >
-          {visitStatusLabel(status)}
-        </span>
+        <AppointmentStatusBadge status={status} size="sm" className="normal-case" />
       </div>
       {estimatedPrice != null ? (
         <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2 border-t border-slate-100 pt-3">

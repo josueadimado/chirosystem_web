@@ -2,7 +2,7 @@
 
 import { DoctorSectionLabel } from "@/components/doctor-shell";
 import { Loader } from "@/components/loader";
-import { appointmentStatusPillClass } from "@/components/status-chip";
+import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
@@ -72,6 +72,8 @@ type PatientDetail = {
   marital_status?: string;
   age?: number | null;
   date_established?: string | null;
+  date_established_override?: string | null;
+  first_appointment_date?: string | null;
   last_seen?: string | null;
   clinical_access?: "full" | "read_only";
   clinical_access_message?: string;
@@ -141,10 +143,6 @@ function normalizeDateOfBirthInput(raw: string): string | null {
   return null;
 }
 
-function statusBadgeClass(status: string): string {
-  return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
-}
-
 export function PatientDetailModal({
   patientId,
   onClose,
@@ -174,8 +172,10 @@ export function PatientDetailModal({
     emergency_contact_name: "",
     emergency_contact_phone: "",
     date_of_birth: "",
+    date_established: "",
     marital_status: "",
   });
+  const isAdminChart = detailPath === "/admin/patient_detail";
 
   const [portalReady, setPortalReady] = useState(false);
   /** Local text for “chart / handoff” notes per appointment row (synced when detail loads). */
@@ -247,6 +247,7 @@ export function PatientDetailModal({
           emergency_contact_name: d.emergency_contact_name || "",
           emergency_contact_phone: d.emergency_contact_phone || "",
           date_of_birth: d.date_of_birth || "",
+          date_established: d.date_established_override || "",
           marital_status: d.marital_status || "",
         });
       })
@@ -311,7 +312,12 @@ export function PatientDetailModal({
         emergency_contact_phone: intakeForm.emergency_contact_phone,
         date_of_birth: intakeForm.date_of_birth || null,
         marital_status: intakeForm.marital_status || "",
-        ...(detailPath === "/admin/patient_detail" ? { online_chiro_intake_waived: onlineChiroIntakeWaived } : {}),
+        ...(isAdminChart
+          ? {
+              online_chiro_intake_waived: onlineChiroIntakeWaived,
+              date_established: intakeForm.date_established.trim() ? intakeForm.date_established : null,
+            }
+          : {}),
       });
       setIntakeMsg("Saved.");
       const refreshed = await apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`);
@@ -365,6 +371,7 @@ export function PatientDetailModal({
       intakeForm.emergency_contact_name !== (detail.emergency_contact_name || "") ||
       intakeForm.emergency_contact_phone !== (detail.emergency_contact_phone || "") ||
       intakeForm.date_of_birth !== (detail.date_of_birth || "") ||
+      intakeForm.date_established !== (detail.date_established_override || "") ||
       intakeForm.marital_status !== (detail.marital_status || "") ||
       (detailPath === "/admin/patient_detail" &&
         onlineChiroIntakeWaived !== (detail.online_chiro_intake_waived === true)));
@@ -551,6 +558,9 @@ export function PatientDetailModal({
                         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date established</p>
                         <p className="mt-1.5 font-semibold tabular-nums text-slate-900">
                           {formatDemographicsDate(detail.date_established)}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-slate-500">
+                          {detail.date_established_override ? "Custom date" : "From first appointment"}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
@@ -785,12 +795,39 @@ export function PatientDetailModal({
                           </select>
                         </label>
                       </div>
-                      <p className="mt-2 text-xs text-slate-500">
-                        Age, date established, and last seen are calculated from visits and update automatically.
-                      </p>
+                      <p className="mt-2 text-xs text-slate-500">Age and last seen update automatically from visits.</p>
                     </section>
+
+                    {isAdminChart && !readOnlyChart ? (
+                      <section className="rounded-2xl border border-slate-200/80 bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date established</p>
+                        <div className="mt-3">
+                          <label>
+                            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Established with clinic
+                            </span>
+                            <input
+                              type="date"
+                              className={`${inputClass} max-w-xs`}
+                              value={intakeForm.date_established}
+                              onChange={(e) => setIntakeForm((f) => ({ ...f, date_established: e.target.value }))}
+                            />
+                          </label>
+                          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                            {detail.first_appointment_date ? (
+                              <>
+                                First appointment in system: {formatDemographicsDate(detail.first_appointment_date)}.
+                                Leave this blank to use that date.
+                              </>
+                            ) : (
+                              <>Override when the real start date differs from the first booked visit.</>
+                            )}
+                          </p>
+                        </div>
+                      </section>
+                    ) : null}
                   </div>
-                  {detailPath === "/admin/patient_detail" && (
+                  {isAdminChart && (
                     <div className="flex gap-3 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
                       <Checkbox
                         id="online-chiro-intake-waived"
@@ -825,6 +862,7 @@ export function PatientDetailModal({
                                 emergency_contact_name: detail.emergency_contact_name || "",
                                 emergency_contact_phone: detail.emergency_contact_phone || "",
                                 date_of_birth: detail.date_of_birth || "",
+                                date_established: detail.date_established_override || "",
                                 marital_status: detail.marital_status || "",
                               })
                             }
@@ -898,7 +936,9 @@ export function PatientDetailModal({
                               className={`w-full rounded-xl border-2 px-3 py-3 text-left transition ${
                                 selected
                                   ? "border-[#16a349] bg-[#ecfdf5]/60 shadow-md ring-2 ring-[#16a349]/35"
-                                  : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white/80"
+                                  : a.status === "no_show"
+                                    ? "border-red-200 bg-red-50/70 hover:border-red-300 hover:bg-red-50"
+                                    : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white/80"
                               }`}
                             >
                               <p className="text-sm font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</p>
@@ -907,11 +947,7 @@ export function PatientDetailModal({
                                 {a.end_time ? ` - ${a.end_time}` : ""}
                               </p>
                               {a.provider ? <p className="mt-1 text-xs text-slate-600">{a.provider}</p> : null}
-                              <span
-                                className={`mt-2 inline-block rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
-                              >
-                                {a.status.replace(/_/g, " ")}
-                              </span>
+                              <AppointmentStatusBadge status={a.status} size="xs" className="mt-2" />
                             </button>
                           );
                         })}
@@ -922,8 +958,10 @@ export function PatientDetailModal({
                           detail.appointments.find((a) => a.id === activeHistoryAppointmentId) || detail.appointments[0];
                         if (!active) return null;
                         return (
-                          <section className="space-y-4 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
-                            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                          <section
+                            className={`space-y-4 rounded-2xl border p-4 sm:p-5 ${appointmentHistoryRowClass(active.status)}`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100/80 pb-3">
                               <div>
                                 <p className="text-lg font-bold tracking-tight text-slate-900">
                                   {formatMonthDayYear(active.appointment_date)} at {active.start_time}
@@ -936,11 +974,7 @@ export function PatientDetailModal({
                                   </p>
                                 ) : null}
                               </div>
-                              <span
-                                className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ${statusBadgeClass(active.status)}`}
-                              >
-                                {active.status.replace(/_/g, " ")}
-                              </span>
+                              <AppointmentStatusBadge status={active.status} size="sm" />
                             </div>
 
                             <ChartNoteWorkspace

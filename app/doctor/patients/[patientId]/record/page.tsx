@@ -4,7 +4,8 @@ import { ChartNoteReaderPanel } from "@/components/chart-note-document";
 import { Loader } from "@/components/loader";
 import { PatientDemographicsEditor } from "@/components/patient-demographics-editor";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
-import { appointmentStatusPillClass } from "@/components/status-chip";
+import { AppointmentStatusBadge } from "@/components/status-chip";
+import { cn } from "@/lib/utils";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
@@ -87,10 +88,6 @@ type PatientDetail = {
   clinical_access_message?: string;
   appointments: AppointmentHistoryRow[];
 };
-
-function statusBadgeClass(status: string): string {
-  return `${appointmentStatusPillClass(status)} ring-1 ring-black/[0.06]`;
-}
 
 function pricePaidLabel(inv: AppointmentHistoryRow["invoice"]): string {
   if (!inv) return "—";
@@ -503,18 +500,19 @@ export default function DoctorPatientRecordPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedVisit(a)}
-                    className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 text-left shadow-sm transition hover:border-[#16a349]/25 hover:bg-slate-50/80 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+                    className={cn(
+                      "flex w-full flex-col gap-3 rounded-2xl border px-4 py-4 text-left transition sm:flex-row sm:flex-wrap sm:items-center sm:justify-between",
+                      a.status === "no_show"
+                        ? "border-red-300 bg-red-50/60 hover:border-red-400 hover:bg-red-50"
+                        : "border-slate-200/90 bg-white shadow-sm hover:border-[#16a349]/25 hover:bg-slate-50/80",
+                    )}
                   >
                     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
                       <span className="font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</span>
                       <span className="text-sm text-slate-600 tabular-nums">{a.start_time}</span>
                       <span className="text-sm text-slate-700">{a.service || "—"}</span>
                       <span className="text-sm text-slate-600">{a.provider || "—"}</span>
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClass(a.status)}`}
-                      >
-                        {a.status.replace(/_/g, " ")}
-                      </span>
+                      <AppointmentStatusBadge status={a.status} size="xs" />
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-4">
                       <span className="text-sm font-medium text-slate-800">{pricePaidLabel(a.invoice)}</span>
@@ -562,11 +560,7 @@ export default function DoctorPatientRecordPage() {
               <p className="mt-1 text-sm text-slate-600">{selectedVisit.provider || "—"}</p>
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusBadgeClass(selectedVisit.status)}`}
-                >
-                  {selectedVisit.status.replace(/_/g, " ")}
-                </span>
+                <AppointmentStatusBadge status={selectedVisit.status} size="sm" />
               </div>
               <p className="mt-4 text-sm font-semibold text-slate-900">{pricePaidLabel(selectedVisit.invoice)}</p>
               {selectedVisit.invoice?.id ? (

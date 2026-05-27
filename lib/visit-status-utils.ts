@@ -15,7 +15,7 @@ export function visitStatusBadgeClass(status: string): string {
     case "cancelled":
       return "bg-pink-100 text-pink-900";
     case "no_show":
-      return "bg-orange-100 text-orange-900";
+      return "bg-red-100 text-red-900 ring-1 ring-red-300/80";
     default:
       return "bg-slate-100 text-slate-700";
   }
@@ -23,5 +23,6 @@ export function visitStatusBadgeClass(status: string): string {
 
 export function visitStatusLabel(status: string): string {
   const key = status === "booked" ? "scheduled" : status;
+  if (key === "no_show") return "No-show";
   return key.replaceAll("_", " ");
 }

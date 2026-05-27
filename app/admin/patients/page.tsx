@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader } from "@/components/loader";
+import { PatientNoShowBadge } from "@/components/status-chip";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { Button } from "@/components/ui/button";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
@@ -25,6 +26,7 @@ type Patient = {
   next_appointment_date: string | null;
   next_appointment_time: string | null;
   date_established: string | null;
+  no_show_count?: number;
   balance: string;
 };
 
@@ -158,6 +160,7 @@ export default function AdminPatientsPage() {
             next_appointment_date: row.next_appointment_date ?? null,
             next_appointment_time: row.next_appointment_time ?? null,
             date_established: row.date_established ?? null,
+            no_show_count: row.no_show_count ?? 0,
           })),
         );
         setError("");
@@ -468,6 +471,7 @@ export default function AdminPatientsPage() {
                       const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
                       const nextAppt = nextAppointmentLabel(p);
                       const service = (p.last_service || "").trim();
+                      const noShows = typeof p.no_show_count === "number" ? p.no_show_count : 0;
                       return (
                         <tr
                           key={p.id}
@@ -494,10 +498,13 @@ export default function AdminPatientsPage() {
                                 {patientInitials(p)}
                               </div>
                               <div className="min-w-0">
-                                <p className="leading-snug text-slate-900">
-                                  <span className="font-semibold tracking-tight">{last}</span>
-                                  <span className="font-normal text-slate-400">, </span>
-                                  <span className="font-medium text-slate-700">{first}</span>
+                                <p className="flex flex-wrap items-center gap-2 leading-snug text-slate-900">
+                                  <span>
+                                    <span className="font-semibold tracking-tight">{last}</span>
+                                    <span className="font-normal text-slate-400">, </span>
+                                    <span className="font-medium text-slate-700">{first}</span>
+                                  </span>
+                                  <PatientNoShowBadge count={noShows} />
                                 </p>
                                 <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
                                   <span className="font-mono tabular-nums text-slate-400">
