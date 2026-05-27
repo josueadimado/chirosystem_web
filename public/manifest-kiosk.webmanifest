@@ -1,5 +1,5 @@
 {
-  "id": "relief-checkin",
+  "id": "relief-checkin-emblem",
   "name": "Relief — Patient check-in",
   "short_name": "Check-in",
   "description": "Check-in at Relief Chiropractic with the phone number on your appointment.",
@@ -24,7 +24,13 @@
       "purpose": "any"
     },
     {
-      "src": "/icon-512x512.png",
+      "src": "/icon-192x192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512x512-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

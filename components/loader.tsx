@@ -1,6 +1,6 @@
 "use client";
 
-import { IconLogo } from "@/components/icons";
+import { BrandLogo } from "@/components/brand-logo";
 
 /**
  * Loaders for route transitions and data fetches.
@@ -31,8 +31,8 @@ function BrandLoaderCore({ label, sublabel }: { label?: string; sublabel?: strin
           aria-hidden
         />
         {/* Logo tile */}
-        <div className="relative flex h-[4.25rem] w-[4.25rem] items-center justify-center rounded-2xl border border-white/80 bg-white shadow-lg shadow-slate-200/80">
-          <IconLogo className="h-11 w-11 text-[#16a349]" />
+        <div className="relative flex h-[4.25rem] w-[4.25rem] items-center justify-center overflow-hidden rounded-2xl border border-white/80 bg-white shadow-lg shadow-slate-200/80">
+          <BrandLogo variant="mark" className="h-11 w-11 scale-110" />
         </div>
       </div>
 

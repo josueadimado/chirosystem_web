@@ -345,7 +345,6 @@ function AdminSchedulePageContent() {
       if (openedFromUrlRef.current !== ap.id) {
         openedFromUrlRef.current = ap.id;
         setSelected(ap);
-        toast.info(`Opened ${ap.patient_name} — details are in the panel on the right.`);
       }
       pendingAppointmentIdRef.current = null;
       return;
@@ -736,12 +735,7 @@ function AdminSchedulePageContent() {
             onSelect={(row) => {
               const full = appointments.find((x) => x.id === row.id);
               if (!full) return;
-              if (selected?.id !== full.id) {
-                setSelected(full);
-                toast.info(`${full.patient_name} — use the panel on the right for check-in, reschedule, and billing.`);
-              } else {
-                setSelected(full);
-              }
+              setSelected(full);
             }}
             onPickDayInMonth={(d) => {
               setFocusDate(d);

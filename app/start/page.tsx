@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 
 export const metadata: Metadata = {
   title: "Portal menu",
@@ -14,8 +15,10 @@ export default function PortalStartPage() {
     <main className="min-h-[100dvh] min-h-screen bg-gradient-to-b from-background via-[#ecfdf5]/30 to-background px-[max(1rem,env(safe-area-inset-left))] py-10 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto max-w-2xl">
         <div className="mb-8 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Relief Chiropractic</p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#e9982f] sm:text-4xl">Choose where to go</h1>
+          <div className="flex justify-center">
+            <BrandLogo variant="full" className="mx-auto max-h-12 sm:max-h-14" priority />
+          </div>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Choose where to go</h1>
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
             Pick the option that matches what you need. You can bookmark this page on phones or tablets for quick access.
           </p>

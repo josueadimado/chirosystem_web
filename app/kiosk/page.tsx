@@ -1,6 +1,7 @@
 "use client";
 
 import { useAppFeedback } from "@/components/app-feedback";
+import { BrandLogo } from "@/components/brand-logo";
 import { IconArrowRight, IconCheck } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { ApiError, apiPostPublic } from "@/lib/api";
@@ -251,7 +252,9 @@ export default function KioskPage() {
           <div className="space-y-6 px-6 pb-8 pt-7 text-center sm:px-10 sm:pb-10 sm:pt-8">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Check-in</p>
-              <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#e9982f] sm:text-4xl">Relief Chiropractic</h1>
+              <div className="mt-3 flex justify-center">
+                <BrandLogo variant="full" className="mx-auto max-h-12 sm:max-h-14" priority />
+              </div>
               <p className="mt-3 text-lg font-semibold text-foreground">Welcome — we&apos;re glad you&apos;re here</p>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                 Enter the <span className="font-medium text-foreground">phone number</span> on your appointment. We&apos;ll

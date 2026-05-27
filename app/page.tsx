@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppFeedback } from "@/components/app-feedback";
 import { IconCheck, IconChevronLeft, IconChevronRight } from "@/components/icons";
+import { BrandLogo } from "@/components/brand-logo";
 import { Loader } from "@/components/loader";
 import { BookingCardSetup } from "@/components/booking-card-setup";
 import { PublicBookingClinicHelp } from "@/components/public-booking-clinic-help";
@@ -1210,9 +1211,9 @@ export default function BookingPage() {
             <p className="mb-3 inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold tracking-wide text-slate-800">
               Relief Chiropractic · Online booking
             </p>
-            <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-[#e9982f] md:text-5xl">
-              Relief Chiropractic
-            </h1>
+            <div className="mt-1">
+              <BrandLogo variant="full" className="max-h-14 md:max-h-16" priority />
+            </div>
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
               {bookingFlow === "reschedule" ? (
                 "Change or cancel a visit you already booked—we'll verify your cell number. You can pick a new time or cancel online."

@@ -33,11 +33,14 @@ import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** Persisted: "1" = show month picker, Google Calendar, waitlist; "0" = full-width schedule. */
+const DOCTOR_SCHEDULE_TOOLS_KEY = "doctor_schedule_tools_open";
 
 type CalendarStatus = { oauth_configured: boolean; connected: boolean };
 
@@ -139,6 +142,8 @@ function DoctorSchedulePageInner() {
   const [calendarNote, setCalendarNote] = useState("");
   const [calendarBusy, setCalendarBusy] = useState(false);
 
+  const [toolsOpen, setToolsOpen] = useState(true);
+
   const navSigRef = useRef<{ view: ScheduleViewMode; focusMs: number } | null>(null);
   const openedFromUrlRef = useRef<number | null>(null);
   const pendingAppointmentIdRef = useRef<number | null>(null);
@@ -177,6 +182,24 @@ function DoctorSchedulePageInner() {
         setProviderName("");
       })
       .finally(() => setAuthReady(true));
+  }, []);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(DOCTOR_SCHEDULE_TOOLS_KEY);
+      if (stored === "0") setToolsOpen(false);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const setToolsOpenPersist = useCallback((open: boolean) => {
+    setToolsOpen(open);
+    try {
+      localStorage.setItem(DOCTOR_SCHEDULE_TOOLS_KEY, open ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const loadAppointments = useCallback(async () => {
@@ -236,7 +259,6 @@ function DoctorSchedulePageInner() {
       if (openedFromUrlRef.current !== ap.id) {
         openedFromUrlRef.current = ap.id;
         setSelected(ap);
-        toast.info(`${ap.patient_name} — details are in the panel on the right.`);
       }
       pendingAppointmentIdRef.current = null;
       return;
@@ -408,9 +430,8 @@ function DoctorSchedulePageInner() {
     );
   }
 
-  return (
-    <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
-      <aside className="space-y-4">
+  const scheduleToolsSidebar = (
+    <aside id="doctor-schedule-tools" className="space-y-4" aria-label="Schedule tools">
         <div className="doctor-panel p-4">
           <DoctorSectionLabel help="Pick a day to open it in Day view on the main calendar. Use arrows on the calendar for week/month navigation.">
             Month
@@ -523,7 +544,18 @@ function DoctorSchedulePageInner() {
           </DoctorSectionLabel>
           <p className="text-sm text-slate-500">No patients on the waitlist yet.</p>
         </div>
-      </aside>
+    </aside>
+  );
+
+  return (
+    <div
+      className={
+        toolsOpen
+          ? "grid gap-6 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] lg:gap-8"
+          : "grid gap-6 lg:grid-cols-1"
+      }
+    >
+      {toolsOpen ? scheduleToolsSidebar : null}
 
       <div className="min-w-0 space-y-6">
         <DoctorPageIntro
@@ -599,6 +631,25 @@ function DoctorSchedulePageInner() {
             </button>
             <span className="text-sm font-semibold text-slate-800">{schedulePeriodLabel(view, focusDate)}</span>
           </div>
+          <button
+            type="button"
+            onClick={() => setToolsOpenPersist(!toolsOpen)}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+            aria-expanded={toolsOpen}
+            aria-controls="doctor-schedule-tools"
+          >
+            {toolsOpen ? (
+              <>
+                <PanelLeftClose className="h-4 w-4 text-slate-500" aria-hidden />
+                Hide tools
+              </>
+            ) : (
+              <>
+                <PanelLeftOpen className="h-4 w-4 text-slate-500" aria-hidden />
+                Show tools
+              </>
+            )}
+          </button>
         </div>
 
         {loading ? (
@@ -617,10 +668,7 @@ function DoctorSchedulePageInner() {
               selectedId={selected?.id ?? null}
               onSelect={(row) => {
                 const full = appointments.find((x) => x.id === row.id);
-                if (full) {
-                  setSelected(full);
-                  toast.info(`${full.patient_name} — details are in the panel on the right.`);
-                }
+                if (full) setSelected(full);
               }}
               onPickDayInMonth={(d) => {
                 setFocusDate(d);

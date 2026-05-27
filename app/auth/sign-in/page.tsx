@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 import { IconEye, IconEyeOff } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -133,7 +134,7 @@ export default function SignInPage() {
         <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.06\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-40" />
         <div className="relative flex flex-col justify-between p-12 text-primary-foreground">
           <div>
-            <span className="text-2xl font-extrabold tracking-tight text-white/95">Relief Chiropractic</span>
+            <BrandLogo variant="full" onDark className="max-h-14" priority />
           </div>
           <div className="space-y-6">
             <h2 className="max-w-sm text-3xl leading-tight font-bold">Your clinic operations, simplified.</h2>
@@ -156,8 +157,8 @@ export default function SignInPage() {
       {/* Right panel - form */}
       <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-12 lg:px-16">
         <div className="content-fade-in mx-auto w-full max-w-md">
-          <div className="mb-8 text-center lg:hidden">
-            <span className="text-2xl font-extrabold text-primary">Relief Chiropractic</span>
+          <div className="mb-8 flex justify-center lg:hidden">
+            <BrandLogo variant="full" className="max-h-11" priority />
           </div>
 
           <Card className="border-border/80 shadow-md">

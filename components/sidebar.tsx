@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { IconLogo } from "./icons";
+import { BrandLogo } from "@/components/brand-logo";
 
 export type NavItem = { label: string; href: string; icon?: React.ReactNode };
 
@@ -144,18 +144,17 @@ export function Sidebar({
         )}
       >
         <div
+          role="banner"
+          aria-label={title}
           className={cn(
             "flex items-center gap-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] lg:pt-4",
             open ? "" : "justify-center px-0",
           )}
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <IconLogo className="h-6 w-6" />
-          </div>
-          {open && (
-            <p className="min-w-0 text-xl font-extrabold leading-tight text-[#e9982f] truncate">
-              {title}
-            </p>
+          {open ? (
+            <BrandLogo variant="full" className="min-h-10 min-w-0 max-h-11" priority />
+          ) : (
+            <BrandLogo variant="mark" className="shrink-0 rounded-lg ring-1 ring-primary/10" priority />
           )}
         </div>
         <nav
