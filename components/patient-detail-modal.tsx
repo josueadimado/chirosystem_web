@@ -16,6 +16,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
+import "react-phone-number-input/style.css";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
@@ -87,6 +89,8 @@ type PatientDetail = {
   has_saved_card?: boolean;
   /** When true, public booking skips “must book intake chiro first” for this patient (migrated / established). */
   online_chiro_intake_waived?: boolean;
+  sms_consent?: boolean;
+  sms_consent_at?: string | null;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -166,6 +170,10 @@ export function PatientDetailModal({
   const [deleteError, setDeleteError] = useState("");
 
   const [intakeForm, setIntakeForm] = useState({
+    first_name: "",
+    last_name: "",
+    phone: undefined as string | undefined,
+    email: "",
     address_line1: "",
     address_line2: "",
     city_state_zip: "",
@@ -174,6 +182,8 @@ export function PatientDetailModal({
     date_of_birth: "",
     date_established: "",
     marital_status: "",
+    online_chiro_intake_waived: false,
+    sms_consent: false,
   });
   const isAdminChart = detailPath === "/admin/patient_detail";
 
@@ -183,9 +193,9 @@ export function PatientDetailModal({
   const [savingHandoffId, setSavingHandoffId] = useState<number | null>(null);
   const [handoffMsg, setHandoffMsg] = useState("");
   const [activeHistoryAppointmentId, setActiveHistoryAppointmentId] = useState<number | null>(null);
-  /** Admin-only: allow regular chiro online without a completed chiro visit on file */
-  const [onlineChiroIntakeWaived, setOnlineChiroIntakeWaived] = useState(false);
-  const [activeIntakeSection, setActiveIntakeSection] = useState<"address" | "emergency" | "dob">("address");
+  const [activeIntakeSection, setActiveIntakeSection] = useState<"contact" | "address" | "emergency" | "dob">(
+    detailPath === "/admin/patient_detail" ? "contact" : "address",
+  );
 
   useEffect(() => {
     setPortalReady(true);
@@ -239,8 +249,11 @@ export function PatientDetailModal({
     apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`)
       .then((d) => {
         setDetail(d);
-        setOnlineChiroIntakeWaived(d.online_chiro_intake_waived === true);
         setIntakeForm({
+          first_name: d.first_name || "",
+          last_name: d.last_name || "",
+          phone: d.phone?.trim() ? d.phone : undefined,
+          email: d.email || "",
           address_line1: d.address_line1 || "",
           address_line2: d.address_line2 || "",
           city_state_zip: d.city_state_zip || "",
@@ -249,7 +262,12 @@ export function PatientDetailModal({
           date_of_birth: d.date_of_birth || "",
           date_established: d.date_established_override || "",
           marital_status: d.marital_status || "",
+          online_chiro_intake_waived: d.online_chiro_intake_waived === true,
+          sms_consent: d.sms_consent === true,
         });
+        if (detailPath === "/admin/patient_detail") {
+          setTab("intake");
+        }
       })
       .catch((e) => {
         setError(e instanceof ApiError ? e.message : "Could not load patient.");
@@ -300,6 +318,21 @@ export function PatientDetailModal({
       setIntakeMsg("This patient is outside your care type — front desk or the other provider must save changes.");
       return;
     }
+    if (isAdminChart) {
+      if (!intakeForm.first_name.trim() || !intakeForm.last_name.trim()) {
+        setIntakeMsg("First and last name are required.");
+        return;
+      }
+      if (!intakeForm.phone || !isValidPhoneNumber(intakeForm.phone)) {
+        setIntakeMsg("Enter a valid phone number for this patient.");
+        return;
+      }
+      const emerg = intakeForm.emergency_contact_phone.trim();
+      if (emerg && !isValidPhoneNumber(emerg)) {
+        setIntakeMsg("Emergency contact phone doesn’t look valid. Clear it or enter a full number.");
+        return;
+      }
+    }
     setSavingIntake(true);
     setIntakeMsg("");
     try {
@@ -314,7 +347,12 @@ export function PatientDetailModal({
         marital_status: intakeForm.marital_status || "",
         ...(isAdminChart
           ? {
-              online_chiro_intake_waived: onlineChiroIntakeWaived,
+              first_name: intakeForm.first_name.trim(),
+              last_name: intakeForm.last_name.trim(),
+              phone: intakeForm.phone,
+              email: intakeForm.email.trim(),
+              online_chiro_intake_waived: intakeForm.online_chiro_intake_waived,
+              sms_consent: intakeForm.sms_consent,
               date_established: intakeForm.date_established.trim() ? intakeForm.date_established : null,
             }
           : {}),
@@ -322,6 +360,22 @@ export function PatientDetailModal({
       setIntakeMsg("Saved.");
       const refreshed = await apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`);
       setDetail(refreshed);
+      setIntakeForm({
+        first_name: refreshed.first_name || "",
+        last_name: refreshed.last_name || "",
+        phone: refreshed.phone?.trim() ? refreshed.phone : undefined,
+        email: refreshed.email || "",
+        address_line1: refreshed.address_line1 || "",
+        address_line2: refreshed.address_line2 || "",
+        city_state_zip: refreshed.city_state_zip || "",
+        emergency_contact_name: refreshed.emergency_contact_name || "",
+        emergency_contact_phone: refreshed.emergency_contact_phone || "",
+        date_of_birth: refreshed.date_of_birth || "",
+        date_established: refreshed.date_established_override || "",
+        marital_status: refreshed.marital_status || "",
+        online_chiro_intake_waived: refreshed.online_chiro_intake_waived === true,
+        sms_consent: refreshed.sms_consent === true,
+      });
     } catch (e) {
       setIntakeMsg(e instanceof ApiError ? e.message : "Save failed.");
     } finally {
@@ -373,8 +427,13 @@ export function PatientDetailModal({
       intakeForm.date_of_birth !== (detail.date_of_birth || "") ||
       intakeForm.date_established !== (detail.date_established_override || "") ||
       intakeForm.marital_status !== (detail.marital_status || "") ||
-      (detailPath === "/admin/patient_detail" &&
-        onlineChiroIntakeWaived !== (detail.online_chiro_intake_waived === true)));
+      (isAdminChart &&
+        (intakeForm.first_name !== (detail.first_name || "") ||
+          intakeForm.last_name !== (detail.last_name || "") ||
+          intakeForm.phone !== (detail.phone?.trim() ? detail.phone : undefined) ||
+          intakeForm.email !== (detail.email || "") ||
+          intakeForm.online_chiro_intake_waived !== (detail.online_chiro_intake_waived === true) ||
+          intakeForm.sms_consent !== (detail.sms_consent === true))));
 
   const intakeSectionButtonClass = (isActive: boolean) =>
     `rounded-full px-3 py-1.5 text-xs font-semibold transition ${
@@ -389,8 +448,13 @@ export function PatientDetailModal({
         { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Address, DOB, emergency" },
       ]
     : [
-        { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary & contacts" },
-        { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Address, DOB, emergency" },
+        { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary (read-only)" },
+        {
+          id: "intake",
+          label: "Edit patient",
+          shortLabel: "Edit",
+          hint: "Name, phone, address, DOB, preferences",
+        },
         { id: "history", label: "Visit history", shortLabel: "Visits", hint: "Notes & billing by visit" },
       ];
 
@@ -479,6 +543,21 @@ export function PatientDetailModal({
             <>
               {tab === "overview" && (
                 <div className="animate-fade-in space-y-6">
+                  {isAdminChart ? (
+                    <div className="flex flex-col gap-3 rounded-2xl border border-[#16a349]/30 bg-[#ecfdf5] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-slate-700">
+                        <span className="font-semibold text-slate-900">Need to change name, phone, or address?</span> Use the{" "}
+                        <span className="font-semibold text-[#0d5c2e]">Edit patient</span> tab — all profile fields save together.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTab("intake")}
+                        className="shrink-0 rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d]"
+                      >
+                        Edit patient →
+                      </button>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[#16a349]/20 bg-gradient-to-br from-[#ecfdf5] via-white to-emerald-50/30 p-5 shadow-sm shadow-emerald-900/5 ring-1 ring-emerald-100/50">
                     <div className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#16a349] to-[#13823d] text-2xl font-bold text-white shadow-lg shadow-emerald-900/20">
                       {displayInitial(detail)}
@@ -639,12 +718,32 @@ export function PatientDetailModal({
                     </p>
                   ) : (
                   <div className="rounded-xl border border-emerald-100/80 bg-emerald-50/35 px-4 py-3 text-sm leading-relaxed text-slate-700 ring-1 ring-emerald-100/40">
-                    Edit fields below, then <span className="font-semibold text-slate-900">Save demographics</span> at the
-                    bottom.
+                    {isAdminChart ? (
+                      <>
+                        Update any patient information below, then{" "}
+                        <span className="font-semibold text-slate-900">Save patient record</span> at the bottom. If another
+                        patient already has the same name, date of birth, and phone, you&apos;ll see an alert and nothing will
+                        be saved.
+                      </>
+                    ) : (
+                      <>
+                        Edit fields below, then <span className="font-semibold text-slate-900">Save demographics</span> at the
+                        bottom.
+                      </>
+                    )}
                   </div>
                   )}
 
                   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm">
+                    {isAdminChart ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveIntakeSection("contact")}
+                        className={intakeSectionButtonClass(activeIntakeSection === "contact")}
+                      >
+                        Name & phone
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setActiveIntakeSection("address")}
@@ -667,6 +766,74 @@ export function PatientDetailModal({
                       Date of birth
                     </button>
                   </div>
+
+                  {isAdminChart && !readOnlyChart ? (
+                    <section
+                      className={`rounded-2xl border p-4 transition ${
+                        activeIntakeSection === "contact"
+                          ? "border-emerald-200 bg-emerald-50/30 ring-1 ring-emerald-100"
+                          : "border-slate-200/80 bg-white"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Name & contact</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Legal name, mobile number, and email on file for reminders and receipts.
+                      </p>
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            First name
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.first_name}
+                            onFocus={() => setActiveIntakeSection("contact")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, first_name: e.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Last name
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.last_name}
+                            onFocus={() => setActiveIntakeSection("contact")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, last_name: e.target.value }))}
+                          />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Phone
+                          </span>
+                          <PhoneInput
+                            international
+                            defaultCountry="US"
+                            value={intakeForm.phone}
+                            onChange={(v) => setIntakeForm((f) => ({ ...f, phone: v }))}
+                            className="phone-input-root"
+                            numberInputProps={{
+                              className: inputClass,
+                              onFocus: () => setActiveIntakeSection("contact"),
+                            }}
+                          />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Email
+                          </span>
+                          <input
+                            type="email"
+                            className={inputClass}
+                            value={intakeForm.email}
+                            onFocus={() => setActiveIntakeSection("contact")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, email: e.target.value }))}
+                            placeholder="optional"
+                          />
+                        </label>
+                      </div>
+                    </section>
+                  ) : null}
 
                   <div className="grid gap-4">
                     <section
@@ -827,23 +994,48 @@ export function PatientDetailModal({
                       </section>
                     ) : null}
                   </div>
-                  {isAdminChart && (
-                    <div className="flex gap-3 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
-                      <Checkbox
-                        id="online-chiro-intake-waived"
-                        checked={onlineChiroIntakeWaived}
-                        onCheckedChange={(c) => setOnlineChiroIntakeWaived(c)}
-                        className="mt-0.5"
-                      />
-                      <label htmlFor="online-chiro-intake-waived" className="cursor-pointer text-sm leading-relaxed text-slate-700">
-                        <span className="font-semibold text-slate-900">Skip “intake first” for online chiro booking</span>
-                        <span className="mt-1 block font-normal text-slate-600">
-                          For established or imported patients who may book regular (non-intake) chiropractic online
-                          before this system shows a completed chiro visit. Staff only.
-                        </span>
-                      </label>
-                    </div>
-                  )}
+                  {isAdminChart && !readOnlyChart ? (
+                    <section className="space-y-3 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Clinic preferences</p>
+                      <div className="flex gap-3">
+                        <Checkbox
+                          id="online-chiro-intake-waived"
+                          checked={intakeForm.online_chiro_intake_waived}
+                          onCheckedChange={(c) =>
+                            setIntakeForm((f) => ({ ...f, online_chiro_intake_waived: c === true }))
+                          }
+                          className="mt-0.5"
+                        />
+                        <label htmlFor="online-chiro-intake-waived" className="cursor-pointer text-sm leading-relaxed text-slate-700">
+                          <span className="font-semibold text-slate-900">Skip “intake first” for online chiro booking</span>
+                          <span className="mt-1 block font-normal text-slate-600">
+                            Lets this patient book regular chiropractic online without a completed intake visit on file.
+                          </span>
+                        </label>
+                      </div>
+                      <div className="flex gap-3">
+                        <Checkbox
+                          id="sms-consent"
+                          checked={intakeForm.sms_consent}
+                          onCheckedChange={(c) => setIntakeForm((f) => ({ ...f, sms_consent: c === true }))}
+                          className="mt-0.5"
+                        />
+                        <label htmlFor="sms-consent" className="cursor-pointer text-sm leading-relaxed text-slate-700">
+                          <span className="font-semibold text-slate-900">SMS appointment reminders allowed</span>
+                          <span className="mt-1 block font-normal text-slate-600">
+                            Turn on if the patient agreed to text reminders (required for TCPA).{" "}
+                            {detail.sms_consent_at ? (
+                              <span className="text-slate-500">
+                                Last recorded: {formatMonthDayYear(detail.sms_consent_at.slice(0, 10))}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">Not yet recorded from online booking.</span>
+                            )}
+                          </span>
+                        </label>
+                      </div>
+                    </section>
+                  ) : null}
                   {canSaveIntake && !readOnlyChart && (
                     <div className="sticky bottom-0 z-10 -mx-5 border-t border-slate-200/80 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-6 sm:px-6">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -856,6 +1048,10 @@ export function PatientDetailModal({
                             onClick={() =>
                               detail &&
                               setIntakeForm({
+                                first_name: detail.first_name || "",
+                                last_name: detail.last_name || "",
+                                phone: detail.phone?.trim() ? detail.phone : undefined,
+                                email: detail.email || "",
                                 address_line1: detail.address_line1 || "",
                                 address_line2: detail.address_line2 || "",
                                 city_state_zip: detail.city_state_zip || "",
@@ -864,6 +1060,8 @@ export function PatientDetailModal({
                                 date_of_birth: detail.date_of_birth || "",
                                 date_established: detail.date_established_override || "",
                                 marital_status: detail.marital_status || "",
+                                online_chiro_intake_waived: detail.online_chiro_intake_waived === true,
+                                sms_consent: detail.sms_consent === true,
                               })
                             }
                             disabled={!intakeDirty || savingIntake}
@@ -877,11 +1075,18 @@ export function PatientDetailModal({
                             disabled={savingIntake || !intakeDirty}
                             className="rounded-xl bg-[#16a349] px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50"
                           >
-                            {savingIntake ? "Saving…" : "Save demographics"}
+                            {savingIntake
+                              ? "Saving…"
+                              : isAdminChart
+                                ? "Save patient record"
+                                : "Save demographics"}
                           </button>
                           {intakeMsg ? (
                             <span
-                              className={`text-sm font-medium ${intakeMsg === "Saved." ? "text-[#166534]" : "text-slate-600"}`}
+                              className={`max-w-md text-sm font-medium ${
+                                intakeMsg === "Saved." ? "text-[#166534]" : "text-rose-800"
+                              }`}
+                              role={intakeMsg === "Saved." ? undefined : "alert"}
                             >
                               {intakeMsg}
                             </span>
