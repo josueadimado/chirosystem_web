@@ -1,7 +1,8 @@
 /**
  * Builds favicon + PWA / home-screen icons from the official Relief emblem PNG.
  *
- * Source: public/brand/relief-chiropractic-favicon.png
+ * Source: public/brand/relief-chiropractic-favicon.png (square crop from the wide logo)
+ * Full lockup: public/brand/relief-chiropractic-logo.png
  * Run: npm run generate:pwa-icons  (also runs before `npm run build`)
  */
 import fs from "node:fs";

@@ -3,41 +3,49 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
+/** Full horizontal lockup — figure, R mark, and clinic name (white background). */
 const LOGO_SRC = "/brand/relief-chiropractic-logo.png";
-const LOGO_WIDTH = 420;
-const LOGO_HEIGHT = 120;
+const LOGO_WIDTH = 1024;
+const LOGO_HEIGHT = 383;
+
+/** Square emblem (orange/green figure) — sidebar collapsed, loaders, favicons. */
+const MARK_SRC = "/brand/relief-chiropractic-favicon.png";
+const MARK_SIZE = 383;
 
 type BrandLogoProps = {
-  /** Full horizontal lockup, or circular emblem only (sidebar collapsed). */
+  /** Full horizontal lockup, or emblem only (sidebar collapsed). */
   variant?: "full" | "mark";
-  /** Light card behind logo — helps on dark or busy backgrounds. */
+  /** Extra white card behind logo — use on dark/colored panels if needed. */
   onDark?: boolean;
   className?: string;
   priority?: boolean;
 };
 
 /**
- * Official Relief Chiropractic logo (sidebar, sign-in, booking, loaders).
+ * Official Relief Chiropractic and Wellness Center branding.
  */
 export function BrandLogo({ variant = "full", onDark = false, className, priority }: BrandLogoProps) {
   const img =
     variant === "mark" ? (
       <Image
-        src={LOGO_SRC}
+        src={MARK_SRC}
         alt=""
-        width={LOGO_WIDTH}
-        height={LOGO_HEIGHT}
+        width={MARK_SIZE}
+        height={MARK_SIZE}
         priority={priority}
-        className={cn("h-10 w-[4.25rem] max-w-none object-cover object-left", className)}
+        className={cn("h-10 w-10 shrink-0 rounded-lg object-contain object-left", className)}
       />
     ) : (
       <Image
         src={LOGO_SRC}
-        alt="Relief Chiropractic"
+        alt="Relief Chiropractic and Wellness Center"
         width={LOGO_WIDTH}
         height={LOGO_HEIGHT}
         priority={priority}
-        className={cn("h-auto w-auto max-h-12 max-w-[min(100%,16rem)] object-contain object-left", className)}
+        className={cn(
+          "h-auto w-auto max-h-14 max-w-[min(100%,22rem)] object-contain object-left",
+          className,
+        )}
       />
     );
 
