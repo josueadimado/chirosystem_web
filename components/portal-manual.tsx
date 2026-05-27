@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdminPageIntro } from "@/components/admin-shell";
-import { DoctorPageIntro } from "@/components/doctor-shell";
+import { IconArrowRight, IconCalendar, IconStethoscope, IconUsers } from "@/components/icons";
+import { cn } from "@/lib/utils";
 
 export type PortalRole = "admin" | "doctor";
 
@@ -30,7 +31,30 @@ type ManualSection = {
   imagePlaceholder?: string;
   /** Tall full-page captures (e.g. dashboard) — show more height in the preview */
   imageLayout?: "landscape" | "portrait";
+  /** In-app link shown as “Open this page →” */
+  href?: string;
+  /** Short caption under the screenshot */
+  imageCaption?: string;
 };
+
+const DOCTOR_WORKFLOW_ID = "doctor-workflow";
+
+const DOCTOR_DAILY_WORKFLOW = [
+  { step: 1, text: "Open My Dashboard each morning." },
+  { step: 2, text: "Check today's appointment list." },
+  { step: 3, text: "When the patient arrives — check them in (kiosk or Check in on the row)." },
+  { step: 4, text: "Click Start Visit when ready." },
+  { step: 5, text: "Document the visit — notes, diagnosis, services." },
+  { step: 6, text: "Click Complete Visit." },
+  { step: 7, text: "Take payment (card reader, saved card, or payment link)." },
+  { step: 8, text: "Book the next visit before the patient leaves." },
+] as const;
+
+const DOCTOR_QUICK_LINKS = [
+  { label: "My Dashboard", href: "/doctor/dashboard", icon: IconStethoscope },
+  { label: "My Schedule", href: "/doctor/schedule", icon: IconCalendar },
+  { label: "Patients", href: "/doctor/patients", icon: IconUsers },
+] as const;
 
 function ManualSectionBody({ section }: { section: ManualSection }) {
   return (
@@ -79,11 +103,15 @@ function GuideScreenshot({
   alt,
   placeholderLabel,
   layout = "landscape",
+  caption,
+  figureLabel,
 }: {
   src?: string;
   alt: string;
   placeholderLabel?: string;
   layout?: "landscape" | "portrait";
+  caption?: string;
+  figureLabel?: string;
 }) {
   const frameClass =
     layout === "portrait"
@@ -139,6 +167,12 @@ function GuideScreenshot({
           Click to enlarge
         </span>
       </button>
+      {figureLabel || caption ? (
+        <figcaption className="mt-2 space-y-0.5 text-center text-xs leading-snug text-muted-foreground sm:text-left">
+          {figureLabel ? <p className="font-semibold text-foreground">{figureLabel}</p> : null}
+          {caption ? <p>{caption}</p> : null}
+        </figcaption>
+      ) : null}
 
       {lightboxOpen ? (
         <div
@@ -280,6 +314,8 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/doctor-welcome.png",
     imageAlt: "Sign-in page for the doctor portal",
     imagePlaceholder: "Screenshot: Sign-in page at /auth/sign-in",
+    href: "/auth/sign-in",
+    imageCaption: "Staff sign-in — use the email and password your admin gave you.",
   },
   {
     id: "doctor-dashboard",
@@ -291,6 +327,8 @@ const SECTIONS: ManualSection[] = [
     imageAlt: "Doctor dashboard showing today's appointment list with action buttons",
     imagePlaceholder: "Screenshot: Doctor dashboard — appointment list with action buttons",
     imageLayout: "portrait",
+    href: "/doctor/dashboard",
+    imageCaption: "Today's list — check in, start visit, complete, and collect payment from each row.",
     blocks: [
       {
         heading: "Viewing a different day",
@@ -376,6 +414,8 @@ const SECTIONS: ManualSection[] = [
     imageAlt: "My Schedule week view with Day, Week, Month controls and appointment blocks",
     imagePlaceholder: "Screenshot: My Schedule — week view with appointment blocks",
     imageLayout: "portrait",
+    href: "/doctor/schedule",
+    imageCaption: "Week view — click a block to open the appointment panel.",
     blocks: [
       {
         heading: "Views",
@@ -431,6 +471,8 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/doctor-patients.png",
     imageAlt: "Patient directory with search, filters, and Chart / History links",
     imagePlaceholder: "Screenshot: Patients page — search bar, filters, and patient list",
+    href: "/doctor/patients",
+    imageCaption: "Search by name or phone; open Chart or History from each row.",
     blocks: [
       {
         heading: "Searching and filtering",
@@ -457,6 +499,9 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/doctor-chart.png",
     imageAlt: "Patient chart with demographics, visit history, and print options",
     imagePlaceholder: "Screenshot: Patient chart — demographics and visit history",
+    imageLayout: "portrait",
+    href: "/doctor/patients",
+    imageCaption: "Full record — demographics, visits, and print patient file.",
     blocks: [
       {
         heading: "What you can see",
@@ -499,6 +544,8 @@ const SECTIONS: ManualSection[] = [
     imageAlt: "My analytics with today stats, monthly KPIs, outreach lists, and session chart",
     imagePlaceholder: "Screenshot: Analytics — monthly stats, needs-attention lists, weekly chart",
     imageLayout: "portrait",
+    href: "/doctor/analytics",
+    imageCaption: "KPIs, patients needing outreach, and the weekly sessions chart.",
     blocks: [
       {
         heading: "Today at a glance",
@@ -545,6 +592,8 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/doctor-kiosk.png",
     imageAlt: "Kiosk check-in screen with phone number entry",
     imagePlaceholder: "Screenshot: Kiosk check-in — phone lookup and confirm screen",
+    href: "/kiosk",
+    imageCaption: "Front-desk tablet — patient enters the phone number used when booking.",
     blocks: [
       {
         heading: "How it works",
@@ -575,6 +624,9 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/doctor-payments.png",
     imageAlt: "Payment panel with Square Terminal, saved card, and bill preview options",
     imagePlaceholder: "Screenshot: Payment panel after Complete Visit — Terminal, card, preview bill",
+    imageLayout: "portrait",
+    href: "/doctor/dashboard",
+    imageCaption: "After Complete Visit — charge card, Terminal, POS, or send a payment link.",
     blocks: [
       {
         heading: "Payment options",
@@ -610,20 +662,8 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/doctor-tips.png",
     imageAlt: "Doctor portal sidebar and notification bell",
     imagePlaceholder: "Screenshot: Sidebar navigation and notification bell with alerts",
+    imageCaption: "Sidebar links and the bell for check-ins and schedule alerts.",
     blocks: [
-      {
-        heading: "Daily workflow (recommended order)",
-        bullets: [
-          "Open My Dashboard each morning.",
-          "Check today's appointment list.",
-          "When the patient arrives — check them in via kiosk or the dashboard check-in button.",
-          "Click Start Visit when ready.",
-          "Document the visit (notes, services).",
-          "Click Complete Visit.",
-          "Take payment.",
-          "Book next visit before the patient leaves.",
-        ],
-      },
       {
         heading: "Notifications",
         bullets: [
@@ -667,26 +707,280 @@ function sectionHasVisual(s: ManualSection) {
   return Boolean(s.image || s.imagePlaceholder);
 }
 
-export function PortalManual({ role }: { role: PortalRole }) {
-  const sections = SECTIONS.filter((s) => s.roles.includes(role));
-  const intro =
-    role === "admin" ? (
+type TocItem = { id: string; label: string };
+
+function GuideSectionCard({
+  section,
+  figureIndex,
+}: {
+  section: ManualSection;
+  figureIndex?: number;
+}) {
+  const showVisual = sectionHasVisual(section);
+  const figureLabel =
+    figureIndex != null && (section.imageCaption || section.image)
+      ? `Figure ${figureIndex} — ${section.title}`
+      : undefined;
+
+  return (
+    <Card
+      id={section.id}
+      size="sm"
+      className="scroll-mt-28 border-border/90 py-4 shadow-md shadow-black/[0.05] sm:py-5"
+    >
+      <CardHeader className="border-b border-border/60 bg-muted/30 px-4 sm:px-5 [.border-b]:pb-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-xl font-semibold sm:text-[1.35rem]">{section.title}</CardTitle>
+            {section.subtitle ? (
+              <p className="mt-0.5 text-[15px] font-medium text-muted-foreground sm:text-base">{section.subtitle}</p>
+            ) : null}
+          </div>
+          {section.href ? (
+            <Link
+              href={section.href}
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#16a349]/35 bg-[#ecfdf5] px-3 py-1.5 text-sm font-semibold text-[#0d5c2e] transition hover:bg-[#d1fae5]"
+            >
+              Open this page
+              <IconArrowRight className="h-4 w-4" />
+            </Link>
+          ) : null}
+        </div>
+        {section.description ? (
+          <CardDescription className="mt-2 text-[15px] leading-relaxed sm:text-base">{section.description}</CardDescription>
+        ) : null}
+      </CardHeader>
+      <CardContent className="px-4 pt-4 sm:px-5 sm:pt-5">
+        <div
+          className={
+            showVisual ? "flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6 xl:gap-8" : "space-y-4"
+          }
+        >
+          <div className={showVisual ? "min-w-0 flex-1 space-y-4" : "space-y-4"}>
+            <ManualSectionBody section={section} />
+          </div>
+          {showVisual ? (
+            <figure
+              className={
+                section.imageLayout === "portrait"
+                  ? "m-0 w-full shrink-0 lg:max-w-[min(48%,18rem)] xl:max-w-[min(44%,22rem)]"
+                  : "m-0 w-full shrink-0 lg:max-w-[min(46%,20rem)] xl:max-w-[min(42%,26rem)]"
+              }
+            >
+              <GuideScreenshot
+                src={section.image}
+                alt={section.imageAlt || section.imagePlaceholder || section.title}
+                placeholderLabel={section.imagePlaceholder}
+                layout={section.imageLayout}
+                figureLabel={figureLabel}
+                caption={section.imageCaption}
+              />
+            </figure>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DoctorGuideHero() {
+  return (
+    <div className="rounded-2xl border border-[#16a349]/25 bg-gradient-to-br from-[#ecfdf5] via-white to-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#16a349]">Doctor portal</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">User guide</h2>
+          <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted-foreground sm:text-base">
+            Step-by-step help for your daily workflow — dashboard, schedule, patients, billing, and check-in.
+          </p>
+        </div>
+        <p className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+          ~8 min read
+        </p>
+      </div>
+      <div className="mt-5 flex flex-wrap gap-2">
+        {DOCTOR_QUICK_LINKS.map((link) => {
+          const Icon = link.icon;
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-[#16a349]/40 hover:bg-[#ecfdf5] hover:text-[#0d5c2e]"
+            >
+              <Icon className="h-4 w-4 text-[#16a349]" />
+              {link.label}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DoctorDailyWorkflow() {
+  return (
+    <Card id={DOCTOR_WORKFLOW_ID} className="scroll-mt-28 border-[#16a349]/20 bg-gradient-to-br from-white to-[#ecfdf5]/40 py-4 shadow-md sm:py-5">
+      <CardHeader className="px-4 pb-2 sm:px-5">
+        <CardTitle className="text-xl font-semibold sm:text-[1.35rem]">Daily workflow</CardTitle>
+        <CardDescription className="text-[15px] sm:text-base">
+          Recommended order for a typical patient visit — start here each morning.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-4 sm:px-5">
+        <ol className="grid gap-3 sm:grid-cols-2">
+          {DOCTOR_DAILY_WORKFLOW.map((item) => (
+            <li
+              key={item.step}
+              className="flex gap-3 rounded-xl border border-[#16a349]/15 bg-white/90 px-3 py-3 shadow-sm"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#16a349] text-sm font-bold text-white">
+                {item.step}
+              </span>
+              <span className="pt-0.5 text-[15px] leading-snug text-foreground sm:text-base">{item.text}</span>
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DoctorGuideToc({
+  items,
+  activeId,
+  onNavigate,
+}: {
+  items: TocItem[];
+  activeId: string;
+  onNavigate?: (id: string) => void;
+}) {
+  return (
+    <nav aria-label="Guide sections" className="manual-prose">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">On this page</p>
+      <ul className="space-y-0.5">
+        {items.map((item) => {
+          const active = activeId === item.id;
+          return (
+            <li key={item.id}>
+              <a
+                href={`#${item.id}`}
+                onClick={() => onNavigate?.(item.id)}
+                className={cn(
+                  "block rounded-lg border-l-[3px] py-2 pl-3 pr-2 text-sm font-medium leading-snug transition",
+                  active
+                    ? "border-[#16a349] bg-[#ecfdf5] text-[#0d5c2e]"
+                    : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-foreground",
+                )}
+              >
+                {item.label}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+function DoctorPortalManual({ sections }: { sections: ManualSection[] }) {
+  const [activeId, setActiveId] = useState(DOCTOR_WORKFLOW_ID);
+  const observeIds = useRef<string[]>([]);
+
+  const tocItems: TocItem[] = [
+    { id: DOCTOR_WORKFLOW_ID, label: "Daily workflow" },
+    ...sections.map((s) => ({ id: s.id, label: sectionAnchorLabel(s.title) })),
+  ];
+
+  useEffect(() => {
+    const ids = [DOCTOR_WORKFLOW_ID, ...sections.map((s) => s.id)];
+    observeIds.current = ids;
+    const elements = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el != null);
+    if (!elements.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (!visible.length) return;
+        const topmost = visible.reduce((best, entry) =>
+          entry.boundingClientRect.top < best.boundingClientRect.top ? entry : best,
+        );
+        if (topmost.target.id) setActiveId(topmost.target.id);
+      },
+      { rootMargin: "-15% 0px -60% 0px", threshold: [0, 0.05, 0.15] },
+    );
+
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [sections]);
+
+  let figureCounter = 0;
+
+  return (
+    <div className="w-full space-y-5 pb-6">
+      <DoctorGuideHero />
+
+      {/* Mobile TOC — horizontal scroll */}
+      <div className="sticky top-[3.25rem] z-20 -mx-1 rounded-xl border border-border/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur-md lg:hidden">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {tocItems.map((item) => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className={cn(
+                "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                activeId === item.id
+                  ? "bg-[#16a349] text-white"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+              )}
+            >
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8 xl:gap-10">
+        <aside className="hidden w-52 shrink-0 lg:block xl:w-56">
+          <div className="sticky top-24 rounded-xl border border-border/80 bg-card/95 px-3 py-4 shadow-sm backdrop-blur-sm">
+            <DoctorGuideToc items={tocItems} activeId={activeId} />
+          </div>
+        </aside>
+
+        <div className="min-w-0 flex-1 space-y-4">
+          <DoctorDailyWorkflow />
+          <div className="stagger-children space-y-4">
+            {sections.map((s) => {
+              const figureIndex = sectionHasVisual(s) ? ++figureCounter : undefined;
+              return <GuideSectionCard key={s.id} section={s} figureIndex={figureIndex} />;
+            })}
+          </div>
+        </div>
+      </div>
+
+      <p className="text-center text-sm text-muted-foreground">
+        Public booking:{" "}
+        <Link href="/" className="font-medium text-primary underline-offset-4 hover:underline">
+          open booking site
+        </Link>
+        {" · "}
+        Kiosk check-in:{" "}
+        <Link href="/kiosk" className="font-medium text-primary underline-offset-4 hover:underline">
+          /kiosk
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+function AdminPortalManual({ sections }: { sections: ManualSection[] }) {
+  return (
+    <div className="w-full space-y-5 pb-6">
       <AdminPageIntro
         title="User guide"
         description="How to use the admin portal: schedules, patients, billing, and clinic settings. Keep this page bookmarked for training new staff."
       />
-    ) : (
-      <DoctorPageIntro
-        eyebrow="Help"
-        title="User guide"
-        description="How to use your doctor portal: dashboard, schedule, patients, charts, analytics, payments, and the check-in kiosk."
-        dense
-      />
-    );
-
-  return (
-    <div className="w-full space-y-5 pb-6">
-      {intro}
 
       <div className="manual-prose rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-card to-card px-3 py-3 sm:px-4 sm:py-4">
         <p className="text-[15px] font-medium text-foreground sm:text-base">On this page</p>
@@ -705,56 +999,9 @@ export function PortalManual({ role }: { role: PortalRole }) {
       </div>
 
       <div className="stagger-children space-y-4">
-        {sections.map((s) => {
-          const showVisual = sectionHasVisual(s);
-          return (
-            <Card
-              key={s.id}
-              id={s.id}
-              size="sm"
-              className="scroll-mt-24 border-border/90 py-4 shadow-md shadow-black/[0.05] sm:py-5"
-            >
-              <CardHeader className="border-b border-border/60 bg-muted/30 px-4 sm:px-5 [.border-b]:pb-3">
-                <CardTitle className="text-xl font-semibold sm:text-[1.35rem]">{s.title}</CardTitle>
-                {s.subtitle ? (
-                  <p className="text-[15px] font-medium text-muted-foreground sm:text-base">{s.subtitle}</p>
-                ) : null}
-                {s.description ? (
-                  <CardDescription className="text-[15px] leading-relaxed sm:text-base">{s.description}</CardDescription>
-                ) : null}
-              </CardHeader>
-              <CardContent className="px-4 pt-4 sm:px-5 sm:pt-5">
-                <div
-                  className={
-                    showVisual
-                      ? "flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6 xl:gap-8"
-                      : "space-y-4"
-                  }
-                >
-                  <div className={showVisual ? "min-w-0 flex-1 space-y-4" : "space-y-4"}>
-                    <ManualSectionBody section={s} />
-                  </div>
-                  {showVisual ? (
-                    <div
-                      className={
-                        s.imageLayout === "portrait"
-                          ? "w-full shrink-0 lg:max-w-[min(48%,18rem)] xl:max-w-[min(44%,22rem)]"
-                          : "w-full shrink-0 lg:max-w-[min(46%,20rem)] xl:max-w-[min(42%,26rem)]"
-                      }
-                    >
-                      <GuideScreenshot
-                        src={s.image}
-                        alt={s.imageAlt || s.imagePlaceholder || s.title}
-                        placeholderLabel={s.imagePlaceholder}
-                        layout={s.imageLayout}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {sections.map((s) => (
+          <GuideSectionCard key={s.id} section={s} />
+        ))}
       </div>
 
       <p className="text-center text-sm text-muted-foreground">
@@ -770,4 +1017,12 @@ export function PortalManual({ role }: { role: PortalRole }) {
       </p>
     </div>
   );
+}
+
+export function PortalManual({ role }: { role: PortalRole }) {
+  const sections = SECTIONS.filter((s) => s.roles.includes(role));
+  if (role === "doctor") {
+    return <DoctorPortalManual sections={sections} />;
+  }
+  return <AdminPortalManual sections={sections} />;
 }
