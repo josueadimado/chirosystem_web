@@ -7,12 +7,19 @@ import { DoctorPageIntro } from "@/components/doctor-shell";
 
 export type PortalRole = "admin" | "doctor";
 
+type ManualBlock = {
+  heading: string;
+  bullets: string[];
+};
+
 type ManualSection = {
   id: string;
   title: string;
+  subtitle?: string;
   roles: PortalRole[];
   description?: string;
-  bullets: string[];
+  bullets?: string[];
+  blocks?: ManualBlock[];
   tip?: string;
 };
 
@@ -20,7 +27,7 @@ const SECTIONS: ManualSection[] = [
   {
     id: "overview",
     title: "Welcome to your portal",
-    roles: ["admin", "doctor"],
+    roles: ["admin"],
     description:
       "Relief Chiropractic uses this app for schedules, patients, and day-of operations. Sign in with the email and password your clinic gave you.",
     bullets: [
@@ -33,7 +40,7 @@ const SECTIONS: ManualSection[] = [
   {
     id: "kiosk",
     title: "Patient check-in kiosk (tablet)",
-    roles: ["admin", "doctor"],
+    roles: ["admin"],
     description:
       "The kiosk is a simple check-in screen for patients who already have an appointment today. It does not replace the public booking website.",
     bullets: [
@@ -104,33 +111,373 @@ const SECTIONS: ManualSection[] = [
     ],
   },
   {
-    id: "doctor-dashboard",
-    title: "Doctor — My dashboard",
+    id: "doctor-welcome",
+    title: "Welcome to your portal",
     roles: ["doctor"],
+    description:
+      "Relief Chiropractic uses this app for your daily workflow — patients, schedule, visits, billing, and records.",
     bullets: [
-      "See today’s patients, who have completed check-in, and start visits from your queue when you are ready.",
-      "Checked-in means the patient arrived (kiosk or staff) — then you can begin the visit flow the app provides.",
+      "Sign in at book.reliefchiropractic.net/doctor with the email and password your admin gave you.",
+      "Install as an app on your phone or iPad: tap Share → Add to Home Screen (iPhone) or use the install icon in Chrome (Android).",
+      "The bell icon (top right) shows alerts for new check-ins and schedule changes.",
+      "Always log out when using a shared device.",
+      "If something looks wrong, refresh the page. Contact your admin if the problem continues.",
+    ],
+  },
+  {
+    id: "doctor-dashboard",
+    title: "My Dashboard",
+    subtitle: "Your daily command center",
+    roles: ["doctor"],
+    description: "The dashboard is where you run your day. It opens on today's date automatically.",
+    blocks: [
+      {
+        heading: "Viewing a different day",
+        bullets: [
+          "Use the date picker at the top to jump to any day.",
+          "Your appointment list and stats update for the selected date.",
+        ],
+      },
+      {
+        heading: "Your daily stats",
+        bullets: [
+          "Checked in — patients who have arrived.",
+          "In consultation — visits in progress.",
+          "Awaiting payment — completed, not yet paid.",
+          "Completed — fully done for the day.",
+          "No shows and cancellations.",
+        ],
+      },
+      {
+        heading: "Your appointment list",
+        bullets: [
+          "Each row shows patient name, appointment time, service booked, and current status.",
+          "Actions on each row depend on the appointment status.",
+        ],
+      },
+      {
+        heading: "Before patient arrives",
+        bullets: [
+          "Reschedule — move to a different time.",
+          "Cancel — remove the appointment.",
+          "No-show — mark as did not attend.",
+          "Book next visit — schedule a follow-up.",
+        ],
+      },
+      {
+        heading: "When patient arrives (checked in)",
+        bullets: [
+          "Start Visit — begins the consultation.",
+          "The patient must be checked in first (via kiosk or staff check-in).",
+        ],
+      },
+      {
+        heading: "During visit (in consultation)",
+        bullets: [
+          "Reason for visit — what the patient says.",
+          "Chart / SOAP notes — your clinical notes.",
+          "Handoff notes — visible to other providers.",
+          "Diagnosis field.",
+          "Billable services — select what was done.",
+          "Professional discount — apply if needed.",
+          "Complete Visit — finishes the visit.",
+        ],
+      },
+      {
+        heading: "After visit (awaiting payment)",
+        bullets: [
+          "Edit Billing — change services before payment.",
+          "Charge saved card on file.",
+          "Square Terminal — sends payment to the card reader.",
+          "Square POS — opens the iPad POS app.",
+          "Payment link — send to the patient by text or email.",
+          "Apply patient credit — use existing balance.",
+          "Preview Bill — see the invoice before charging.",
+          "Print Bill — after payment is complete.",
+        ],
+      },
+      {
+        heading: "Invoice search",
+        bullets: [
+          "At the bottom of the dashboard, search old invoices by patient name, invoice number, or date.",
+          "Use this to reprint a bill from any previous visit.",
+        ],
+      },
     ],
   },
   {
     id: "doctor-schedule",
-    title: "Doctor — My schedule",
+    title: "My Schedule",
+    subtitle: "Your personal calendar",
     roles: ["doctor"],
-    bullets: [
-      "Your personal calendar of appointments.",
-      "Use it to prepare between rooms; changes from admin may appear after refresh.",
+    description: "Your schedule shows only your appointments — filtered to your provider account.",
+    blocks: [
+      {
+        heading: "Views",
+        bullets: [
+          "Switch between Day, Week, and Month using the buttons at the top.",
+          "Use the arrows to navigate between periods.",
+          "Click Today to jump back to today.",
+        ],
+      },
+      {
+        heading: "Reading the calendar",
+        bullets: [
+          "Each block shows patient name and time.",
+          "Click any appointment to open the side panel with full details.",
+        ],
+      },
+      {
+        heading: "Appointment side panel",
+        bullets: [
+          "See patient contact details.",
+          "Read or write handoff / chart notes.",
+          "Check in the patient.",
+          "Start the visit (if checked in).",
+          "Reschedule the appointment.",
+          "Book next visit.",
+          "Cancel or mark no-show.",
+        ],
+      },
+      {
+        heading: "Booking from an open slot",
+        bullets: [
+          "Click any empty time slot on the calendar to open the booking form.",
+          "Fill in patient, service, and provider, then confirm to add it to the schedule.",
+        ],
+      },
+      {
+        heading: "Google Calendar sync",
+        bullets: [
+          "Connect your personal Google Calendar to see clinic appointments alongside your other events.",
+          "Go to the side panel → Google Calendar → Connect and follow the prompts.",
+          "Once connected, Relief Chiropractic appointments sync automatically.",
+          "Click Disconnect at any time to stop syncing.",
+        ],
+      },
     ],
   },
   {
     id: "doctor-patients",
-    title: "Doctor — Patient directory",
+    title: "Patients",
+    subtitle: "Your patient directory",
     roles: ["doctor"],
-    bullets: [
-      "Look up patients you are allowed to see under your clinic’s rules.",
-      "Use notifications to learn when someone completes check-in or when the schedule changes.",
+    description: "The Patients page shows all clinic patients you are authorized to view.",
+    blocks: [
+      {
+        heading: "Searching and filtering",
+        bullets: [
+          "Use the search bar to find by name or phone number.",
+          "Filter the list: All patients; Future booking (upcoming appointment); No upcoming; Seen last 30 days; Not seen 6+ months; No visit yet; 0 visits.",
+        ],
+      },
+      {
+        heading: "Patient row actions",
+        bullets: [
+          "Chart — opens the full patient record.",
+          "History — opens the visit history list.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "doctor-chart",
+    title: "Patient Chart",
+    subtitle: "Full record for one patient",
+    roles: ["doctor"],
+    description: "Open the chart from Patients → Chart or by clicking a patient name anywhere in the app.",
+    blocks: [
+      {
+        heading: "What you can see",
+        bullets: [
+          "Demographics: name, phone, email, date of birth, address.",
+          "Visit history list.",
+          "Bill preview per visit.",
+          "Print patient file.",
+        ],
+      },
+      {
+        heading: "Editing patient information",
+        bullets: [
+          "You can edit clinical fields when you have full clinical access for that patient.",
+          "Identity fields (name, phone, email) can only be edited by admin.",
+        ],
+      },
+      {
+        heading: "Chart notes and handoff",
+        bullets: [
+          "After starting a visit you can write reason for visit, SOAP notes (Subjective, Objective, Assessment, Plan), and handoff notes visible to other providers.",
+        ],
+      },
+      {
+        heading: "Visit history",
+        bullets: [
+          "See every past visit with date, service, provider, bill amount, and payment status.",
+          "Click any visit to see bill details and reprint if needed.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "doctor-analytics",
+    title: "Analytics",
+    subtitle: "Your personal performance stats",
+    roles: ["doctor"],
+    description: "The Analytics page shows how your practice is performing.",
+    blocks: [
+      {
+        heading: "Today at a glance",
+        bullets: [
+          "Total patients scheduled today.",
+          "Completed so far.",
+          "Remaining.",
+          "Next patient coming up and time until.",
+        ],
+      },
+      {
+        heading: "Your monthly stats",
+        bullets: [
+          "Total patients seen this month.",
+          "New patients this month.",
+          "Sessions completed.",
+          "No-show rate.",
+        ],
+      },
+      {
+        heading: "Patients needing attention",
+        bullets: [
+          "Missed 2+ sessions in a row — patients who may be at risk of discharge. Use Schedule to book them in.",
+          "Completing program soon — within 2 sessions of finishing. Check in about next steps.",
+          "No upcoming session scheduled — use Schedule to book them.",
+        ],
+      },
+      {
+        heading: "Weekly sessions chart",
+        bullets: [
+          "Bar chart of sessions per week for the last 8 weeks.",
+          "Shows completed vs cancelled / no-show.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "doctor-kiosk",
+    title: "Patient check-in kiosk",
+    subtitle: "For the front desk tablet",
+    roles: ["doctor"],
+    description:
+      "The kiosk is a self-service check-in screen at the front desk. URL: book.reliefchiropractic.net/kiosk",
+    blocks: [
+      {
+        heading: "How it works",
+        bullets: [
+          "Patient enters the phone number they used when booking.",
+          "System finds their appointment for today.",
+          "Patient confirms and checks in.",
+          "Your dashboard updates to show them as checked in.",
+          "You can then click Start Visit.",
+        ],
+      },
+      {
+        heading: "Tips",
+        bullets: [
+          "Bookmark the kiosk page on the tablet for one-tap access.",
+          "The kiosk only shows today's appointments.",
+          "If a patient cannot check in: wrong phone number, no appointment today, appointment cancelled — check the admin schedule to help them.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "doctor-payments",
+    title: "Taking payments",
+    subtitle: "After completing a visit",
+    roles: ["doctor"],
+    description: "After you complete a visit, the payment panel appears automatically.",
+    blocks: [
+      {
+        heading: "Payment options",
+        bullets: [
+          "Saved card on file — if the patient has a card from online booking, charge with one tap. Confirm the amount and tap Charge.",
+          "Square Terminal (card reader) — tap Use Card Reader. Payment goes to the Square Terminal at the front desk. Patient taps or inserts their card. Receipt prints automatically. Status updates on your screen when complete.",
+          "Square POS (iPad) — opens Square Point of Sale on the front-desk iPad. Complete payment there.",
+          "Payment link — sends a text or email link to pay online. Useful if the patient leaves without paying in person.",
+          "Patient credit — apply an existing balance from overpayment or refund toward this visit.",
+        ],
+      },
+      {
+        heading: "Previewing and printing bills",
+        bullets: [
+          "Preview Bill — see the invoice before charging to confirm everything is correct.",
+          "Print Bill — prints the invoice after payment is complete.",
+        ],
+      },
+      {
+        heading: "Editing billing before payment",
+        bullets: [
+          "If services were entered wrong, the visit status will be Awaiting Payment.",
+          "Click Edit Billing to change services before taking payment.",
+          "Once paid, the invoice cannot be edited.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "doctor-tips",
+    title: "Tips and shortcuts",
+    roles: ["doctor"],
+    blocks: [
+      {
+        heading: "Daily workflow (recommended order)",
+        bullets: [
+          "Open My Dashboard each morning.",
+          "Check today's appointment list.",
+          "When the patient arrives — check them in via kiosk or the dashboard check-in button.",
+          "Click Start Visit when ready.",
+          "Document the visit (notes, services).",
+          "Click Complete Visit.",
+          "Take payment.",
+          "Book next visit before the patient leaves.",
+        ],
+      },
+      {
+        heading: "Notifications",
+        bullets: [
+          "The bell shows alerts for patient check-in, schedule changes from admin, and new appointments.",
+          "Click the bell to see all alerts. Mark as read by clicking each one.",
+        ],
+      },
+      {
+        heading: "Install as an app",
+        bullets: [
+          "iPhone / iPad: Share → Add to Home Screen.",
+          "Android / Chrome: install icon in the address bar.",
+          "Gives a full-screen app icon without the browser bar.",
+        ],
+      },
+      {
+        heading: "Google Calendar",
+        bullets: [
+          "Connect once and your schedule syncs automatically.",
+          "My Schedule → Google Calendar panel → Connect.",
+          "Works with personal Gmail or Google Workspace.",
+        ],
+      },
+      {
+        heading: "Common issues",
+        bullets: [
+          "Patient not on dashboard today — check the date is today; patient may not be checked in; appointment may be under another provider.",
+          "Cannot start visit — patient must be checked in first; use Check In on the row or the kiosk.",
+          "Terminal payment not working — check the terminal is on; try payment link; contact admin if the terminal is offline.",
+        ],
+      },
     ],
   },
 ];
+
+function sectionAnchorLabel(title: string) {
+  return title.replace(/^Admin — /, "");
+}
 
 export function PortalManual({ role }: { role: PortalRole }) {
   const sections = SECTIONS.filter((s) => s.roles.includes(role));
@@ -144,7 +491,7 @@ export function PortalManual({ role }: { role: PortalRole }) {
       <DoctorPageIntro
         eyebrow="Help"
         title="User guide"
-        description="How to use your doctor portal: dashboard, schedule, patients, and how the check-in kiosk fits into your day."
+        description="How to use your doctor portal: dashboard, schedule, patients, charts, analytics, payments, and the check-in kiosk."
       />
     );
 
@@ -161,7 +508,7 @@ export function PortalManual({ role }: { role: PortalRole }) {
                 href={`#${s.id}`}
                 className="inline-flex rounded-full border border-border bg-background/80 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10"
               >
-                {s.title.replace(/^Admin — |^Doctor — /, "")}
+                {sectionAnchorLabel(s.title)}
               </a>
             </li>
           ))}
@@ -173,16 +520,31 @@ export function PortalManual({ role }: { role: PortalRole }) {
           <Card key={s.id} id={s.id} className="scroll-mt-24 border-border/90 shadow-md shadow-black/[0.05]">
             <CardHeader className="border-b border-border/60 bg-muted/30">
               <CardTitle className="text-lg">{s.title}</CardTitle>
+              {s.subtitle ? (
+                <p className="text-sm font-medium text-muted-foreground">{s.subtitle}</p>
+              ) : null}
               {s.description ? <CardDescription className="text-base leading-relaxed">{s.description}</CardDescription> : null}
             </CardHeader>
-            <CardContent className="pt-5">
-              <ul className="manual-prose list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
-                {s.bullets.map((b, i) => (
-                  <li key={`${s.id}-${i}`}>{b}</li>
-                ))}
-              </ul>
+            <CardContent className="space-y-5 pt-5">
+              {s.bullets?.length ? (
+                <ul className="manual-prose list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
+                  {s.bullets.map((b, i) => (
+                    <li key={`${s.id}-top-${i}`}>{b}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {s.blocks?.map((block) => (
+                <section key={`${s.id}-${block.heading}`} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">{block.heading}</h3>
+                  <ul className="manual-prose mt-2 list-inside list-disc space-y-2 text-sm leading-relaxed text-foreground marker:text-primary">
+                    {block.bullets.map((b, i) => (
+                      <li key={`${s.id}-${block.heading}-${i}`}>{b}</li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
               {s.tip ? (
-                <p className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-sm text-amber-950">
+                <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-sm text-amber-950">
                   <span className="font-semibold">Tip: </span>
                   {s.tip}
                 </p>
