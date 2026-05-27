@@ -1,13 +1,15 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { AdminPageIntro } from "@/components/admin-shell";
 import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { Button } from "@/components/ui/button";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { getRoleCookie } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useState } from "react";
 
 type ClinicProfile = {
@@ -16,17 +18,13 @@ type ClinicProfile = {
   city_state_zip: string;
   phone: string;
   email: string;
-  /** Billing provider ID printed on all patient bills (e.g. NPI). */
   provider_billing_id: string;
-  /** EIN / office employer ID on bills (optional, separate from Provider ID). */
   employer_tax_id: string;
   pos_default: string;
-  /** USD amount charged on no-show (0 = no fee / no auto-invoice). */
   no_show_fee: string;
   business_hours: Array<{ day: string; hours: string }>;
 };
 
-/** From GET /admin/payment_connection_status/ — confirms Square env + live API ping. */
 type PaymentCheck = {
   id: string;
   label: string;
@@ -43,6 +41,8 @@ type PaymentConnectionStatus = {
   square_locations_found: number;
 };
 
+type SettingsTab = "clinic" | "billing" | "payments";
+
 function emptyProfile(): ClinicProfile {
   return {
     clinic_name: "",
@@ -58,6 +58,34 @@ function emptyProfile(): ClinicProfile {
   };
 }
 
+function SettingsField({
+  label,
+  help,
+  children,
+  className,
+}: {
+  label: string;
+  help?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+        {label}
+        {help ? <HelpTip label={label}>{help}</HelpTip> : null}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function StatusDot({ ok }: { ok: boolean | null }) {
+  if (ok === true) return <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500" title="OK" />;
+  if (ok === false) return <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-rose-500" title="Needs attention" />;
+  return <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-slate-300" title="Optional" />;
+}
+
 export default function AdminSettingsPage() {
   const { runWithFeedback, toast } = useAppFeedback();
   const [draft, setDraft] = useState<ClinicProfile>(emptyProfile);
@@ -65,10 +93,10 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [canSave, setCanSave] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("clinic");
   const [payStatus, setPayStatus] = useState<PaymentConnectionStatus | null>(null);
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState("");
-  /** Admin Terminal test: amount field + active Square checkout id for polling. */
   const [terminalTestAmount, setTerminalTestAmount] = useState("1.00");
   const [terminalTestCheckoutId, setTerminalTestCheckoutId] = useState<string | null>(null);
 
@@ -122,8 +150,7 @@ export default function AdminSettingsPage() {
   }, []);
 
   useEffect(() => {
-    const role = getRoleCookie();
-    setCanSave(role === "owner_admin" || role === "staff");
+    setCanSave(getRoleCookie() === "owner_admin" || getRoleCookie() === "staff");
   }, []);
 
   useEffect(() => {
@@ -137,8 +164,7 @@ export default function AdminSettingsPage() {
   const updateHourRow = (index: number, key: "day" | "hours", value: string) => {
     setDraft((d) => {
       const next = [...d.business_hours];
-      const row = { ...next[index], [key]: value };
-      next[index] = row;
+      next[index] = { ...next[index], [key]: value };
       return { ...d, business_hours: next };
     });
   };
@@ -197,358 +223,380 @@ export default function AdminSettingsPage() {
       },
       {
         loadingMessage: "Saving clinic settings…",
-        successMessage: "Settings saved. Printed bills and this page will use these values.",
+        successMessage: "Settings saved.",
         errorFallback: "Could not save settings.",
       },
     );
     setSaving(false);
   };
 
+  const inputClass = "admin-input w-full py-2.5 text-sm";
+
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6 pb-24">
       <AdminPageIntro
         title="Settings"
-        description="Clinic details and hours are stored in the database—the same information used for printed bills and staff reference."
-        pageHelp="Owner and staff can edit and save. Changes apply immediately for new bill printouts and this screen."
+        description="Clinic details, billing defaults, and payment connection checks. Pick a section below — you don’t need everything on one screen."
+        pageHelp="Owner and staff can edit clinic and billing fields and save. Payment settings are configured on the server; this page only verifies Square is connected."
       />
 
-      {error && (
+      {error ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
-      )}
+      ) : null}
+
       {loading ? (
         <Loader variant="page" label="Loading settings" sublabel="Reading clinic profile…" />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <section className="admin-panel space-y-3">
-            <AdminSectionLabel help="Shown on statements and in doctor bill printouts.">
-              Clinic profile
-            </AdminSectionLabel>
-            <div className="space-y-3 rounded-xl border border-slate-200/90 bg-slate-50/40 p-4 text-sm">
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Clinic name</label>
-                <input
-                  className="admin-input w-full py-2.5 text-sm"
-                  value={draft.clinic_name}
-                  onChange={(e) => updateField("clinic_name", e.target.value)}
-                  disabled={!canSave}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Street address</label>
-                <input
-                  className="admin-input w-full py-2.5 text-sm"
-                  value={draft.address_line1}
-                  onChange={(e) => updateField("address_line1", e.target.value)}
-                  disabled={!canSave}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">City, state, ZIP</label>
-                <input
-                  className="admin-input w-full py-2.5 text-sm"
-                  value={draft.city_state_zip}
-                  onChange={(e) => updateField("city_state_zip", e.target.value)}
-                  disabled={!canSave}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Phone</label>
-                <input
-                  className="admin-input w-full py-2.5 text-sm"
-                  value={draft.phone}
-                  onChange={(e) => updateField("phone", e.target.value)}
-                  disabled={!canSave}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Public email</label>
-                <input
-                  type="email"
-                  className="admin-input w-full py-2.5 text-sm"
-                  value={draft.email}
-                  onChange={(e) => updateField("email", e.target.value)}
-                  disabled={!canSave}
-                  placeholder="optional"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Provider ID (on all bills)
-                  <HelpTip label="Provider ID">
-                    Billing provider identifier printed on every patient bill (e.g. NPI like 453798678). Required for insurance-style statements.
-                  </HelpTip>
-                </label>
-                <input
-                  className="admin-input w-full max-w-[14rem] py-2.5 text-sm font-mono"
-                  value={draft.provider_billing_id}
-                  onChange={(e) => updateField("provider_billing_id", e.target.value)}
-                  disabled={!canSave}
-                  placeholder="e.g. 453798678"
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Employer / office tax ID (printed on bills)
-                  <HelpTip label="Printed on bills">Shown as Provider/Office Employer ID on patient bills (e.g. EIN). Optional.</HelpTip>
-                </label>
-                <input
-                  className="admin-input w-full max-w-[14rem] py-2.5 text-sm font-mono"
-                  value={draft.employer_tax_id}
-                  onChange={(e) => updateField("employer_tax_id", e.target.value)}
-                  disabled={!canSave}
-                  placeholder="optional"
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Default place of service (POS)
-                  <HelpTip label="What is this?">Code printed on each line of the patient bill (e.g. 11). Your biller or clearinghouse can confirm the right value.</HelpTip>
-                </label>
-                <input
-                  className="admin-input w-full max-w-[8rem] py-2.5 text-sm font-mono"
-                  value={draft.pos_default}
-                  onChange={(e) => updateField("pos_default", e.target.value)}
-                  disabled={!canSave}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  No-show fee (USD)
-                  <HelpTip label="No-show billing">
-                    Chiropractic and massage no-shows use the <strong>booked visit price</strong> from Services. This field is
-                    only a <strong>fallback</strong> if a visit has no price. Saved cards are charged when possible; otherwise
-                    the visit may move to <strong>Awaiting payment</strong>. Massage late cancellations (&lt;24h) use the
-                    massage price separately. Use <strong>0</strong> to disable only the fallback amount.
-                  </HelpTip>
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  className="admin-input w-full max-w-[10rem] py-2.5 text-sm font-mono"
-                  value={draft.no_show_fee}
-                  onChange={(e) => updateField("no_show_fee", e.target.value)}
-                  disabled={!canSave}
-                  placeholder="25.00"
-                />
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettingsTab)} className="gap-6">
+          <TabsList
+            variant="line"
+            className="h-auto w-full flex-wrap justify-start gap-0 border-b border-slate-200 bg-transparent p-0"
+          >
+            <TabsTrigger
+              value="clinic"
+              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#0d5c2e] data-active:shadow-none"
+            >
+              Clinic info
+            </TabsTrigger>
+            <TabsTrigger
+              value="billing"
+              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#0d5c2e] data-active:shadow-none"
+            >
+              Billing & hours
+            </TabsTrigger>
+            {canSave ? (
+              <TabsTrigger
+                value="payments"
+                className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#0d5c2e] data-active:shadow-none"
+              >
+                Payments
+              </TabsTrigger>
+            ) : null}
+          </TabsList>
+
+          <TabsContent value="clinic" className="mt-0">
+            <div className="admin-panel space-y-5">
+              <p className="text-sm text-slate-600">Shown on printed bills and staff-facing screens.</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <SettingsField label="Clinic name" className="sm:col-span-2">
+                  <input
+                    className={inputClass}
+                    value={draft.clinic_name}
+                    onChange={(e) => updateField("clinic_name", e.target.value)}
+                    disabled={!canSave}
+                  />
+                </SettingsField>
+                <SettingsField label="Street address" className="sm:col-span-2">
+                  <input
+                    className={inputClass}
+                    value={draft.address_line1}
+                    onChange={(e) => updateField("address_line1", e.target.value)}
+                    disabled={!canSave}
+                  />
+                </SettingsField>
+                <SettingsField label="City, state, ZIP" className="sm:col-span-2">
+                  <input
+                    className={inputClass}
+                    value={draft.city_state_zip}
+                    onChange={(e) => updateField("city_state_zip", e.target.value)}
+                    disabled={!canSave}
+                  />
+                </SettingsField>
+                <SettingsField label="Phone">
+                  <input
+                    className={inputClass}
+                    value={draft.phone}
+                    onChange={(e) => updateField("phone", e.target.value)}
+                    disabled={!canSave}
+                  />
+                </SettingsField>
+                <SettingsField label="Public email">
+                  <input
+                    type="email"
+                    className={inputClass}
+                    value={draft.email}
+                    onChange={(e) => updateField("email", e.target.value)}
+                    disabled={!canSave}
+                    placeholder="optional"
+                  />
+                </SettingsField>
               </div>
             </div>
-          </section>
+          </TabsContent>
 
-          <section className="admin-panel space-y-3">
-            <AdminSectionLabel help="Reference hours for staff. Actual booking slots still follow your schedule rules.">
-              Business hours
-            </AdminSectionLabel>
-            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200/90 bg-white">
-              {draft.business_hours.map((row, i) => (
-                <li key={i} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
+          <TabsContent value="billing" className="mt-0 space-y-4">
+            <div className="admin-panel space-y-5">
+              <p className="text-sm text-slate-600">Defaults for patient bills and no-show rules.</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <SettingsField
+                  label="Provider ID (all bills)"
+                  help="Billing provider ID on every patient bill (e.g. NPI)."
+                >
                   <input
-                    className="admin-input min-w-0 flex-1 py-2 text-sm sm:max-w-[9rem]"
-                    value={row.day}
-                    onChange={(e) => updateHourRow(i, "day", e.target.value)}
+                    className={cn(inputClass, "font-mono")}
+                    value={draft.provider_billing_id}
+                    onChange={(e) => updateField("provider_billing_id", e.target.value)}
                     disabled={!canSave}
-                    aria-label={`Day ${i + 1}`}
+                    placeholder="e.g. 453798678"
+                    autoComplete="off"
                   />
+                </SettingsField>
+                <SettingsField label="Employer / office tax ID" help="Optional EIN on printed bills.">
                   <input
-                    className="admin-input min-w-0 flex-[2] py-2 text-sm"
-                    value={row.hours}
-                    onChange={(e) => updateHourRow(i, "hours", e.target.value)}
+                    className={cn(inputClass, "font-mono")}
+                    value={draft.employer_tax_id}
+                    onChange={(e) => updateField("employer_tax_id", e.target.value)}
                     disabled={!canSave}
-                    aria-label={`Hours for row ${i + 1}`}
+                    placeholder="optional"
+                    autoComplete="off"
                   />
-                </li>
-              ))}
-            </ul>
-          </section>
+                </SettingsField>
+                <SettingsField label="Place of service (POS)" help="Line-item code on bills (often 11).">
+                  <input
+                    className={cn(inputClass, "max-w-[8rem] font-mono")}
+                    value={draft.pos_default}
+                    onChange={(e) => updateField("pos_default", e.target.value)}
+                    disabled={!canSave}
+                  />
+                </SettingsField>
+                <SettingsField
+                  label="No-show fee fallback (USD)"
+                  help={
+                    <>
+                      Visit prices usually come from Services. This amount is only used when a visit has no price. Use{" "}
+                      <strong>0</strong> to disable the fallback.
+                    </>
+                  }
+                >
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className={cn(inputClass, "max-w-[10rem] font-mono")}
+                    value={draft.no_show_fee}
+                    onChange={(e) => updateField("no_show_fee", e.target.value)}
+                    disabled={!canSave}
+                    placeholder="25.00"
+                  />
+                </SettingsField>
+              </div>
+            </div>
 
-          {canSave && (
-            <section className="admin-panel space-y-3 lg:col-span-2">
-              <AdminSectionLabel help="Card payments use Square. Values live in the API server environment (.env), not in this form. This panel only checks that they are set and that Square accepts your access token.">
-                Payments (Square)
-              </AdminSectionLabel>
-              {payError && (
-                <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
-                  {payError}
-                </p>
-              )}
-              {payLoading && !payStatus ? (
-                <div className="rounded-xl border border-slate-200/90 bg-slate-50/40 px-4 py-6 text-sm text-slate-600">
-                  Checking payment connection…
-                </div>
-              ) : payStatus ? (
-                <div className="space-y-4 rounded-xl border border-slate-200/90 bg-slate-50/40 p-4 text-sm">
-                  <div
-                    className={`rounded-lg border px-3 py-2.5 ${
-                      payStatus.web_payments_ready
-                        ? "border-emerald-200 bg-emerald-50/80 text-emerald-950"
-                        : "border-amber-200 bg-amber-50/80 text-amber-950"
-                    }`}
-                  >
-                    <p className="font-semibold leading-snug">{payStatus.summary}</p>
-                    {payStatus.environment ? (
-                      <p className="mt-1 text-xs opacity-90">
-                        Square environment: <span className="font-mono">{payStatus.environment}</span>
-                        {payStatus.square_locations_found > 0 ? (
-                          <>
-                            {" "}
-                            · {payStatus.square_locations_found} location
-                            {payStatus.square_locations_found === 1 ? "" : "s"} on this account
-                          </>
-                        ) : null}
-                      </p>
-                    ) : null}
-                  </div>
-                  <ul className="space-y-2">
-                    {payStatus.checks.map((c) => (
-                      <li
-                        key={c.id}
-                        className="flex gap-3 rounded-lg border border-slate-200/80 bg-white/90 px-3 py-2.5"
-                      >
-                        <span className="mt-0.5 shrink-0" aria-hidden>
-                          {c.ok === true ? (
-                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" title="OK" />
-                          ) : c.ok === false ? (
-                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-500" title="Needs attention" />
-                          ) : (
-                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-300" title="Optional / not set" />
-                          )}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="font-medium text-slate-900">{c.label}</p>
-                          {c.hint ? <p className="mt-0.5 text-xs text-slate-600">{c.hint}</p> : null}
-                        </div>
-                      </li>
+            <div className="admin-panel">
+              <h3 className="text-base font-semibold text-slate-900">Business hours</h3>
+              <p className="mt-1 text-sm text-slate-600">Reference for staff; online booking uses schedule rules separately.</p>
+              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="w-[7.5rem] px-3 py-2">Day</th>
+                      <th className="px-3 py-2">Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draft.business_hours.map((row, i) => (
+                      <tr key={i} className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-2">
+                          <input
+                            className="admin-input w-full py-1.5 text-sm"
+                            value={row.day}
+                            onChange={(e) => updateHourRow(i, "day", e.target.value)}
+                            disabled={!canSave}
+                            aria-label={`Day ${i + 1}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            className="admin-input w-full py-1.5 text-sm"
+                            value={row.hours}
+                            onChange={(e) => updateHourRow(i, "hours", e.target.value)}
+                            disabled={!canSave}
+                            aria-label={`Hours row ${i + 1}`}
+                          />
+                        </td>
+                      </tr>
                     ))}
-                  </ul>
-                  <p className="text-xs leading-relaxed text-slate-600">
-                    <strong>Web payments ready</strong> means patients can save a card on the booking page and you can send payment
-                    links. <strong>Terminal reader ready</strong> (when shown below) includes the desk card reader — see project README
-                    for all <span className="font-mono">SQUARE_*</span> variables.
-                  </p>
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    <span
-                      className={`rounded-full px-2.5 py-1 font-semibold ${
-                        payStatus.web_payments_ready ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700"
-                      }`}
-                    >
-                      Web payments: {payStatus.web_payments_ready ? "ready" : "not ready"}
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-1 font-semibold ${
-                        payStatus.terminal_reader_ready ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700"
-                      }`}
-                    >
-                      Card reader: {payStatus.terminal_reader_ready ? "ready" : "not required or not ready"}
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void loadPaymentStatus()}
-                    disabled={payLoading}
-                    className="h-auto rounded-lg text-xs font-semibold"
-                  >
-                    {payLoading ? "Re-checking…" : "Re-check connection"}
-                  </Button>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
 
-                  <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-white/70 px-3 py-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">Test Square Terminal (hardware)</p>
-                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                        Sends a real card-present charge for the amount you enter so you can confirm the reader wakes up.
-                        This does <strong>not</strong> create or pay a clinic invoice — only Square processes the card (you can
-                        void in Square if needed).
-                      </p>
-                      <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50/90 px-2.5 py-2 text-xs leading-relaxed text-sky-950">
-                        <strong className="font-semibold">Device type matters:</strong> this API only works with a{" "}
-                        <strong>Square Terminal</strong> — the standalone unit with its own screen (sometimes called countertop
-                        Terminal). It does <strong>not</strong> use the <strong>Square Stand</strong> (iPad mount), the small{" "}
-                        <strong>contactless and chip Reader</strong>, or an <strong>iPad running Square Point of Sale</strong>.
-                        Those use the Square POS app or payment links instead — use <strong>Square POS app</strong> or{" "}
-                        <strong>desk pay link</strong> on the doctor dashboard for those.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="flex min-w-[8rem] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Amount (USD)
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          className="admin-input rounded-lg py-2 font-mono text-sm normal-case"
-                          value={terminalTestAmount}
-                          onChange={(e) => setTerminalTestAmount(e.target.value)}
-                          aria-label="Test Terminal amount in US dollars"
-                        />
-                      </label>
+          {canSave ? (
+            <TabsContent value="payments" className="mt-0 space-y-4">
+              <div className="admin-panel space-y-4">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">Square payments</h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Credentials live in server environment variables — this tab only checks the connection.
+                  </p>
+                </div>
+
+                {payError ? (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{payError}</p>
+                ) : null}
+
+                {payLoading && !payStatus ? (
+                  <p className="text-sm text-slate-500">Checking connection…</p>
+                ) : payStatus ? (
+                  <>
+                    <div
+                      className={cn(
+                        "rounded-xl border px-4 py-3",
+                        payStatus.web_payments_ready
+                          ? "border-emerald-200/80 bg-emerald-50/60"
+                          : "border-amber-200/80 bg-amber-50/60",
+                      )}
+                    >
+                      <p className="font-semibold text-slate-900">{payStatus.summary}</p>
+                      {payStatus.environment ? (
+                        <p className="mt-1 text-xs text-slate-600">
+                          Environment: <span className="font-mono">{payStatus.environment}</span>
+                          {payStatus.square_locations_found > 0
+                            ? ` · ${payStatus.square_locations_found} location(s)`
+                            : null}
+                        </p>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                            payStatus.web_payments_ready ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700",
+                          )}
+                        >
+                          Web: {payStatus.web_payments_ready ? "ready" : "not ready"}
+                        </span>
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                            payStatus.terminal_reader_ready ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700",
+                          )}
+                        >
+                          Terminal: {payStatus.terminal_reader_ready ? "ready" : "not set"}
+                        </span>
+                      </div>
                       <Button
                         type="button"
-                        variant="secondary"
+                        variant="outline"
                         size="sm"
-                        className="mt-5 h-auto rounded-lg px-3 py-2 text-xs font-semibold"
-                        onClick={() => void launchTerminalTest()}
-                        disabled={!payStatus.terminal_reader_ready}
+                        onClick={() => void loadPaymentStatus()}
+                        disabled={payLoading}
+                        className="mt-3 h-8 rounded-lg text-xs"
                       >
-                        Send to Terminal
+                        {payLoading ? "Checking…" : "Re-check"}
                       </Button>
                     </div>
-                    {!payStatus.terminal_reader_ready ? (
-                      <p className="text-xs text-amber-800">
-                        You can enter an amount anytime. <strong>Send to Terminal</strong> stays off until{" "}
-                        <span className="font-mono">SQUARE_DEVICE_ID</span> (and related Square env) is set and “Card reader”
-                        shows ready above.
-                      </p>
-                    ) : null}
-                    {terminalTestCheckoutId ? (
-                      <SquareTerminalCheckoutPoller
-                        checkoutId={terminalTestCheckoutId}
-                        statusPath="/admin/terminal_checkout_status/"
-                        onComplete={() => {
-                          toast.success(
-                            "The Terminal finished this test. No clinic invoice was updated — check Square for the payment.",
-                          );
-                          setTerminalTestCheckoutId(null);
-                        }}
-                        onTerminalError={(msg) => {
-                          toast.error(msg);
-                          setTerminalTestCheckoutId(null);
-                        }}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-            </section>
-          )}
-        </div>
+
+                    <details className="group rounded-xl border border-slate-200 bg-white">
+                      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
+                        <span className="flex items-center justify-between gap-2">
+                          Connection checklist
+                          <span className="text-xs font-normal text-slate-500 group-open:hidden">Show details</span>
+                          <span className="hidden text-xs font-normal text-slate-500 group-open:inline">Hide</span>
+                        </span>
+                      </summary>
+                      <ul className="space-y-1.5 border-t border-slate-100 px-3 py-3">
+                        {payStatus.checks.map((c) => (
+                          <li key={c.id} className="flex gap-2.5 rounded-lg px-2 py-2 hover:bg-slate-50/80">
+                            <StatusDot ok={c.ok} />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-900">{c.label}</p>
+                              {c.hint ? <p className="mt-0.5 text-xs text-slate-500">{c.hint}</p> : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+
+                    <details className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50">
+                      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
+                        Test Square Terminal
+                      </summary>
+                      <div className="space-y-3 border-t border-slate-200/80 px-4 py-3 text-sm text-slate-600">
+                        <p className="text-xs leading-relaxed">
+                          Sends a small real charge to your <strong>Square Terminal</strong> (standalone reader with screen). Does
+                          not update clinic invoices.
+                        </p>
+                        <p className="rounded-lg border border-sky-100 bg-sky-50/80 px-2.5 py-2 text-xs text-sky-950">
+                          Not for Square Stand, chip readers only, or iPad POS — use payment links or Square POS for those.
+                        </p>
+                        <div className="flex flex-wrap items-end gap-3">
+                          <label className="text-xs font-semibold text-slate-600">
+                            Amount (USD)
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              className="admin-input mt-1 block w-28 rounded-lg py-2 font-mono text-sm"
+                              value={terminalTestAmount}
+                              onChange={(e) => setTerminalTestAmount(e.target.value)}
+                            />
+                          </label>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="h-9 rounded-lg text-xs"
+                            onClick={() => void launchTerminalTest()}
+                            disabled={!payStatus.terminal_reader_ready}
+                          >
+                            Send to Terminal
+                          </Button>
+                        </div>
+                        {!payStatus.terminal_reader_ready ? (
+                          <p className="text-xs text-amber-800">
+                            Set <span className="font-mono">SQUARE_DEVICE_ID</span> on the server and wait for Terminal: ready.
+                          </p>
+                        ) : null}
+                        {terminalTestCheckoutId ? (
+                          <SquareTerminalCheckoutPoller
+                            checkoutId={terminalTestCheckoutId}
+                            statusPath="/admin/terminal_checkout_status/"
+                            onComplete={() => {
+                              toast.success("Terminal test finished — check Square for the charge.");
+                              setTerminalTestCheckoutId(null);
+                            }}
+                            onTerminalError={(msg) => {
+                              toast.error(msg);
+                              setTerminalTestCheckoutId(null);
+                            }}
+                          />
+                        ) : null}
+                      </div>
+                    </details>
+                  </>
+                ) : null}
+              </div>
+            </TabsContent>
+          ) : null}
+        </Tabs>
       )}
 
-      {!loading && (
-        <div className="flex flex-wrap items-center gap-3">
-          {canSave ? (
+      {!loading && activeTab !== "payments" ? (
+        <div className="sticky bottom-0 z-10 -mx-[max(1rem,env(safe-area-inset-left))] border-t border-slate-200/90 bg-background/95 px-[max(1rem,env(safe-area-inset-left))] py-4 pr-[max(1rem,env(safe-area-inset-right))] backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
+          <div className="flex flex-wrap items-center gap-3">
+            {canSave ? (
+              <Button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={saving}
+                className="h-auto rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm"
+              >
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">Sign in as owner or staff to edit.</p>
+            )}
             <Button
               type="button"
-              onClick={() => void handleSave()}
-              disabled={saving}
-              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm"
+              variant="ghost"
+              onClick={() => void load()}
+              disabled={loading || saving}
+              className="h-auto px-2 text-sm text-slate-600"
             >
-              {saving ? "Saving…" : "Save settings"}
+              Reload
             </Button>
-          ) : (
-            <p className="text-sm text-muted-foreground">Sign in as owner or staff to edit these fields.</p>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => void load()}
-            disabled={loading || saving}
-            className="h-auto px-2 text-sm font-semibold underline-offset-2 hover:underline"
-          >
-            Reload from server
-          </Button>
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
