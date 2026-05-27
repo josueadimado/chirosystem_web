@@ -5,12 +5,12 @@ import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { AnalyticsTrendChart } from "@/components/analytics-trend-chart";
 import { useCallback, useEffect, useState } from "react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,6 +28,7 @@ type AnalyticsPayload = {
     new_clients_change: number | null;
   };
   revenue_chart: Array<{ month: string; collected: number; outstanding: number }>;
+  revenue_chart_months?: number;
   appointments_this_week: {
     scheduled: number;
     completed: number;
@@ -116,27 +117,58 @@ function KpiCard({
 const CHART_TEAL = "#0d9488";
 const CHART_AMBER = "#d97706";
 
+const REVENUE_PERIOD_OPTIONS = [
+  { value: 3, label: "3 mo" },
+  { value: 6, label: "6 mo" },
+  { value: 12, label: "12 mo" },
+] as const;
+
 export default function AdminAnalyticsPage() {
   const [data, setData] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revenueMonths, setRevenueMonths] = useState(6);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const payload = await apiGetAuth<AnalyticsPayload>("/admin/analytics/");
-      setData(payload);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load analytics");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (opts?: { months?: number; chartOnly?: boolean }) => {
+      const months = opts?.months ?? revenueMonths;
+      if (opts?.chartOnly) setChartLoading(true);
+      else {
+        setLoading(true);
+        setError(null);
+      }
+      try {
+        const payload = await apiGetAuth<AnalyticsPayload>(`/admin/analytics/?months=${months}`);
+        if (opts?.chartOnly) {
+          setData((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  revenue_chart: payload.revenue_chart,
+                  revenue_chart_months: payload.revenue_chart_months ?? months,
+                }
+              : payload,
+          );
+        } else {
+          setData(payload);
+        }
+        if (payload.revenue_chart_months) setRevenueMonths(payload.revenue_chart_months);
+        else if (opts?.months != null) setRevenueMonths(months);
+      } catch (e) {
+        if (!opts?.chartOnly) setError(e instanceof Error ? e.message : "Failed to load analytics");
+      } finally {
+        setLoading(false);
+        setChartLoading(false);
+      }
+    },
+    [revenueMonths],
+  );
 
   useEffect(() => {
     void load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only
+  }, []);
 
   if (loading) {
     return (
@@ -233,31 +265,33 @@ export default function AdminAnalyticsPage() {
         </div>
       </section>
 
-      {/* Section 2 — Revenue chart */}
-      <section className="admin-panel">
-        <AdminSectionLabel help="Last six calendar months — collected cash vs new open invoice balance issued that month.">
-          Revenue trend
-        </AdminSectionLabel>
-        <div className="h-[280px] w-full min-w-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data.revenue_chart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#64748b" }} />
-              <YAxis
-                tick={{ fontSize: 11, fill: "#64748b" }}
-                tickFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
-              />
-              <Tooltip
-                formatter={(value: number) => formatMoney(value)}
-                contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }}
-              />
-              <Legend />
-              <Bar dataKey="collected" name="Collected" fill={CHART_TEAL} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="outstanding" name="Outstanding added" fill={CHART_AMBER} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
+      {/* Section 2 — Revenue trend (line + period filter) */}
+      <AnalyticsTrendChart
+        title="Revenue trend"
+        help={
+          <>
+            Line chart of <strong>collected</strong> payments (by paid date) vs <strong>outstanding added</strong> (open invoice
+            totals issued that month). Change the period to compare performance over time.
+          </>
+        }
+        data={data.revenue_chart}
+        xKey="month"
+        series={[
+          { dataKey: "collected", name: "Collected", color: CHART_TEAL },
+          { dataKey: "outstanding", name: "Outstanding added", color: CHART_AMBER },
+        ]}
+        periodLabel="Show"
+        periodValue={revenueMonths}
+        periodOptions={[...REVENUE_PERIOD_OPTIONS]}
+        onPeriodChange={(v) => {
+          if (v === revenueMonths) return;
+          void load({ months: v, chartOnly: true });
+        }}
+        valueFormatter={(v) => formatMoney(v)}
+        yTickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`)}
+        height={220}
+        loading={chartLoading}
+      />
 
       {/* Section 3 — This week */}
       <section>

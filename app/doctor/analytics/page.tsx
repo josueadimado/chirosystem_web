@@ -4,18 +4,9 @@ import { DoctorPageIntro, DoctorSectionLabel, DoctorStatsRow } from "@/component
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { apiGetAuth } from "@/lib/api";
+import { AnalyticsTrendChart } from "@/components/analytics-trend-chart";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 type DoctorAnalyticsPayload = {
   today: {
@@ -67,8 +58,17 @@ type DoctorAnalyticsPayload = {
     completed: number;
     missed: number;
   }>;
+  weekly_sessions_weeks?: number;
   care_plan_sessions?: number;
 };
+
+const SESSION_PERIOD_OPTIONS = [
+  { value: 4, label: "4 wk" },
+  { value: 8, label: "8 wk" },
+  { value: 12, label: "12 wk" },
+  { value: 16, label: "16 wk" },
+  { value: 24, label: "24 wk" },
+] as const;
 
 function formatSeen(iso: string | null): string {
   if (!iso) return "—";
@@ -100,28 +100,51 @@ function AttentionList({
 
 const CHART_GREEN = "#16a349";
 const CHART_ROSE = "#e11d48";
+const CHART_SLATE = "#64748b";
 
 export default function DoctorAnalyticsPage() {
   const [data, setData] = useState<DoctorAnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionWeeks, setSessionWeeks] = useState(8);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (opts?: { weeks?: number; chartOnly?: boolean }) => {
+    const weeks = opts?.weeks ?? sessionWeeks;
+    if (opts?.chartOnly) setChartLoading(true);
+    else {
+      setLoading(true);
+      setError(null);
+    }
     try {
-      const payload = await apiGetAuth<DoctorAnalyticsPayload>("/doctor/my-analytics/");
-      setData(payload);
+      const payload = await apiGetAuth<DoctorAnalyticsPayload>(`/doctor/my-analytics/?weeks=${weeks}`);
+      if (opts?.chartOnly) {
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                weekly_sessions: payload.weekly_sessions,
+                weekly_sessions_weeks: payload.weekly_sessions_weeks ?? weeks,
+              }
+            : payload,
+        );
+      } else {
+        setData(payload);
+      }
+      if (payload.weekly_sessions_weeks) setSessionWeeks(payload.weekly_sessions_weeks);
+      else if (opts?.weeks != null) setSessionWeeks(weeks);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load analytics");
+      if (!opts?.chartOnly) setError(e instanceof Error ? e.message : "Failed to load analytics");
     } finally {
       setLoading(false);
+      setChartLoading(false);
     }
-  }, []);
+  }, [sessionWeeks]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only
+  }, []);
 
   if (loading) {
     return (
@@ -368,28 +391,34 @@ export default function DoctorAnalyticsPage() {
         )}
       </section>
 
-      {/* Section 5 — Weekly chart */}
-      <section className="doctor-panel">
-        <DoctorSectionLabel help="Last 8 weeks (Mon–Sun) for your appointments.">
-          Session breakdown
-        </DoctorSectionLabel>
-        <div className="h-[280px] w-full min-w-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data.weekly_sessions} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="week" tick={{ fontSize: 11, fill: "#64748b" }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }} />
-              <Legend />
-              <Bar dataKey="completed" name="Completed" stackId="a" fill={CHART_GREEN} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="missed" name="Cancelled / no-show" stackId="a" fill={CHART_ROSE} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">
-          Bar height includes scheduled visits that week; green = completed, red = cancelled or no-show.
-        </p>
-      </section>
+      {/* Section 5 — Session trend (line + period filter) */}
+      <AnalyticsTrendChart
+        title="Session breakdown"
+        help={
+          <>
+            Your appointments by week (Monday–Sunday). Use the period buttons to see a longer or shorter performance trend.
+          </>
+        }
+        data={data.weekly_sessions}
+        xKey="week"
+        series={[
+          { dataKey: "completed", name: "Completed", color: CHART_GREEN },
+          { dataKey: "missed", name: "Cancelled / no-show", color: CHART_ROSE },
+          { dataKey: "sessions", name: "Scheduled", color: CHART_SLATE },
+        ]}
+        periodLabel="Show"
+        periodValue={sessionWeeks}
+        periodOptions={[...SESSION_PERIOD_OPTIONS]}
+        onPeriodChange={(v) => {
+          if (v === sessionWeeks) return;
+          void load({ weeks: v, chartOnly: true });
+        }}
+        valueFormatter={(v) => `${v} visit${v === 1 ? "" : "s"}`}
+        yTickFormatter={(v) => String(Math.round(v))}
+        height={220}
+        panelClassName="doctor-panel"
+        loading={chartLoading}
+      />
     </div>
   );
 }
