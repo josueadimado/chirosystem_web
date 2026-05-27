@@ -50,6 +50,7 @@ type BillingInvoiceRow = {
   patient_charge_total?: string;
   insurance_remaining_total?: string;
   payments_received_total?: string;
+  remaining_client_responsibility_total?: string;
 };
 
 function formatMoney(amount: string): string {
@@ -688,13 +689,27 @@ export default function AdminBillingPage() {
                       </dd>
                     </div>
                   ) : null}
-                  {selected.payments_received_total &&
-                  parseFloat(selected.payments_received_total) > 0 ? (
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-slate-500">Payments received</dt>
-                      <dd className="font-medium tabular-nums">{formatMoney(selected.payments_received_total)}</dd>
-                    </div>
-                  ) : null}
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Payments received</dt>
+                    <dd className="font-medium tabular-nums">
+                      {formatMoney(selected.payments_received_total ?? "0")}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2 font-semibold text-slate-900">
+                    <dt className="text-slate-700">Remaining Client Responsibility</dt>
+                    <dd className="tabular-nums">
+                      {formatMoney(
+                        selected.remaining_client_responsibility_total ??
+                          String(
+                            Math.max(
+                              0,
+                              parseMoneyNum(selected.patient_charge_total ?? selected.total_amount) -
+                                parseMoneyNum(selected.payments_received_total),
+                            ),
+                          ),
+                      )}
+                    </dd>
+                  </div>
                   <div className="flex justify-between gap-2 border-t border-slate-200/60 pt-2">
                     <dt className="text-slate-500">Patient credit balance</dt>
                     <dd className="font-medium tabular-nums text-emerald-700">{formatMoney(selected.patient_credit_balance)}</dd>

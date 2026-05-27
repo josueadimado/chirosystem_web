@@ -59,6 +59,7 @@ type AppointmentHistoryRow = {
     patient_charge_total?: string;
     insurance_remaining_total?: string;
     payments_received_total?: string;
+    remaining_client_responsibility_total?: string;
   } | null;
 };
 
@@ -183,12 +184,22 @@ function VisitBillPanel({
             <span>-${inv.credit_applied_total}</span>
           </div>
         ) : null}
-        {inv.payments_received_total && parseFloat(inv.payments_received_total) > 0 ? (
-          <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-slate-600">
-            <span>Payments received</span>
-            <span className="font-medium">${inv.payments_received_total}</span>
-          </div>
-        ) : null}
+        <div className="flex justify-between gap-4 text-slate-600">
+          <span>Payments received</span>
+          <span className="font-medium">${inv.payments_received_total ?? "0.00"}</span>
+        </div>
+        <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-base font-bold text-slate-900">
+          <span>Remaining Client Responsibility</span>
+          <span>
+            $
+            {inv.remaining_client_responsibility_total ??
+              Math.max(
+                0,
+                parseFloat(inv.patient_charge_total ?? inv.total_amount) -
+                  parseFloat(inv.payments_received_total ?? "0"),
+              ).toFixed(2)}
+          </span>
+        </div>
       </div>
     </div>
   );

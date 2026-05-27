@@ -61,6 +61,8 @@ export type PatientBillPayload = {
   insurance_remaining_total?: string;
   /** Card/cash/online + wallet credit actually received. */
   payments_received_total?: string;
+  /** Patient Payments minus payments received (0 when paid in full). */
+  remaining_client_responsibility_total?: string;
   /** @deprecated Use insurance_remaining_total — kept for older API responses. */
   insurance_payments_total?: string;
   /** @deprecated On print = patient_charge_total (clinic charge, not payments received). */
@@ -247,8 +249,19 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   );
   const paymentsReceived = moneyLabel(b.payments_received_total ?? "0.00");
   const adjustments = moneyLabel(b.discount ?? "0.00");
-  const showPaymentsReceived =
-    parseFloat((b.payments_received_total ?? "0").replace(/,/g, "")) > 0;
+  const patientChargeNum = parseFloat(
+    (b.patient_charge_total ?? b.patient_payments_total ?? b.total_amount ?? "0").replace(/,/g, ""),
+  );
+  const paymentsReceivedNum = parseFloat((b.payments_received_total ?? "0").replace(/,/g, ""));
+  const remainingClientNum = Math.max(
+    0,
+    Number.isFinite(patientChargeNum) && Number.isFinite(paymentsReceivedNum)
+      ? patientChargeNum - paymentsReceivedNum
+      : parseFloat((b.remaining_client_responsibility_total ?? "0").replace(/,/g, "")) || 0,
+  );
+  const remainingClientResp = moneyLabel(
+    b.remaining_client_responsibility_total ?? remainingClientNum.toFixed(2),
+  );
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -462,21 +475,21 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
         <td class="lab">Remaining balance</td>
         <td class="amt">${insuranceRemaining}</td>
       </tr>
-      ${
-        showPaymentsReceived
-          ? `<tr>
+      <tr>
         <td class="lab">Payments received</td>
         <td class="amt">${paymentsReceived}</td>
-      </tr>`
-          : ""
-      }
+      </tr>
+      <tr class="balance">
+        <td class="lab">Remaining Client Responsibility</td>
+        <td class="amt">${remainingClientResp}</td>
+      </tr>
     </tbody>
   </table>
 
   ${providerBlock}
 
   <p class="foot">
-    (*) Tax per clinic settings. Patient Payments = amount charged to the patient at the clinic. Remaining balance = insurance-only services on this bill (not charged to the patient).
+    (*) Tax per clinic settings. Patient Payments = amount charged to the patient at the clinic. Remaining balance = insurance-only services. Remaining Client Responsibility = Patient Payments minus payments received (0 when paid in full).
     ${b.status ? ` Invoice status: ${esc(b.status)}.` : ""}
     Generated ${esc(formatNowMonthDayYearTime())}.
   </p>
