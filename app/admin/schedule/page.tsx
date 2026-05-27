@@ -69,7 +69,7 @@ type Provider = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "", label: "Active on calendar" },
+  { value: "", label: "All visits" },
   { value: "booked", label: "Booked" },
   { value: "checked_in", label: "Checked in" },
   { value: "in_consultation", label: "In consultation" },
@@ -592,7 +592,7 @@ function AdminSchedulePageContent() {
           <>
             <strong>Day</strong> — time grid; click open white space to book (staff hours through 9:00 PM). Gray stripes = online-only blocks.{" "}
             <strong>Week</strong> — Mon–Fri overview. <strong>Month</strong> — counts; click a day for Day view. Provider and status filters reload
-            from the server. <strong>Active on calendar</strong> hides cancelled/no-show so those slots look open. Click a visit for check-in,
+            from the server. Cancelled and no-show appear in <strong>red</strong> on the day grid but still leave that time open for new bookings. Click a visit for check-in,
             reschedule, and billing.
           </>
         }

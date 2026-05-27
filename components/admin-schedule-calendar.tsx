@@ -691,8 +691,8 @@ function ScheduleCalendarGuide({
         </div>
         {showDeskDetails ? (
           <p className="text-xs leading-relaxed text-slate-500">
-            Gray stripes block online booking only — staff can still book in open white areas. Cancelled and no-show visits are hidden when
-            status is <strong>Active on calendar</strong>; use the status filter to review them.
+            Gray stripes block online booking only — staff can still book in open white areas. Cancelled and no-show visits appear in red with a
+            line-through; that time stays open for a new booking unless another active visit is there.
           </p>
         ) : (
           <p className="text-xs leading-relaxed text-slate-500">

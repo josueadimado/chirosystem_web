@@ -162,18 +162,18 @@ export function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-/** Cancelled / no-show remain in patient history but free the desk calendar unless explicitly filtered. */
-const SCHEDULE_GRID_EXCLUDED_STATUSES = new Set(["cancelled", "no_show"]);
+/** Cancelled / no-show show on the grid (red styling) but do not block desk booking. */
+const SCHEDULE_GRID_NON_BLOCKING_STATUSES = new Set(["cancelled", "no_show"]);
 
-/** Whether an appointment should render on the schedule grid (and count as blocking open slots). */
+/** Whether an appointment should render on the schedule grid. */
 export function appointmentVisibleOnScheduleGrid(status: string, statusFilter = ""): boolean {
   if (statusFilter) return status === statusFilter;
-  return !SCHEDULE_GRID_EXCLUDED_STATUSES.has(status);
+  return true;
 }
 
 /** True when this visit still occupies the calendar / blocks desk booking in that time range. */
 export function appointmentBlocksScheduleGrid(status: string): boolean {
-  return appointmentVisibleOnScheduleGrid(status, "");
+  return !SCHEDULE_GRID_NON_BLOCKING_STATUSES.has(status);
 }
 
 export function filterAppointmentsForScheduleGrid<T extends { status: string }>(
