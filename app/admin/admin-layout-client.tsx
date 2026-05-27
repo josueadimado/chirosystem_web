@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/sidebar";
 import { NotificationBell } from "@/components/notification-bell";
 import { InstallAppCallout } from "@/components/install-app-callout";
 import {
+  IconBarChart,
   IconBook,
   IconBot,
   IconCalendar,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 const mainItems = [
   { label: "Dashboard", href: "/admin/dashboard", icon: <IconLayoutGrid className="w-5 h-5" /> },
+  { label: "Analytics", href: "/admin/analytics", icon: <IconBarChart className="w-5 h-5" /> },
   { label: "Schedule", href: "/admin/schedule", icon: <IconCalendar className="w-5 h-5" /> },
   { label: "Patients", href: "/admin/patients", icon: <IconUsers className="w-5 h-5" /> },
 ];
@@ -45,6 +47,7 @@ const toolsItems = [
 
 const PAGE_TITLES: Record<string, string> = {
   "/admin/dashboard": "Admin Dashboard",
+  "/admin/analytics": "Analytics",
   "/admin/schedule": "Schedule",
   "/admin/patients": "Patients",
   "/admin/billing": "Invoices & Billing",
