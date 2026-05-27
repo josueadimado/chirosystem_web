@@ -162,12 +162,12 @@ function VisitBillPanel({
           </div>
         ) : null}
         <div className="flex justify-between gap-4 font-semibold text-[#0d5c2e]">
-          <span>Patient charge (Relief Chiropractic)</span>
+          <span>Patient Payments</span>
           <span>${inv.patient_charge_total ?? inv.total_amount}</span>
         </div>
         {inv.insurance_remaining_total && parseFloat(inv.insurance_remaining_total) > 0 ? (
           <div className="flex justify-between gap-4">
-            <span>Remaining balance (insurance)</span>
+            <span>Remaining balance</span>
             <span className="font-medium">${inv.insurance_remaining_total}</span>
           </div>
         ) : null}

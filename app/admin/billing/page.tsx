@@ -554,8 +554,8 @@ export default function AdminBillingPage() {
                   </th>
                   <th className="pb-2 pr-3 font-semibold text-right">
                     <span className="inline-flex items-center gap-1">
-                      Patient charge
-                      <HelpTip label="Patient charge">Amount the client pays at Relief Chiropractic.</HelpTip>
+                      Patient Payments
+                      <HelpTip label="Patient Payments">Amount the client pays at the clinic.</HelpTip>
                     </span>
                   </th>
                   <th className="pb-2 pr-3 font-semibold text-right">
@@ -673,7 +673,7 @@ export default function AdminBillingPage() {
                   ) : null}
                   {selected.patient_charge_total ? (
                     <div className="flex justify-between gap-2">
-                      <dt className="text-slate-500">Patient charge (Relief Chiropractic)</dt>
+                      <dt className="text-slate-500">Patient Payments</dt>
                       <dd className="font-medium tabular-nums text-[#0d5c2e]">
                         {formatMoney(selected.patient_charge_total)}
                       </dd>
@@ -682,7 +682,7 @@ export default function AdminBillingPage() {
                   {selected.insurance_remaining_total &&
                   parseFloat(selected.insurance_remaining_total) > 0 ? (
                     <div className="flex justify-between gap-2">
-                      <dt className="text-slate-500">Remaining balance (insurance)</dt>
+                      <dt className="text-slate-500">Remaining balance</dt>
                       <dd className="font-medium tabular-nums text-slate-800">
                         {formatMoney(selected.insurance_remaining_total)}
                       </dd>

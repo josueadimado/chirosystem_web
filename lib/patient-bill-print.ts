@@ -451,7 +451,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
         <td class="amt">${moneyLabel(b.tax)}</td>
       </tr>
       <tr>
-        <td class="lab">Patient Payments (Relief Chiropractic)</td>
+        <td class="lab">Patient Payments</td>
         <td class="amt">${patientCharge}</td>
       </tr>
       <tr>
@@ -459,7 +459,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
         <td class="amt">${adjustments}</td>
       </tr>
       <tr class="balance">
-        <td class="lab">Remaining balance (insurance)</td>
+        <td class="lab">Remaining balance</td>
         <td class="amt">${insuranceRemaining}</td>
       </tr>
       ${
@@ -476,7 +476,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   ${providerBlock}
 
   <p class="foot">
-    (*) Tax per clinic settings. Patient Payments = amount charged at Relief Chiropractic. Remaining balance = insurance-only services on this bill (not charged to the patient).
+    (*) Tax per clinic settings. Patient Payments = amount charged to the patient at the clinic. Remaining balance = insurance-only services on this bill (not charged to the patient).
     ${b.status ? ` Invoice status: ${esc(b.status)}.` : ""}
     Generated ${esc(formatNowMonthDayYearTime())}.
   </p>
