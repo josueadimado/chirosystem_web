@@ -373,8 +373,9 @@ const SECTIONS: ManualSection[] = [
     roles: ["doctor"],
     description: "Your schedule shows only your appointments — filtered to your provider account.",
     image: "/guide/doctor-schedule.png",
-    imageAlt: "Doctor schedule calendar in day view with appointment blocks",
-    imagePlaceholder: "Screenshot: My Schedule — day view with appointment blocks and side panel",
+    imageAlt: "My Schedule week view with Day, Week, Month controls and appointment blocks",
+    imagePlaceholder: "Screenshot: My Schedule — week view with appointment blocks",
+    imageLayout: "portrait",
     blocks: [
       {
         heading: "Views",
