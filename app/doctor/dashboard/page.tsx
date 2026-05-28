@@ -161,6 +161,8 @@ export default function DoctorDashboardPage() {
   const [savingHandoff, setSavingHandoff] = useState(false);
   const [handoffWideOpen, setHandoffWideOpen] = useState(false);
   const [handoffWideEditOpen, setHandoffWideEditOpen] = useState(false);
+  const [soapWideOpen, setSoapWideOpen] = useState(false);
+  const [soapWideEditOpen, setSoapWideEditOpen] = useState(false);
   const [myProviderId, setMyProviderId] = useState<number | null>(null);
   const bookNext = useBookNextVisit({
     todayMinIso: todayStr,
@@ -1252,9 +1254,12 @@ export default function DoctorDashboardPage() {
                 preferences, or anything the next doctor should know.
               </HelpTip>
             </div>
-            {handoffNotes.trim() ? (
-              <ChartNoteOpenWideButton onClick={() => setHandoffWideOpen(true)} />
-            ) : null}
+            <ChartNoteOpenWideButton
+              onClick={() => {
+                setHandoffWideEditOpen(!handoffNotes.trim());
+                setHandoffWideOpen(true);
+              }}
+            />
           </div>
           <ChartNoteRichEditor
             value={handoffNotes}
@@ -1300,6 +1305,11 @@ export default function DoctorDashboardPage() {
           diagnosisSectionId="consult-diagnosis"
           proceduresSectionId="consult-procedures"
           notesSectionId="consult-notes"
+          onOpenSoapWideView={() => {
+            setSoapWideEditOpen(true);
+            setSoapWideOpen(true);
+          }}
+          soapNotesDisabled={isCompleting}
           proceduresHelpLabel="Patient bill lines"
           proceduresHelpContent={
             <>
@@ -1428,6 +1438,24 @@ export default function DoctorDashboardPage() {
           onChange={setHandoffNotes}
           onSave={() => void saveHandoffNote()}
           saving={savingHandoff}
+        />
+        <ChartNoteWideViewModal
+          open={soapWideOpen}
+          onClose={() => {
+            setSoapWideOpen(false);
+            setSoapWideEditOpen(false);
+          }}
+          value={doctorNotes}
+          title="Consultation notes (SOAP)"
+          editable
+          editOpen={soapWideEditOpen}
+          onEditOpenChange={setSoapWideEditOpen}
+          onChange={setDoctorNotes}
+          onSave={() => {
+            setSoapWideEditOpen(false);
+            setSoapWideOpen(false);
+          }}
+          saveLabel="Done"
         />
       </>
     );

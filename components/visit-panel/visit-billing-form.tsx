@@ -1,5 +1,7 @@
 "use client";
 
+import { ChartNoteOpenWideButton } from "@/components/chart-note-wide-modal";
+import { ChartNoteRichEditor } from "@/components/chart-note-rich-editor";
 import { HelpTip } from "@/components/help-tip";
 import {
   VisitDiagnosisPicker,
@@ -50,6 +52,8 @@ export function VisitBillingForm({
   diagnosisSectionId,
   proceduresSectionId,
   notesSectionId,
+  onOpenSoapWideView,
+  soapNotesDisabled,
 }: {
   diagnosis: string;
   onDiagnosisChange: (value: string) => void;
@@ -87,6 +91,9 @@ export function VisitBillingForm({
   diagnosisSectionId?: string;
   proceduresSectionId?: string;
   notesSectionId?: string;
+  /** Doctor consult: open full-screen SOAP editor (same pattern as handoff wide view). */
+  onOpenSoapWideView?: () => void;
+  soapNotesDisabled?: boolean;
 }) {
   const isChecked = (serviceId: number) => billLines.some((r) => r.service_id === serviceId);
   const lineFor = (serviceId: number) => billLines.find((r) => r.service_id === serviceId);
@@ -328,19 +335,34 @@ export function VisitBillingForm({
       ) : null}
       {showVisitNotes ? (
         <div id={notesSectionId} className={notesSectionId ? "scroll-mt-24" : undefined}>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Consultation notes (SOAP)
-          </p>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Consultation notes (SOAP)
+            </p>
+            {onOpenSoapWideView ? (
+              <ChartNoteOpenWideButton onClick={onOpenSoapWideView} />
+            ) : null}
+          </div>
           <p className="mb-2 text-xs text-slate-500">
             Your exam documentation for this visit — saved when you complete the visit. Separate from visit reminders &
-            handoff on the schedule.
+            handoff on the schedule. Not printed on the patient bill.
           </p>
-          <textarea
-            className={notesClassName ?? defaultNotesClass}
-            placeholder="Subjective, objective, assessment, plan… (not printed on the patient bill)"
-            value={doctorNotes}
-            onChange={(e) => onDoctorNotesChange(e.target.value)}
-          />
+          {onOpenSoapWideView ? (
+            <ChartNoteRichEditor
+              value={doctorNotes}
+              onChange={onDoctorNotesChange}
+              className={spacious ? "text-base" : "text-sm"}
+              minHeightClassName={spacious ? "min-h-[5.5rem]" : "min-h-[5rem]"}
+              disabled={soapNotesDisabled}
+            />
+          ) : (
+            <textarea
+              className={notesClassName ?? defaultNotesClass}
+              placeholder="Subjective, objective, assessment, plan… (not printed on the patient bill)"
+              value={doctorNotes}
+              onChange={(e) => onDoctorNotesChange(e.target.value)}
+            />
+          )}
         </div>
       ) : null}
     </div>

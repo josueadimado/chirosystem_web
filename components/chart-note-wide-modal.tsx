@@ -24,6 +24,8 @@ export type ChartNoteWideViewModalProps = {
   onEditOpenChange?: (open: boolean) => void;
   onChange?: (next: string) => void;
   onSave?: () => void;
+  /** Button label when saving (default: Save chart note). */
+  saveLabel?: string;
   saving?: boolean;
   lineItems?: ChartLineItem[];
   lineItemView?: boolean;
@@ -42,6 +44,7 @@ export function ChartNoteWideViewModal({
   onEditOpenChange,
   onChange,
   onSave,
+  saveLabel = "Save chart note",
   saving,
   lineItems,
   lineItemView = false,
@@ -170,7 +173,7 @@ export function ChartNoteWideViewModal({
                   onClick={onSave}
                   className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
                 >
-                  {saving ? "Saving…" : "Save chart note"}
+                  {saving ? "Saving…" : saveLabel}
                 </button>
               ) : null}
             </div>
