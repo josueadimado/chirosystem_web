@@ -1,5 +1,6 @@
 "use client";
 
+import { useAppFeedback } from "@/components/app-feedback";
 import { cn } from "@/lib/utils";
 import {
   SCHEDULE_DAY_END_MIN,
@@ -18,14 +19,16 @@ import {
   providerDayOpenGaps,
   scheduleDayEndMinute,
   scheduleTotalMinutes,
+  slotStartIsInPastForClinic,
   snapScheduleGridStartMinute,
   timePositionPercent,
   toIsoDate,
   unionProviderBookableGaps,
   type TimeInterval,
 } from "@/lib/admin-schedule-utils";
-import { formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -524,6 +527,35 @@ function minuteAtGridY(clientY: number, gridRect: DOMRect, dayEndMin: number): n
   return SCHEDULE_DAY_START_MIN + frac * scheduleTotalMinutes(dayEndMin);
 }
 
+type DeskOpenSlotPick = NonNullable<CalendarProps["onPickOpenSlot"]> extends (
+  pick: infer P,
+) => void
+  ? P
+  : never;
+
+/** Block desk click-to-book when the snapped start is already past (clinic clock). */
+function useGuardPastDeskSlotPick(
+  onPickOpenSlot: CalendarProps["onPickOpenSlot"],
+): CalendarProps["onPickOpenSlot"] {
+  const { runWithFeedback } = useAppFeedback();
+  const todayIso = clinicTodayIso();
+  const guarded = useCallback(
+    (pick: DeskOpenSlotPick) => {
+      if (!onPickOpenSlot) return;
+      if (slotStartIsInPastForClinic(pick.dateIso, pick.startMinute, todayIso)) {
+        void runWithFeedback(() => Promise.reject(new Error("past_slot")), {
+          errorFallback:
+            "That time has already passed. Pick a later time today or another date.",
+        });
+        return;
+      }
+      onPickOpenSlot(pick);
+    },
+    [onPickOpenSlot, runWithFeedback, todayIso],
+  );
+  return onPickOpenSlot ? guarded : undefined;
+}
+
 export function AdminScheduleCalendar({
   view,
   focusDate,
@@ -538,6 +570,7 @@ export function AdminScheduleCalendar({
   onRescheduleAppointment,
 }: CalendarProps) {
   const [nowTick, setNowTick] = useState(0);
+  const guardedPickOpenSlot = useGuardPastDeskSlotPick(onPickOpenSlot);
   useEffect(() => {
     const t = window.setInterval(() => setNowTick((x) => x + 1), 30_000);
     return () => window.clearInterval(t);
@@ -594,7 +627,7 @@ export function AdminScheduleCalendar({
           selectedId={selectedId}
           onSelect={onSelect}
           nowPct={nowPct}
-          onPickOpenSlot={onPickOpenSlot}
+          onPickOpenSlot={guardedPickOpenSlot}
           onRescheduleAppointment={onRescheduleAppointment}
         />
       )}
@@ -608,7 +641,7 @@ export function AdminScheduleCalendar({
           selectedId={selectedId}
           onSelect={onSelect}
           dayEndMin={dayEndMin}
-          onPickOpenSlot={onPickOpenSlot}
+          onPickOpenSlot={guardedPickOpenSlot}
         />
       )}
 

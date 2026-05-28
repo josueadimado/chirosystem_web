@@ -1,7 +1,11 @@
 "use client";
 
 import { useAppFeedback } from "@/components/app-feedback";
-import { minutesToLabel, parseTimeToMinutes } from "@/lib/admin-schedule-utils";
+import {
+  minutesToLabel,
+  parseTimeToMinutes,
+  slotStartIsInPastForClinic,
+} from "@/lib/admin-schedule-utils";
 import { ApiError, apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { useEffect, useMemo, useState } from "react";
@@ -146,6 +150,11 @@ export function AdminDeskBookFromSlotModal({
     return selectedStartMinutes + deskCalendarSpanMinutes(selectedService);
   }, [selectedStartMinutes, selectedService]);
 
+  const selectedStartIsPast = useMemo(() => {
+    if (selectedStartMinutes == null || !dateIso) return false;
+    return slotStartIsInPastForClinic(dateIso, selectedStartMinutes, todayMinIso);
+  }, [selectedStartMinutes, dateIso, todayMinIso]);
+
   const fitsInClickedStrip = useMemo(() => {
     if (!seed || !gapContextActive || selectedStartMinutes == null || !selectedService) return true;
     const span = deskCalendarSpanMinutes(selectedService);
@@ -241,10 +250,23 @@ export function AdminDeskBookFromSlotModal({
           labels.forEach((lab, i) => {
             const tStr = (resolvedTimes[i] || "").trim();
             const st = startMinutesForSlotRow(lab, tStr);
+            if (slotStartIsInPastForClinic(dateIso, st, todayMinIso)) return;
             if (st >= strip.gapStartMin && st + span <= strip.gapEndMin) {
               keptLabels.push(lab);
               keptTimes.push(tStr || minutesToHHMMSS(st));
             }
+          });
+          labels = keptLabels;
+          resolvedTimes = keptTimes;
+        } else {
+          const keptLabels: string[] = [];
+          const keptTimes: string[] = [];
+          labels.forEach((lab, i) => {
+            const tStr = (resolvedTimes[i] || "").trim();
+            const st = startMinutesForSlotRow(lab, tStr);
+            if (slotStartIsInPastForClinic(dateIso, st, todayMinIso)) return;
+            keptLabels.push(lab);
+            keptTimes.push(tStr || minutesToHHMMSS(st));
           });
           labels = keptLabels;
           resolvedTimes = keptTimes;
@@ -325,7 +347,8 @@ export function AdminDeskBookFromSlotModal({
     Boolean(selectedSlot) &&
     !slotsLoading &&
     slotLabels.length > 0 &&
-    fitsInClickedStrip;
+    fitsInClickedStrip &&
+    !selectedStartIsPast;
 
   const submit = async () => {
     if (!seed || !canSubmit) return;
@@ -526,6 +549,11 @@ export function AdminDeskBookFromSlotModal({
               />
             </label>
 
+            {selectedStartIsPast ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                That start time has already passed. Pick a later time today or choose a future date.
+              </p>
+            ) : null}
             <label className="block text-sm font-semibold text-slate-700">
               Start time
               {slotsLoading ? (
@@ -534,11 +562,15 @@ export function AdminDeskBookFromSlotModal({
                 <select
                   value={selectedSlot}
                   onChange={(e) => setSelectedSlot(e.target.value)}
-                  disabled={!slotLabels.length}
+                  disabled={!slotLabels.length || selectedStartIsPast}
                   className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
                 >
                   {slotLabels.length === 0 ? (
-                    <option value="">No times fit this strip + service — adjust above</option>
+                    <option value="">
+                      {dateIso === todayMinIso
+                        ? "No future times left today for this strip — try another date"
+                        : "No times fit this strip + service — adjust above"}
+                    </option>
                   ) : (
                     slotLabels.map((label, i) => (
                       <option key={`${label}-${i}`} value={slotTimes[i] || minutesToHHMMSS(parseTimeToMinutes(label))}>

@@ -1,5 +1,31 @@
 /** Front-desk schedule helpers: time math, stable provider colors, open-slot gaps. */
 
+import { CLINIC_TIMEZONE, clinicTodayIso } from "@/lib/format-date";
+
+/** Clinic-local minutes from midnight (matches API ``slot_start_is_in_past``). */
+export function clinicNowMinutesFromMidnight(timeZone: string = CLINIC_TIMEZONE): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+  const minute = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+  return hour * 60 + minute;
+}
+
+/** True when this start is on or before clinic-local now (today), or on a past calendar day. */
+export function slotStartIsInPastForClinic(
+  dateIso: string,
+  startMinutes: number,
+  todayIso: string = clinicTodayIso(),
+): boolean {
+  if (dateIso < todayIso) return true;
+  if (dateIso > todayIso) return false;
+  return startMinutes <= clinicNowMinutesFromMidnight();
+}
+
 /** Greens, blues, teals, purples, oranges — no red (reserved for cancelled). */
 export const PROVIDER_COLOR_PALETTE = [
   "#0d9488",
