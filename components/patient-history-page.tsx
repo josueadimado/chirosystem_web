@@ -5,6 +5,7 @@ import { Loader } from "@/components/loader";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
 import { cn } from "@/lib/utils";
 import { clinicTodayIso } from "@/lib/format-date";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
@@ -31,6 +32,7 @@ type VisitHistory = {
   reason_for_visit: string;
   doctor_notes: string;
   diagnosis: string;
+  diagnoses?: Array<{ id?: number | null; code: string; description: string }>;
   completed_at: string | null;
   rendered_services: VisitHistoryLine[];
 };
@@ -378,11 +380,11 @@ function VisitRecordCard({
                   {a.visit.reason_for_visit}
                 </p>
               ) : null}
-              {a.visit.diagnosis?.trim() ? (
-                <p className={a.visit.reason_for_visit?.trim() ? "mt-2" : ""}>
-                  <span className="font-semibold text-slate-600">Diagnosis (on bill): </span>
-                  {a.visit.diagnosis}
-                </p>
+              {a.visit.diagnosis?.trim() || (a.visit.diagnoses?.length ?? 0) > 0 ? (
+                <div className={a.visit.reason_for_visit?.trim() ? "mt-2" : ""}>
+                  <p className="font-semibold text-slate-600">Diagnosis (on bill)</p>
+                  <VisitDiagnosisDisplay diagnosis={a.visit.diagnosis} diagnoses={a.visit.diagnoses} className="mt-1" />
+                </div>
               ) : null}
               {a.visit.doctor_notes?.trim() ? (
                 <div className="mt-4">

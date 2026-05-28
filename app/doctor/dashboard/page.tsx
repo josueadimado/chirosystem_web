@@ -15,6 +15,11 @@ import {
   toggleBillLine,
   type VisitBillLine,
 } from "@/lib/visit-billing-form-utils";
+import {
+  diagnosisFingerprint,
+  toggleDiagnosisId,
+  type DiagnosisCatalogEntry,
+} from "@/lib/diagnosis-catalog";
 import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
@@ -86,7 +91,7 @@ type BillLine = VisitBillLine;
 function billingFormFingerprint(
   lines: BillLine[],
   notes: string,
-  diagnosis: string,
+  diagnosisIds: number[],
   professionalDiscount: string,
   professionalDiscountReason: string,
 ): string {
@@ -95,7 +100,7 @@ function billingFormFingerprint(
     .map((l) => `${l.service_id}:${l.quantity}:${l.unit_price.trim()}`)
     .sort()
     .join("|");
-  return `${rows}#${notes}#${diagnosis}#${professionalDiscount.trim()}#${professionalDiscountReason.trim()}`;
+  return `${rows}#${notes}#${diagnosisFingerprint(diagnosisIds)}#${professionalDiscount.trim()}#${professionalDiscountReason.trim()}`;
 }
 
 function doctorApptWithin24Hours(appt: Appointment): boolean {
@@ -130,6 +135,10 @@ export default function DoctorDashboardPage() {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [activeAppt, setActiveAppt] = useState<Appointment | null>(null);
   const [doctorNotes, setDoctorNotes] = useState("");
+  const [diagnosisCatalog, setDiagnosisCatalog] = useState<DiagnosisCatalogEntry[]>([]);
+  const [selectedDiagnosisIds, setSelectedDiagnosisIds] = useState<number[]>([]);
+  const [diagnosisSearch, setDiagnosisSearch] = useState("");
+  /** Legacy display string — server builds bill text from diagnosis_ids on save. */
   const [diagnosis, setDiagnosis] = useState("");
   const [professionalDiscount, setProfessionalDiscount] = useState("");
   const [professionalDiscountReason, setProfessionalDiscountReason] = useState("");
@@ -206,7 +215,7 @@ export default function DoctorDashboardPage() {
     const cur = billingFormFingerprint(
       billLines,
       doctorNotes,
-      diagnosis,
+      selectedDiagnosisIds,
       professionalDiscount,
       professionalDiscountReason,
     );
@@ -214,7 +223,7 @@ export default function DoctorDashboardPage() {
       setBillingEditJustSaved(false);
       billingEditSavedFingerprintRef.current = null;
     }
-  }, [billingEditJustSaved, billLines, doctorNotes, diagnosis, professionalDiscount, professionalDiscountReason]);
+  }, [billingEditJustSaved, billLines, doctorNotes, selectedDiagnosisIds, professionalDiscount, professionalDiscountReason]);
 
   useEffect(() => {
     if (!activeAppt) setPaymentConfirmOpen(false);
@@ -392,6 +401,12 @@ export default function DoctorDashboardPage() {
   }, [selectedDate]);
 
   useEffect(() => {
+    apiGetAuth<DiagnosisCatalogEntry[]>("/diagnoses/")
+      .then((list) => setDiagnosisCatalog(list.filter((d) => d.is_active !== false)))
+      .catch(() => setDiagnosisCatalog([]));
+  }, []);
+
+  useEffect(() => {
     if (!activeAppt?.id) return;
     if (revisingBillingForAppointmentId === activeAppt.id) {
       return;
@@ -405,6 +420,8 @@ export default function DoctorDashboardPage() {
     if (!activeAppt) {
       setBillLines([]);
       setDiagnosis("");
+      setSelectedDiagnosisIds([]);
+      setDiagnosisSearch("");
       setProfessionalDiscount("");
       setProfessionalDiscountReason("");
       setHandoffNotes("");
@@ -418,12 +435,16 @@ export default function DoctorDashboardPage() {
     if (!activeAppt.booked_service_id) {
       setBillLines([]);
       setDiagnosis("");
+      setSelectedDiagnosisIds([]);
+      setDiagnosisSearch("");
       setProfessionalDiscount("");
       setProfessionalDiscountReason("");
       return;
     }
     setBillLines([{ service_id: activeAppt.booked_service_id, quantity: "1", unit_price: "" }]);
     setDiagnosis("");
+    setSelectedDiagnosisIds([]);
+    setDiagnosisSearch("");
     setProfessionalDiscount("");
     setProfessionalDiscountReason("");
   }, [
@@ -483,6 +504,7 @@ export default function DoctorDashboardPage() {
         const data = await apiGetAuth<{
           doctor_notes: string;
           diagnosis: string;
+          diagnosis_ids?: number[];
           rendered_services: Array<{ service_id: number; quantity: number; unit_price: string }>;
           invoice_id: number;
           invoice_number: string;
@@ -500,6 +522,8 @@ export default function DoctorDashboardPage() {
         setActiveAppt(appt);
         setDoctorNotes(data.doctor_notes ?? "");
         setDiagnosis(data.diagnosis ?? "");
+        setSelectedDiagnosisIds(data.diagnosis_ids ?? []);
+        setDiagnosisSearch("");
         setProfessionalDiscount(data.discount ?? "");
         setProfessionalDiscountReason(data.professional_discount_reason ?? "");
         setBillLines(
@@ -526,6 +550,8 @@ export default function DoctorDashboardPage() {
     setConsultWorkspaceExpanded(false);
     setDoctorNotes("");
     setDiagnosis("");
+    setSelectedDiagnosisIds([]);
+    setDiagnosisSearch("");
     setProfessionalDiscount("");
     setProfessionalDiscountReason("");
     setBillLines([]);
@@ -572,7 +598,7 @@ export default function DoctorDashboardPage() {
           payment: CompleteVisitPayment;
         }>(endpoint, {
           doctor_notes: doctorNotes,
-          diagnosis,
+          diagnosis_ids: selectedDiagnosisIds,
           rendered_services: rendered,
           professional_discount: professionalDiscount.trim() || "0",
           professional_discount_reason: professionalDiscountReason.trim(),
@@ -594,7 +620,7 @@ export default function DoctorDashboardPage() {
           billingEditSavedFingerprintRef.current = billingFormFingerprint(
             billLines,
             doctorNotes,
-            diagnosis,
+            selectedDiagnosisIds,
             professionalDiscount,
             professionalDiscountReason,
           );
@@ -620,6 +646,8 @@ export default function DoctorDashboardPage() {
         setConsultWorkspaceExpanded(false);
         setDoctorNotes("");
         setDiagnosis("");
+        setSelectedDiagnosisIds([]);
+        setDiagnosisSearch("");
         setProfessionalDiscount("");
         setProfessionalDiscountReason("");
         setBillLines([]);
@@ -1169,6 +1197,11 @@ export default function DoctorDashboardPage() {
           showDiscountFields={false}
           diagnosis={diagnosis}
           onDiagnosisChange={setDiagnosis}
+          diagnosisCatalog={diagnosisCatalog}
+          selectedDiagnosisIds={selectedDiagnosisIds}
+          onToggleDiagnosis={(id) => setSelectedDiagnosisIds((prev) => toggleDiagnosisId(prev, id))}
+          diagnosisSearchQuery={diagnosisSearch}
+          onDiagnosisSearchQueryChange={setDiagnosisSearch}
           doctorNotes={doctorNotes}
           onDoctorNotesChange={setDoctorNotes}
           professionalDiscount={professionalDiscount}

@@ -6,6 +6,7 @@ import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
+import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
 import { UsDateInput } from "@/components/us-date-input";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import {
@@ -38,6 +39,7 @@ type VisitHistory = {
   reason_for_visit: string;
   doctor_notes: string;
   diagnosis: string;
+  diagnoses?: Array<{ id?: number | null; code: string; description: string }>;
   completed_at: string | null;
   rendered_services: VisitHistoryLine[];
 };
@@ -143,9 +145,7 @@ export function PatientDetailModal({
   const [savingHandoffId, setSavingHandoffId] = useState<number | null>(null);
   const [handoffMsg, setHandoffMsg] = useState("");
   const [activeHistoryAppointmentId, setActiveHistoryAppointmentId] = useState<number | null>(null);
-  const [activeIntakeSection, setActiveIntakeSection] = useState<"contact" | "address" | "emergency" | "dob">(
-    detailPath === "/admin/patient_detail" ? "contact" : "address",
-  );
+  const [activeIntakeSection, setActiveIntakeSection] = useState<"contact" | "address" | "emergency" | "dob">("contact");
 
   useEffect(() => {
     setPortalReady(true);
@@ -268,7 +268,8 @@ export function PatientDetailModal({
       setIntakeMsg("This patient is outside your care type — front desk or the other provider must save changes.");
       return;
     }
-    if (isAdminChart) {
+    const canEditContact = isAdminChart || (isDoctorChart && !readOnlyChart);
+    if (canEditContact) {
       if (!intakeForm.first_name.trim() || !intakeForm.last_name.trim()) {
         setIntakeMsg("First and last name are required.");
         return;
@@ -277,6 +278,8 @@ export function PatientDetailModal({
         setIntakeMsg("Enter a valid phone number for this patient.");
         return;
       }
+    }
+    if (isAdminChart) {
       const emerg = intakeForm.emergency_contact_phone.trim();
       if (emerg && !isValidPhoneNumber(emerg)) {
         setIntakeMsg("Emergency contact phone doesn’t look valid. Clear it or enter a full number.");
@@ -295,12 +298,16 @@ export function PatientDetailModal({
         emergency_contact_phone: intakeForm.emergency_contact_phone,
         date_of_birth: intakeForm.date_of_birth || null,
         marital_status: intakeForm.marital_status || "",
-        ...(isAdminChart
+        ...(canEditContact
           ? {
               first_name: intakeForm.first_name.trim(),
               last_name: intakeForm.last_name.trim(),
               phone: intakeForm.phone,
               email: intakeForm.email.trim(),
+            }
+          : {}),
+        ...(isAdminChart
+          ? {
               online_chiro_intake_waived: intakeForm.online_chiro_intake_waived,
               sms_consent: intakeForm.sms_consent,
               date_established: intakeForm.date_established.trim() ? intakeForm.date_established : null,
@@ -377,12 +384,12 @@ export function PatientDetailModal({
       intakeForm.date_of_birth !== (detail.date_of_birth || "") ||
       intakeForm.date_established !== (detail.date_established_override || "") ||
       intakeForm.marital_status !== (detail.marital_status || "") ||
+      intakeForm.first_name !== (detail.first_name || "") ||
+      intakeForm.last_name !== (detail.last_name || "") ||
+      intakeForm.phone !== (detail.phone?.trim() ? detail.phone : undefined) ||
+      intakeForm.email !== (detail.email || "") ||
       (isAdminChart &&
-        (intakeForm.first_name !== (detail.first_name || "") ||
-          intakeForm.last_name !== (detail.last_name || "") ||
-          intakeForm.phone !== (detail.phone?.trim() ? detail.phone : undefined) ||
-          intakeForm.email !== (detail.email || "") ||
-          intakeForm.online_chiro_intake_waived !== (detail.online_chiro_intake_waived === true) ||
+        (intakeForm.online_chiro_intake_waived !== (detail.online_chiro_intake_waived === true) ||
           intakeForm.sms_consent !== (detail.sms_consent === true))));
 
   const intakeSectionButtonClass = (isActive: boolean) =>
@@ -395,7 +402,7 @@ export function PatientDetailModal({
   const tabs: { id: Tab; label: string; shortLabel: string; hint: string }[] = isDoctorChart
     ? [
         { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary & contacts" },
-        { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Address, DOB, emergency" },
+        { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Name, phone, address, DOB" },
       ]
     : [
         { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary (read-only)" },
@@ -677,15 +684,15 @@ export function PatientDetailModal({
                       </>
                     ) : (
                       <>
-                        Edit fields below, then <span className="font-semibold text-slate-900">Save demographics</span> at the
-                        bottom.
+                        Edit name, phone, email, and demographics below, then{" "}
+                        <span className="font-semibold text-slate-900">Save demographics</span> at the bottom.
                       </>
                     )}
                   </div>
                   )}
 
                   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-sm">
-                    {isAdminChart ? (
+                    {!readOnlyChart ? (
                       <button
                         type="button"
                         onClick={() => setActiveIntakeSection("contact")}
@@ -717,7 +724,7 @@ export function PatientDetailModal({
                     </button>
                   </div>
 
-                  {isAdminChart && !readOnlyChart ? (
+                  {!readOnlyChart ? (
                     <section
                       className={`rounded-2xl border p-4 transition ${
                         activeIntakeSection === "contact"
@@ -1156,11 +1163,15 @@ export function PatientDetailModal({
                                     <span className="text-slate-800">{active.visit.reason_for_visit}</span>
                                   </p>
                                 ) : null}
-                                {active.visit.diagnosis?.trim() ? (
-                                  <p className="mt-2 text-sm">
-                                    <span className="font-semibold text-slate-600">Diagnosis (bill): </span>
-                                    <span className="text-slate-800">{active.visit.diagnosis}</span>
-                                  </p>
+                                {active.visit.diagnosis?.trim() || (active.visit.diagnoses?.length ?? 0) > 0 ? (
+                                  <div className="mt-2 text-sm">
+                                    <p className="font-semibold text-slate-600">Diagnosis (bill)</p>
+                                    <VisitDiagnosisDisplay
+                                      diagnosis={active.visit.diagnosis}
+                                      diagnoses={active.visit.diagnoses}
+                                      className="mt-1 text-slate-800"
+                                    />
+                                  </div>
                                 ) : null}
                                 {active.visit.doctor_notes?.trim() ? (
                                   <div className="mt-4">

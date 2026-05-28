@@ -8,12 +8,17 @@ import {
 } from "@/lib/patient-demographics";
 import { UsDateInput } from "@/components/us-date-input";
 import { useEffect, useMemo, useState } from "react";
+import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
 
 export type PatientDemographicsSource = {
   id: number;
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  email?: string;
   date_of_birth: string | null;
   marital_status?: string;
   age?: number | null;
@@ -29,6 +34,10 @@ export type PatientDemographicsSource = {
 };
 
 type IntakeForm = {
+  first_name: string;
+  last_name: string;
+  phone: string | undefined;
+  email: string;
   date_of_birth: string;
   date_established: string;
   marital_status: string;
@@ -39,8 +48,16 @@ type IntakeForm = {
   emergency_contact_phone: string;
 };
 
-function detailToForm(d: PatientDemographicsSource, includeDateEstablished: boolean): IntakeForm {
+function detailToForm(
+  d: PatientDemographicsSource,
+  includeDateEstablished: boolean,
+  includeContactFields: boolean,
+): IntakeForm {
   return {
+    first_name: includeContactFields ? d.first_name || "" : "",
+    last_name: includeContactFields ? d.last_name || "" : "",
+    phone: includeContactFields && d.phone?.trim() ? d.phone : undefined,
+    email: includeContactFields ? d.email || "" : "",
     date_of_birth: d.date_of_birth || "",
     date_established: includeDateEstablished ? d.date_established_override || "" : "",
     marital_status: d.marital_status || "",
@@ -50,6 +67,16 @@ function detailToForm(d: PatientDemographicsSource, includeDateEstablished: bool
     emergency_contact_name: d.emergency_contact_name || "",
     emergency_contact_phone: d.emergency_contact_phone || "",
   };
+}
+
+function formDirty(
+  form: IntakeForm,
+  patient: PatientDemographicsSource,
+  includeDateEstablished: boolean,
+  includeContactFields: boolean,
+): boolean {
+  const baseline = detailToForm(patient, includeDateEstablished, includeContactFields);
+  return (Object.keys(baseline) as (keyof IntakeForm)[]).some((k) => form[k] !== baseline[k]);
 }
 
 type Props = {
@@ -64,10 +91,12 @@ type Props = {
   readOnlyMessage?: string;
   /** Owner/staff: allow editing date established (e.g. imported patients). */
   canEditDateEstablished?: boolean;
+  /** Name, phone, and email (doctors with full chart access). */
+  includeContactFields?: boolean;
 };
 
 /**
- * Editable demographics for doctors and front desk (DOB, marital, address, emergency).
+ * Editable demographics for doctors and front desk (contact, DOB, marital, address, emergency).
  * Age, date established, and last seen stay read-only (calculated by the server).
  */
 export function PatientDemographicsEditor({
@@ -78,26 +107,47 @@ export function PatientDemographicsEditor({
   readOnly = false,
   readOnlyMessage = "",
   canEditDateEstablished = false,
+  includeContactFields = false,
 }: Props) {
-  const [form, setForm] = useState<IntakeForm>(() => detailToForm(patient, canEditDateEstablished));
+  const [form, setForm] = useState<IntakeForm>(() =>
+    detailToForm(patient, canEditDateEstablished, includeContactFields),
+  );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    setForm(detailToForm(patient, canEditDateEstablished));
-  }, [patient, canEditDateEstablished]);
+    setForm(detailToForm(patient, canEditDateEstablished, includeContactFields));
+  }, [patient, canEditDateEstablished, includeContactFields]);
 
-  const dirty = useMemo(() => {
-    const baseline = detailToForm(patient, canEditDateEstablished);
-    return (Object.keys(baseline) as (keyof IntakeForm)[]).some((k) => form[k] !== baseline[k]);
-  }, [form, patient]);
+  const dirty = useMemo(
+    () => formDirty(form, patient, canEditDateEstablished, includeContactFields),
+    [form, patient, canEditDateEstablished, includeContactFields],
+  );
 
   const save = async () => {
+    if (includeContactFields) {
+      if (!form.first_name.trim() || !form.last_name.trim()) {
+        setMessage("First and last name are required.");
+        return;
+      }
+      if (!form.phone || !isValidPhoneNumber(form.phone)) {
+        setMessage("Enter a valid phone number for this patient.");
+        return;
+      }
+    }
     setSaving(true);
     setMessage("");
     try {
       await apiPatch(intakeSavePath, {
         patient_id: patient.id,
+        ...(includeContactFields
+          ? {
+              first_name: form.first_name.trim(),
+              last_name: form.last_name.trim(),
+              phone: form.phone,
+              email: form.email.trim(),
+            }
+          : {}),
         address_line1: form.address_line1,
         address_line2: form.address_line2,
         city_state_zip: form.city_state_zip,
@@ -113,23 +163,27 @@ export function PatientDemographicsEditor({
         `${detailPath}/?patient_id=${patient.id}`,
       );
       onPatientUpdated(refreshed);
-      setMessage("Demographics saved.");
+      setMessage("Patient information saved.");
     } catch (e) {
-      setMessage(e instanceof ApiError ? e.message : "Could not save demographics.");
+      setMessage(e instanceof ApiError ? e.message : "Could not save patient information.");
     } finally {
       setSaving(false);
     }
   };
 
+  const showContact = includeContactFields;
+
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold tracking-tight text-slate-900">Demographics</h2>
+          <h2 className="text-lg font-bold tracking-tight text-slate-900">Patient information</h2>
           <p className="mt-1 text-sm text-slate-600">
             {readOnly
               ? "Review only — demographics are managed by the front desk or the provider for this care type."
-              : "You can update these during the visit. Age and visit dates update automatically."}
+              : showContact
+                ? "Update name, phone, email, date of birth, address, and emergency contact. Age and visit dates update automatically."
+                : "You can update these during the visit. Age and visit dates update automatically."}
           </p>
         </div>
         {readOnly && readOnlyMessage ? (
@@ -140,7 +194,7 @@ export function PatientDemographicsEditor({
         {message ? (
           <p
             className={`rounded-lg px-3 py-2 text-sm font-medium ${
-              message === "Demographics saved."
+              message === "Patient information saved."
                 ? "bg-emerald-50 text-emerald-900"
                 : "bg-amber-50 text-amber-950"
             }`}
@@ -202,6 +256,26 @@ export function PatientDemographicsEditor({
       <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
         {readOnly ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {showContact ? (
+              <>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">First name</p>
+                  <p className="mt-1.5 font-semibold text-slate-900">{patient.first_name || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Last name</p>
+                  <p className="mt-1.5 font-semibold text-slate-900">{patient.last_name || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Phone</p>
+                  <p className="mt-1.5 font-semibold text-slate-900">{patient.phone || "—"}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Email</p>
+                  <p className="mt-1.5 font-semibold text-slate-900">{patient.email || "—"}</p>
+                </div>
+              </>
+            ) : null}
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date of birth</p>
               <p className="mt-1.5 font-semibold text-slate-900">
@@ -230,109 +304,167 @@ export function PatientDemographicsEditor({
             </div>
           </div>
         ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <label>
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              Date of birth
-            </span>
-            <UsDateInput
-              className={inputClass}
-              value={form.date_of_birth}
-              onChange={(iso) => setForm((f) => ({ ...f, date_of_birth: iso }))}
-              aria-label="Date of birth"
-            />
-          </label>
-          <label>
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              Marital (Y / N)
-            </span>
-            <select
-              className={inputClass}
-              value={form.marital_status}
-              onChange={(e) => setForm((f) => ({ ...f, marital_status: e.target.value }))}
-            >
-              <option value="">— Not set —</option>
-              <option value="Y">Y — Married</option>
-              <option value="N">N — Not married</option>
-            </select>
-            <p className="mt-1 text-[10px] text-slate-500">Current: {formatMaritalStatus(patient.marital_status)}</p>
-          </label>
-          <label className="sm:col-span-2 lg:col-span-3">
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              Street address
-            </span>
-            <input
-              className={inputClass}
-              value={form.address_line1}
-              onChange={(e) => setForm((f) => ({ ...f, address_line1: e.target.value }))}
-            />
-          </label>
-          <label className="sm:col-span-2 lg:col-span-3">
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              Apt / suite
-            </span>
-            <input
-              className={inputClass}
-              value={form.address_line2}
-              onChange={(e) => setForm((f) => ({ ...f, address_line2: e.target.value }))}
-            />
-          </label>
-          <label className="sm:col-span-2 lg:col-span-3">
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              City, state, ZIP
-            </span>
-            <input
-              className={inputClass}
-              placeholder="St Joseph, MI 49085"
-              value={form.city_state_zip}
-              onChange={(e) => setForm((f) => ({ ...f, city_state_zip: e.target.value }))}
-            />
-          </label>
-          <label>
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              Emergency name
-            </span>
-            <input
-              className={inputClass}
-              value={form.emergency_contact_name}
-              onChange={(e) => setForm((f) => ({ ...f, emergency_contact_name: e.target.value }))}
-            />
-          </label>
-          <label>
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              Emergency phone
-            </span>
-            <input
-              className={inputClass}
-              value={form.emergency_contact_phone}
-              onChange={(e) => setForm((f) => ({ ...f, emergency_contact_phone: e.target.value }))}
-            />
-          </label>
-        </div>
+          <div className="space-y-6">
+            {showContact ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <p className="sm:col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Name & contact
+                </p>
+                <label>
+                  <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    First name
+                  </span>
+                  <input
+                    className={inputClass}
+                    value={form.first_name}
+                    onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Last name
+                  </span>
+                  <input
+                    className={inputClass}
+                    value={form.last_name}
+                    onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))}
+                  />
+                </label>
+                <label className="sm:col-span-2">
+                  <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Phone
+                  </span>
+                  <PhoneInput
+                    international
+                    defaultCountry="US"
+                    value={form.phone}
+                    onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                    className="phone-input-root"
+                    numberInputProps={{ className: inputClass }}
+                  />
+                </label>
+                <label className="sm:col-span-2">
+                  <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Email
+                  </span>
+                  <input
+                    type="email"
+                    className={inputClass}
+                    value={form.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="optional — needed to email bills"
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <p className="sm:col-span-2 lg:col-span-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Demographics
+              </p>
+              <label>
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Date of birth
+                </span>
+                <UsDateInput
+                  className={inputClass}
+                  value={form.date_of_birth}
+                  onChange={(iso) => setForm((f) => ({ ...f, date_of_birth: iso }))}
+                  aria-label="Date of birth"
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Marital (Y / N)
+                </span>
+                <select
+                  className={inputClass}
+                  value={form.marital_status}
+                  onChange={(e) => setForm((f) => ({ ...f, marital_status: e.target.value }))}
+                >
+                  <option value="">— Not set —</option>
+                  <option value="Y">Y — Married</option>
+                  <option value="N">N — Not married</option>
+                </select>
+                <p className="mt-1 text-[10px] text-slate-500">Current: {formatMaritalStatus(patient.marital_status)}</p>
+              </label>
+              <label className="sm:col-span-2 lg:col-span-3">
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Street address
+                </span>
+                <input
+                  className={inputClass}
+                  value={form.address_line1}
+                  onChange={(e) => setForm((f) => ({ ...f, address_line1: e.target.value }))}
+                />
+              </label>
+              <label className="sm:col-span-2 lg:col-span-3">
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Apt / suite
+                </span>
+                <input
+                  className={inputClass}
+                  value={form.address_line2}
+                  onChange={(e) => setForm((f) => ({ ...f, address_line2: e.target.value }))}
+                />
+              </label>
+              <label className="sm:col-span-2 lg:col-span-3">
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  City, state, ZIP
+                </span>
+                <input
+                  className={inputClass}
+                  placeholder="St Joseph, MI 49085"
+                  value={form.city_state_zip}
+                  onChange={(e) => setForm((f) => ({ ...f, city_state_zip: e.target.value }))}
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Emergency name
+                </span>
+                <input
+                  className={inputClass}
+                  value={form.emergency_contact_name}
+                  onChange={(e) => setForm((f) => ({ ...f, emergency_contact_name: e.target.value }))}
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Emergency phone
+                </span>
+                <input
+                  className={inputClass}
+                  value={form.emergency_contact_phone}
+                  onChange={(e) => setForm((f) => ({ ...f, emergency_contact_phone: e.target.value }))}
+                />
+              </label>
+            </div>
+          </div>
         )}
 
         {!readOnly ? (
-        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
-          <button
-            type="button"
-            disabled={!dirty || saving}
-            onClick={() => setForm(detailToForm(patient, canEditDateEstablished))}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            Reset
-          </button>
-          <button
-            type="button"
-            disabled={!dirty || saving}
-            onClick={() => void save()}
-            className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save demographics"}
-          </button>
-          {!dirty ? (
-            <span className="text-xs text-slate-500">Change a field above to enable save.</span>
-          ) : null}
-        </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              disabled={!dirty || saving}
+              onClick={() => setForm(detailToForm(patient, canEditDateEstablished, includeContactFields))}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              disabled={!dirty || saving}
+              onClick={() => void save()}
+              className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save patient information"}
+            </button>
+            {!dirty ? (
+              <span className="text-xs text-slate-500">Change a field above to enable save.</span>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </section>

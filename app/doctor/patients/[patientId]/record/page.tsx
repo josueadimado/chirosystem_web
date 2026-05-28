@@ -1,6 +1,7 @@
 "use client";
 
 import { ChartNoteReaderPanel } from "@/components/chart-note-document";
+import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
 import { Loader } from "@/components/loader";
 import { PatientDemographicsEditor } from "@/components/patient-demographics-editor";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
@@ -42,6 +43,7 @@ type VisitHistory = {
   reason_for_visit: string;
   doctor_notes: string;
   diagnosis: string;
+  diagnoses?: Array<{ id?: number | null; code: string; description: string }>;
   completed_at: string | null;
   rendered_services: VisitHistoryLine[];
 };
@@ -481,6 +483,22 @@ export default function DoctorPatientRecordPage() {
           <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{billLoadError}</p>
         ) : null}
 
+        {detail.clinical_access === "read_only" && detail.clinical_access_message ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            {detail.clinical_access_message}
+          </p>
+        ) : null}
+
+        <PatientDemographicsEditor
+          patient={detail}
+          intakeSavePath="/doctor/patient_intake/"
+          detailPath="/doctor/patient_detail"
+          onPatientUpdated={(refreshed) => setDetail(refreshed as PatientDetail)}
+          readOnly={detail.clinical_access === "read_only"}
+          readOnlyMessage={detail.clinical_access_message}
+          includeContactFields={detail.clinical_access !== "read_only"}
+        />
+
         {/* Visit history — opens detail in a side drawer (no inline expansion). */}
         <section className="space-y-3">
           <h2 className="text-lg font-bold tracking-tight text-slate-900">Visit history</h2>
@@ -524,20 +542,6 @@ export default function DoctorPatientRecordPage() {
           )}
         </section>
 
-        {detail.clinical_access === "read_only" && detail.clinical_access_message ? (
-          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            {detail.clinical_access_message}
-          </p>
-        ) : null}
-
-        <PatientDemographicsEditor
-          patient={detail}
-          intakeSavePath="/doctor/patient_intake/"
-          detailPath="/doctor/patient_detail"
-          onPatientUpdated={(refreshed) => setDetail(refreshed as PatientDetail)}
-          readOnly={detail.clinical_access === "read_only"}
-          readOnlyMessage={detail.clinical_access_message}
-        />
       </div>
 
       <Sheet open={selectedVisit !== null} onOpenChange={(open) => !open && setSelectedVisit(null)}>
@@ -710,10 +714,12 @@ export default function DoctorPatientRecordPage() {
                       <div className="pf-note-print">{v.reason_for_visit}</div>
                     </>
                   ) : null}
-                  {v?.diagnosis?.trim() ? (
+                  {v && (v.diagnosis?.trim() || (v.diagnoses?.length ?? 0) > 0) ? (
                     <>
                       <p className="pf-subheading-sm">Diagnosis (billing)</p>
-                      <div className="pf-note-print">{v.diagnosis}</div>
+                      <div className="pf-note-print">
+                        <VisitDiagnosisDisplay diagnosis={v.diagnosis} diagnoses={v.diagnoses} />
+                      </div>
                     </>
                   ) : null}
                   {v?.doctor_notes?.trim() ? (

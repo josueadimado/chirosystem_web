@@ -9,6 +9,10 @@ import {
   type BillableServiceOption,
   type VisitBillLine,
 } from "@/lib/visit-billing-form-utils";
+import {
+  toggleDiagnosisId,
+  type DiagnosisCatalogEntry,
+} from "@/lib/diagnosis-catalog";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -39,6 +43,9 @@ export function AdminVisitBillingModal({
   const [saving, setSaving] = useState(false);
   const [services, setServices] = useState<BillableServiceOption[]>([]);
   const [doctorNotes, setDoctorNotes] = useState("");
+  const [diagnosisCatalog, setDiagnosisCatalog] = useState<DiagnosisCatalogEntry[]>([]);
+  const [selectedDiagnosisIds, setSelectedDiagnosisIds] = useState<number[]>([]);
+  const [diagnosisSearch, setDiagnosisSearch] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
   const [professionalDiscount, setProfessionalDiscount] = useState("");
   const [professionalDiscountReason, setProfessionalDiscountReason] = useState("");
@@ -65,11 +72,13 @@ export function AdminVisitBillingModal({
     setLoading(true);
     void (async () => {
       try {
-        const [svcList, billing] = await Promise.all([
+        const [svcList, dxList, billing] = await Promise.all([
           apiGetAuth<BillableServiceOption[]>("/services/").then((list) => list.filter((s) => s.is_active !== false)),
+          apiGetAuth<DiagnosisCatalogEntry[]>("/diagnoses/").then((list) => list.filter((d) => d.is_active !== false)),
           apiGetAuth<{
             doctor_notes: string;
             diagnosis: string;
+            diagnosis_ids?: number[];
             rendered_services: Array<{ service_id: number; quantity: number; unit_price: string }>;
             invoice_number: string;
             discount?: string;
@@ -79,8 +88,11 @@ export function AdminVisitBillingModal({
         ]);
         if (cancelled) return;
         setServices(svcList);
+        setDiagnosisCatalog(dxList);
         setDoctorNotes(billing.doctor_notes ?? "");
         setDiagnosis(billing.diagnosis ?? "");
+        setSelectedDiagnosisIds(billing.diagnosis_ids ?? []);
+        setDiagnosisSearch("");
         setProfessionalDiscount(billing.discount ?? "");
         setProfessionalDiscountReason(billing.professional_discount_reason ?? "");
         setInvoiceHint(`${billing.invoice_number ?? ""} · $${billing.total_amount ?? ""}`.trim());
@@ -137,7 +149,7 @@ export function AdminVisitBillingModal({
         await apiPost("/admin/revise_visit_billing/", {
           appointment_id: appointmentId,
           doctor_notes: doctorNotes,
-          diagnosis,
+          diagnosis_ids: selectedDiagnosisIds,
           rendered_services: rendered,
           professional_discount: professionalDiscount.trim() || "0",
           professional_discount_reason: professionalDiscountReason.trim(),
@@ -209,6 +221,11 @@ export function AdminVisitBillingModal({
                   compact
                   diagnosis={diagnosis}
                   onDiagnosisChange={setDiagnosis}
+                  diagnosisCatalog={diagnosisCatalog}
+                  selectedDiagnosisIds={selectedDiagnosisIds}
+                  onToggleDiagnosis={(id) => setSelectedDiagnosisIds((prev) => toggleDiagnosisId(prev, id))}
+                  diagnosisSearchQuery={diagnosisSearch}
+                  onDiagnosisSearchQueryChange={setDiagnosisSearch}
                   doctorNotes={doctorNotes}
                   onDoctorNotesChange={setDoctorNotes}
                   professionalDiscount={professionalDiscount}

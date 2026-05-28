@@ -1,6 +1,8 @@
 "use client";
 
 import { HelpTip } from "@/components/help-tip";
+import { VisitDiagnosisPicker } from "@/components/visit-panel/visit-diagnosis-picker";
+import type { DiagnosisCatalogEntry } from "@/lib/diagnosis-catalog";
 import {
   computeBillingEstimates,
   type BillableServiceOption,
@@ -13,6 +15,11 @@ import type { ReactNode } from "react";
 export function VisitBillingForm({
   diagnosis,
   onDiagnosisChange,
+  diagnosisCatalog,
+  selectedDiagnosisIds,
+  onToggleDiagnosis,
+  diagnosisSearchQuery,
+  onDiagnosisSearchQueryChange,
   doctorNotes,
   onDoctorNotesChange,
   professionalDiscount,
@@ -42,6 +49,12 @@ export function VisitBillingForm({
 }: {
   diagnosis: string;
   onDiagnosisChange: (value: string) => void;
+  /** When set, diagnosis is chosen from catalog (checkboxes) instead of free text. */
+  diagnosisCatalog?: DiagnosisCatalogEntry[];
+  selectedDiagnosisIds?: number[];
+  onToggleDiagnosis?: (id: number) => void;
+  diagnosisSearchQuery?: string;
+  onDiagnosisSearchQueryChange?: (value: string) => void;
   doctorNotes: string;
   onDoctorNotesChange: (value: string) => void;
   professionalDiscount: string;
@@ -103,15 +116,28 @@ export function VisitBillingForm({
   return (
     <div className="space-y-4">
       {showDiagnosis ? (
-        <div id={diagnosisSectionId} className={diagnosisSectionId ? "scroll-mt-24" : undefined}>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Diagnosis (for bill)</p>
-          <textarea
-            className={diagnosisClassName ?? defaultDiagnosisClass}
-            placeholder="Clinical / billing diagnosis summary…"
-            value={diagnosis}
-            onChange={(e) => onDiagnosisChange(e.target.value)}
+        diagnosisCatalog && onToggleDiagnosis ? (
+          <VisitDiagnosisPicker
+            catalog={diagnosisCatalog}
+            selectedIds={selectedDiagnosisIds ?? []}
+            onToggle={onToggleDiagnosis}
+            searchQuery={diagnosisSearchQuery ?? ""}
+            onSearchQueryChange={onDiagnosisSearchQueryChange ?? (() => {})}
+            compact={compact}
+            spacious={spacious}
+            sectionId={diagnosisSectionId}
           />
-        </div>
+        ) : (
+          <div id={diagnosisSectionId} className={diagnosisSectionId ? "scroll-mt-24" : undefined}>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Diagnosis (for bill)</p>
+            <textarea
+              className={diagnosisClassName ?? defaultDiagnosisClass}
+              placeholder="Clinical / billing diagnosis summary…"
+              value={diagnosis}
+              onChange={(e) => onDiagnosisChange(e.target.value)}
+            />
+          </div>
+        )
       ) : null}
       <div id={proceduresSectionId} className={proceduresSectionId ? "scroll-mt-24" : undefined}>
         <div className="mb-2 flex items-center gap-2">
