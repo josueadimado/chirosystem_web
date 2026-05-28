@@ -87,17 +87,30 @@ function VisitBillPanel({
   appointment,
   onPrint,
   onEmail,
+  onSyncPayment,
+  onConfirmPaid,
   printing,
   emailing,
+  syncing,
+  confirming,
 }: {
   appointment: AppointmentHistoryRow;
   onPrint: (invoiceId: number, invoiceStatus: string) => void;
   onEmail?: (invoiceId: number) => void;
+  onSyncPayment?: (invoiceId: number) => void;
+  onConfirmPaid?: (invoiceId: number, invoiceNumber: string) => void;
   printing: boolean;
   emailing?: boolean;
+  syncing?: boolean;
+  confirming?: boolean;
 }) {
   const inv = appointment.invoice;
   const lines = appointment.visit?.rendered_services ?? [];
+  const awaiting =
+    appointment.status === "awaiting_payment" &&
+    inv &&
+    inv.status !== "paid" &&
+    parseFloat(inv.remaining_client_responsibility_total ?? inv.total_amount) > 0;
 
   if (!inv) {
     return (
@@ -119,6 +132,34 @@ function VisitBillPanel({
           <p className="mt-0.5 text-xs capitalize text-slate-600">{inv.status.replace(/_/g, " ")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {awaiting && onSyncPayment ? (
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={() => onSyncPayment(inv.id)}
+              className="inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100 disabled:opacity-60"
+            >
+              {syncing ? "Checking Square…" : "Check Square (any device)"}
+            </button>
+          ) : null}
+          {awaiting && onConfirmPaid ? (
+            <button
+              type="button"
+              disabled={confirming}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Mark ${inv.invoice_number} as paid?\n\nOnly use this if you already see the payment in the Square app.`,
+                  )
+                ) {
+                  onConfirmPaid(inv.id, inv.invoice_number);
+                }
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-60"
+            >
+              {confirming ? "Updating…" : "Mark paid (verified in Square)"}
+            </button>
+          ) : null}
           {inv.status === "paid" && onEmail ? (
             <button
               type="button"
@@ -274,8 +315,12 @@ function VisitRecordCard({
   scheduleHrefPrefix,
   onPrintBill,
   onEmailBill,
+  onSyncPayment,
+  onConfirmPaid,
   printingBill,
   emailingBill,
+  syncingBill,
+  confirmingBill,
 }: {
   appointment: AppointmentHistoryRow;
   handoffValue: string;
@@ -285,8 +330,12 @@ function VisitRecordCard({
   scheduleHrefPrefix: string;
   onPrintBill: (invoiceId: number, invoiceStatus: string) => void;
   onEmailBill?: (invoiceId: number) => void;
+  onSyncPayment?: (invoiceId: number) => void;
+  onConfirmPaid?: (invoiceId: number, invoiceNumber: string) => void;
   printingBill: boolean;
   emailingBill?: boolean;
+  syncingBill?: boolean;
+  confirmingBill?: boolean;
 }) {
   const a = appointment;
   const dateLabel = formatWeekdayMonthDayYear(a.appointment_date);
@@ -412,8 +461,12 @@ function VisitRecordCard({
             appointment={a}
             onPrint={onPrintBill}
             onEmail={onEmailBill}
+            onSyncPayment={onSyncPayment}
+            onConfirmPaid={onConfirmPaid}
             printing={printingBill}
             emailing={emailingBill}
+            syncing={syncingBill}
+            confirming={confirmingBill}
           />
         </section>
       </div>
@@ -430,6 +483,8 @@ export function PatientHistoryPage({
   scheduleHrefPrefix,
   invoiceBillPath,
   invoiceEmailPath,
+  invoiceSyncPath,
+  invoiceConfirmPaidPath,
 }: {
   patientId: number;
   detailPath: string;
@@ -442,6 +497,10 @@ export function PatientHistoryPage({
   invoiceBillPath: string;
   /** e.g. `/admin/email-patient-bill` or `/doctor/email-patient-bill` */
   invoiceEmailPath: string;
+  /** e.g. `/admin/sync-invoice-payment` — checks Square and updates paid status */
+  invoiceSyncPath?: string;
+  /** Admin/staff only — mark paid when Square app shows paid but auto-sync failed */
+  invoiceConfirmPaidPath?: string;
 }) {
   const [detail, setDetail] = useState<PatientDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -452,6 +511,8 @@ export function PatientHistoryPage({
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
   const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
   const [emailingInvoiceId, setEmailingInvoiceId] = useState<number | null>(null);
+  const [syncingInvoiceId, setSyncingInvoiceId] = useState<number | null>(null);
+  const [confirmingInvoiceId, setConfirmingInvoiceId] = useState<number | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
 
   const loadDetail = async () => {
@@ -495,6 +556,47 @@ export function PatientHistoryPage({
       }
     },
     [invoiceEmailPath],
+  );
+
+  const syncPayment = useCallback(
+    async (invoiceId: number) => {
+      if (!invoiceSyncPath) return;
+      setSyncingInvoiceId(invoiceId);
+      setHandoffMsg("");
+      try {
+        const out = await apiPost<{ paid: boolean; detail: string }>(`${invoiceSyncPath}/`, {
+          invoice_id: invoiceId,
+        });
+        setHandoffMsg(out.detail);
+        if (out.paid) await loadDetail();
+      } catch (e) {
+        setHandoffMsg(e instanceof ApiError ? e.message : "Could not check Square for payment.");
+      } finally {
+        setSyncingInvoiceId(null);
+      }
+    },
+    [invoiceSyncPath],
+  );
+
+  const confirmPaid = useCallback(
+    async (invoiceId: number, invoiceNumber: string) => {
+      if (!invoiceConfirmPaidPath) return;
+      setConfirmingInvoiceId(invoiceId);
+      setHandoffMsg("");
+      try {
+        const out = await apiPost<{ paid: boolean; detail: string }>(`${invoiceConfirmPaidPath}/`, {
+          invoice_id: invoiceId,
+          invoice_number: invoiceNumber,
+        });
+        setHandoffMsg(out.detail);
+        await loadDetail();
+      } catch (e) {
+        setHandoffMsg(e instanceof ApiError ? e.message : "Could not mark invoice paid.");
+      } finally {
+        setConfirmingInvoiceId(null);
+      }
+    },
+    [invoiceConfirmPaidPath],
   );
 
   const openBill = useCallback(
@@ -599,7 +701,10 @@ export function PatientHistoryPage({
           <p
             className={cn(
               "mt-2 rounded-lg px-3 py-2 text-xs font-medium",
-              handoffMsg === "Chart note saved." ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-950",
+              handoffMsg === "Chart note saved." ||
+              /marked paid|already marked paid|payment found/i.test(handoffMsg)
+                ? "bg-emerald-50 text-emerald-900"
+                : "bg-amber-50 text-amber-950",
             )}
           >
             {handoffMsg}
@@ -662,8 +767,16 @@ export function PatientHistoryPage({
                 scheduleHrefPrefix={scheduleHrefPrefix}
                 onPrintBill={(id, status) => void openBill(id, status)}
                 onEmailBill={(id) => void emailBill(id)}
+                onSyncPayment={invoiceSyncPath ? (id) => void syncPayment(id) : undefined}
+                onConfirmPaid={
+                  invoiceConfirmPaidPath
+                    ? (id, no) => void confirmPaid(id, no)
+                    : undefined
+                }
                 printingBill={printingInvoiceId === selectedVisit.invoice?.id}
                 emailingBill={emailingInvoiceId === selectedVisit.invoice?.id}
+                syncingBill={syncingInvoiceId === selectedVisit.invoice?.id}
+                confirmingBill={confirmingInvoiceId === selectedVisit.invoice?.id}
               />
             ) : (
               <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">

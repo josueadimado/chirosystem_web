@@ -20,6 +20,7 @@ export default function DoctorPatientHistoryRoute() {
       scheduleHrefPrefix="/doctor/schedule"
       invoiceBillPath="/doctor/invoice_bill"
       invoiceEmailPath="/doctor/email-patient-bill"
+      invoiceSyncPath="/doctor/sync-invoice-payment"
     />
   );
 }

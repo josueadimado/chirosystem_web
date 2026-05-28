@@ -960,6 +960,28 @@ export default function DoctorDashboardPage() {
     }
   };
 
+  /** Ask the server to match this invoice against Square (fixes stuck awaiting_payment after Terminal paid). */
+  const checkSquarePaymentForAppointment = async (appt: Appointment) => {
+    if (!appt.invoice_id) {
+      toast("No invoice on file for this visit yet.", "error");
+      return;
+    }
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ paid: boolean; detail: string }>("/doctor/sync-invoice-payment/", {
+          invoice_id: appt.invoice_id,
+        });
+        await load();
+        return out;
+      },
+      {
+        loadingMessage: "Checking Square…",
+        successMessage: (o) => o?.detail ?? "Done.",
+        errorFallback: "Could not check Square for payment.",
+      },
+    );
+  };
+
   /** Bring back payment links / terminal after you dismissed the banner or left the page. */
   const resumePaymentForAppointment = async (appt: Appointment, opts?: { trySavedCard?: boolean }) => {
     await runWithFeedback(
@@ -1854,6 +1876,18 @@ export default function DoctorDashboardPage() {
                         >
                           Retry saved card
                         </button>
+                        {appt.invoice_id ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void checkSquarePaymentForAppointment(appt);
+                            }}
+                            className="min-h-11 w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-violet-900 shadow-sm hover:bg-violet-100 sm:flex-1 sm:min-w-[10rem]"
+                          >
+                            Check Square (any device)
+                          </button>
+                        ) : null}
                       </div>
                     )}
                       </div>
