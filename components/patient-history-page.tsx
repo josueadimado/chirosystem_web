@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Loader } from "@/components/loader";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
-import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
+import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { clinicTodayIso } from "@/lib/format-date";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
@@ -84,11 +84,15 @@ function visitHasBill(a: AppointmentHistoryRow): boolean {
 function VisitBillPanel({
   appointment,
   onPrint,
+  onEmail,
   printing,
+  emailing,
 }: {
   appointment: AppointmentHistoryRow;
   onPrint: (invoiceId: number, invoiceStatus: string) => void;
+  onEmail?: (invoiceId: number) => void;
   printing: boolean;
+  emailing?: boolean;
 }) {
   const inv = appointment.invoice;
   const lines = appointment.visit?.rendered_services ?? [];
@@ -112,15 +116,27 @@ function VisitBillPanel({
           <p className="mt-1 font-mono text-sm font-bold text-slate-900">{inv.invoice_number}</p>
           <p className="mt-0.5 text-xs capitalize text-slate-600">{inv.status.replace(/_/g, " ")}</p>
         </div>
-        <button
-          type="button"
-          disabled={printing}
-          onClick={() => onPrint(inv.id, inv.status)}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
-        >
-          <Printer className="h-4 w-4" aria-hidden />
-          {printing ? "Opening…" : inv.status === "paid" ? "Reprint bill" : "View & print bill"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {inv.status === "paid" && onEmail ? (
+            <button
+              type="button"
+              disabled={emailing}
+              onClick={() => onEmail(inv.id)}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#0f766e]/40 bg-white px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-emerald-50 disabled:opacity-60"
+            >
+              {emailing ? "Sending…" : "Email bill"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={printing}
+            onClick={() => onPrint(inv.id, inv.status)}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
+          >
+            <Printer className="h-4 w-4" aria-hidden />
+            {printing ? "Opening…" : inv.status === "paid" ? "Reprint bill" : "View & print bill"}
+          </button>
+        </div>
       </div>
 
       {lines.length > 0 ? (
@@ -255,7 +271,9 @@ function VisitRecordCard({
   onSaveHandoff,
   scheduleHrefPrefix,
   onPrintBill,
+  onEmailBill,
   printingBill,
+  emailingBill,
 }: {
   appointment: AppointmentHistoryRow;
   handoffValue: string;
@@ -264,7 +282,9 @@ function VisitRecordCard({
   onSaveHandoff: () => void;
   scheduleHrefPrefix: string;
   onPrintBill: (invoiceId: number, invoiceStatus: string) => void;
+  onEmailBill?: (invoiceId: number) => void;
   printingBill: boolean;
+  emailingBill?: boolean;
 }) {
   const a = appointment;
   const dateLabel = formatWeekdayMonthDayYear(a.appointment_date);
@@ -386,7 +406,13 @@ function VisitRecordCard({
         </section>
 
         <section className={cn(panel === "chart" ? "hidden lg:block" : "")}>
-          <VisitBillPanel appointment={a} onPrint={onPrintBill} printing={printingBill} />
+          <VisitBillPanel
+            appointment={a}
+            onPrint={onPrintBill}
+            onEmail={onEmailBill}
+            printing={printingBill}
+            emailing={emailingBill}
+          />
         </section>
       </div>
     </article>
@@ -401,6 +427,7 @@ export function PatientHistoryPage({
   chartHref,
   scheduleHrefPrefix,
   invoiceBillPath,
+  invoiceEmailPath,
 }: {
   patientId: number;
   detailPath: string;
@@ -411,6 +438,8 @@ export function PatientHistoryPage({
   scheduleHrefPrefix: string;
   /** e.g. `/admin/invoice_bill` or `/doctor/invoice_bill` */
   invoiceBillPath: string;
+  /** e.g. `/admin/email-patient-bill` or `/doctor/email-patient-bill` */
+  invoiceEmailPath: string;
 }) {
   const [detail, setDetail] = useState<PatientDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -420,6 +449,7 @@ export function PatientHistoryPage({
   const [handoffMsg, setHandoffMsg] = useState("");
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
   const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
+  const [emailingInvoiceId, setEmailingInvoiceId] = useState<number | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
 
   const loadDetail = async () => {
@@ -446,6 +476,24 @@ export function PatientHistoryPage({
   useEffect(() => {
     void loadDetail();
   }, [patientId, detailPath]);
+
+  const emailBill = useCallback(
+    async (invoiceId: number) => {
+      setEmailingInvoiceId(invoiceId);
+      setHandoffMsg("");
+      try {
+        const out = await apiPost<{ detail: string; recipient: string }>(`${invoiceEmailPath}/`, {
+          invoice_id: invoiceId,
+        });
+        setHandoffMsg(`Bill emailed to ${out.recipient}.`);
+      } catch (e) {
+        setHandoffMsg(e instanceof ApiError ? e.message : "Could not email patient bill.");
+      } finally {
+        setEmailingInvoiceId(null);
+      }
+    },
+    [invoiceEmailPath],
+  );
 
   const openBill = useCallback(
     async (invoiceId: number, invoiceStatus: string) => {
@@ -611,7 +659,9 @@ export function PatientHistoryPage({
                 onSaveHandoff={() => void saveAppointmentHandoff(selectedVisit.id)}
                 scheduleHrefPrefix={scheduleHrefPrefix}
                 onPrintBill={(id, status) => void openBill(id, status)}
+                onEmailBill={(id) => void emailBill(id)}
                 printingBill={printingInvoiceId === selectedVisit.invoice?.id}
+                emailingBill={emailingInvoiceId === selectedVisit.invoice?.id}
               />
             ) : (
               <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
@@ -622,7 +672,14 @@ export function PatientHistoryPage({
         </div>
       )}
 
-      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
+      <PatientBillPortalModal
+        bill={patientBillModal}
+        onClose={() => setPatientBillModal(null)}
+        emailingBill={emailingInvoiceId != null}
+        onEmailBill={
+          patientBillModal?.invoice_id ? () => emailBill(patientBillModal.invoice_id!) : undefined
+        }
+      />
     </div>
   );
 }

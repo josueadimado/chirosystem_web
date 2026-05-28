@@ -7,13 +7,16 @@ import { createPortal } from "react-dom";
 type PatientBillPortalModalProps = {
   bill: PatientBillPayload | null;
   onClose: () => void;
+  /** When set and bill is paid (not preview), shows Email bill button. */
+  onEmailBill?: () => void | Promise<void>;
+  emailingBill?: boolean;
 };
 
 /**
  * Full-screen overlay + scrollable bill preview in an iframe (portal → document.body).
  * Official (non-preview) bills trigger the print dialog once after the iframe loads.
  */
-export function PatientBillPortalModal({ bill, onClose }: PatientBillPortalModalProps) {
+export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBill }: PatientBillPortalModalProps) {
   const [portalReady, setPortalReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const autoPrintDoneRef = useRef(false);
@@ -88,6 +91,16 @@ export function PatientBillPortalModal({ bill, onClose }: PatientBillPortalModal
               Preview
             </span>
           )}
+          {!bill.is_preview && bill.status === "paid" && onEmailBill ? (
+            <button
+              type="button"
+              disabled={emailingBill}
+              onClick={() => void onEmailBill()}
+              className="rounded-xl border border-[#0f766e]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-emerald-50 disabled:opacity-50"
+            >
+              {emailingBill ? "Sending…" : "Email bill"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={triggerPrint}

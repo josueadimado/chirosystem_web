@@ -7,6 +7,7 @@ import { Loader } from "@/components/loader";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import { emailPatientBillAdmin } from "@/lib/patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
@@ -151,6 +152,7 @@ export default function AdminBillingPage() {
   const [creditTopUpAmount, setCreditTopUpAmount] = useState("0");
   const [creditTerminalCheckoutId, setCreditTerminalCheckoutId] = useState<string | null>(null);
   const [printBusy, setPrintBusy] = useState(false);
+  const [emailBusy, setEmailBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
   const [billingEditAppointmentId, setBillingEditAppointmentId] = useState<number | null>(null);
@@ -221,6 +223,18 @@ export default function AdminBillingPage() {
       );
     } finally {
       setPrintBusy(false);
+    }
+  };
+
+  const emailBill = async (invoiceId: number) => {
+    setEmailBusy(true);
+    try {
+      const out = await emailPatientBillAdmin(invoiceId);
+      toast.success(`Bill emailed to ${out.recipient}.`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not email patient bill.");
+    } finally {
+      setEmailBusy(false);
     }
   };
 
@@ -828,14 +842,24 @@ export default function AdminBillingPage() {
               )}
 
               {selected.status === "paid" && (
-                <button
-                  type="button"
-                  disabled={printBusy}
-                  onClick={() => void printBill(selected.id)}
-                  className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-                >
-                  {printBusy ? "Loading…" : "Print patient bill"}
-                </button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    disabled={emailBusy}
+                    onClick={() => void emailBill(selected.id)}
+                    className="w-full rounded-xl border border-[#0f766e]/40 bg-white px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-emerald-50 disabled:opacity-50 sm:flex-1"
+                  >
+                    {emailBusy ? "Sending…" : "Email bill"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={printBusy}
+                    onClick={() => void printBill(selected.id)}
+                    className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50 sm:flex-1"
+                  >
+                    {printBusy ? "Loading…" : "Print patient bill"}
+                  </button>
+                </div>
               )}
 
               {canRecordPayment ? (
@@ -897,7 +921,14 @@ export default function AdminBillingPage() {
         </DialogContent>
       </Dialog>
 
-      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
+      <PatientBillPortalModal
+        bill={patientBillModal}
+        onClose={() => setPatientBillModal(null)}
+        emailingBill={emailBusy}
+        onEmailBill={
+          patientBillModal?.invoice_id ? () => emailBill(patientBillModal.invoice_id!) : undefined
+        }
+      />
       {billingEditRow ? (
         <AdminVisitBillingModal
           open

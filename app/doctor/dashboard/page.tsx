@@ -24,6 +24,7 @@ import { AppointmentClientReason } from "@/components/visit-panel/appointment-cl
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+import { emailPatientBillDoctor } from "@/lib/patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { clinicTodayIso, formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
@@ -848,8 +849,21 @@ export default function DoctorDashboardPage() {
   );
 
   const [printingBill, setPrintingBill] = useState(false);
+  const [emailingBill, setEmailingBill] = useState(false);
   const [previewingBill, setPreviewingBill] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+
+  const emailPatientBill = async (invoiceId: number) => {
+    setEmailingBill(true);
+    try {
+      const out = await emailPatientBillDoctor(invoiceId);
+      toast.success(`Bill emailed to ${out.recipient}.`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not email patient bill.");
+    } finally {
+      setEmailingBill(false);
+    }
+  };
 
   /** Preview bill layout while invoice is still unpaid (?preview=1 on the API). */
   const openPatientBillPreview = async (invoiceId: number) => {
@@ -1510,6 +1524,14 @@ export default function DoctorDashboardPage() {
               )}
               <button
                 type="button"
+                disabled={emailingBill}
+                onClick={() => void emailPatientBill(paymentFollowUp.invoice_id)}
+                className="rounded-lg border border-[#0f766e]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+              >
+                {emailingBill ? "Sending…" : "Email bill"}
+              </button>
+              <button
+                type="button"
                 disabled={printingBill}
                 onClick={() => void tryOpenPatientBill(paymentFollowUp.invoice_id, { maxAttempts: 3 })}
                 className="rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
@@ -1617,14 +1639,24 @@ export default function DoctorDashboardPage() {
                       </p>
                     </div>
                     {inv.status === "paid" && (
-                      <button
-                        type="button"
-                        disabled={printingBill}
-                        onClick={() => void tryOpenPatientBill(inv.invoice_id, { maxAttempts: 2 })}
-                        className="rounded-lg bg-[#16a349] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
-                      >
-                        {printingBill ? "Loading…" : "Print bill"}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={emailingBill}
+                          onClick={() => void emailPatientBill(inv.invoice_id)}
+                          className="rounded-lg border border-[#0f766e]/40 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          {emailingBill ? "Sending…" : "Email"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={printingBill}
+                          onClick={() => void tryOpenPatientBill(inv.invoice_id, { maxAttempts: 2 })}
+                          className="rounded-lg bg-[#16a349] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+                        >
+                          {printingBill ? "Loading…" : "Print"}
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -2087,7 +2119,16 @@ export default function DoctorDashboardPage() {
       )}
       <RescheduleVisitSlotsModal reschedule={rescheduleVisit} titleId="doctor-dashboard-reschedule-title" />
       <BookNextVisitModal bookNext={bookNext} titleId="doctor-dashboard-book-next-title" zIndexClass="z-50" />
-      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
+      <PatientBillPortalModal
+        bill={patientBillModal}
+        onClose={() => setPatientBillModal(null)}
+        emailingBill={emailingBill}
+        onEmailBill={
+          patientBillModal?.invoice_id
+            ? () => emailPatientBill(patientBillModal.invoice_id!)
+            : undefined
+        }
+      />
       {patientDetailId && (
         <PatientDetailModal patientId={patientDetailId} onClose={() => setPatientDetailId(null)} />
       )}

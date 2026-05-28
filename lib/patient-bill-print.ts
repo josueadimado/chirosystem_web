@@ -33,6 +33,7 @@ export type PatientBillPayload = {
   email?: string;
   pos_default?: string;
   invoice_number: string;
+  invoice_id?: number;
   patient_id?: number;
   date_of_service: string;
   /** Display billing date on statement (from server). */

@@ -18,6 +18,7 @@ export default function AdminPatientHistoryRoute() {
       backHref="/admin/patients"
       scheduleHrefPrefix="/admin/schedule"
       invoiceBillPath="/admin/invoice_bill"
+      invoiceEmailPath="/admin/email-patient-bill"
     />
   );
 }

@@ -19,6 +19,7 @@ export default function DoctorPatientHistoryRoute() {
       chartHref={`/doctor/patients/${id}/record`}
       scheduleHrefPrefix="/doctor/schedule"
       invoiceBillPath="/doctor/invoice_bill"
+      invoiceEmailPath="/doctor/email-patient-bill"
     />
   );
 }
