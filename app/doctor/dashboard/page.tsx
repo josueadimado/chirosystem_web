@@ -33,14 +33,8 @@ import { emailPatientBillDoctor } from "@/lib/patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { clinicTodayIso, formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-
-type SquarePosConfig = {
-  pos_callback_configured: boolean;
-  has_location: boolean;
-  has_application_id: boolean;
-};
 
 /** Square Terminal API (hardware) — needs SQUARE_DEVICE_ID on the server. */
 type SquareTerminalConfig = {
@@ -122,6 +116,8 @@ type PaymentFollowUp = {
   invoice_number?: string;
   total_amount?: string;
   patient_credit_balance?: string;
+  /** Set when the server auto-sent the bill to the desk Terminal — UI polls until paid. */
+  terminal_checkout_id?: string | null;
   payment: CompleteVisitPayment;
 };
 
@@ -153,10 +149,9 @@ export default function DoctorDashboardPage() {
   const [applyingCredit, setApplyingCredit] = useState(false);
   /** Square Terminal API checkout id — we poll until the physical device completes payment. */
   const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
-  /** Square Point of Sale app (Stand + reader) — separate from Square Terminal API. */
-  const [squarePosConfig, setSquarePosConfig] = useState<SquarePosConfig | null>(null);
+  /** Avoid duplicate refresh when Terminal poller and invoice poll both see PAID. */
+  const paymentHandledForInvoiceRef = useRef<number | null>(null);
   const [squareTerminalConfig, setSquareTerminalConfig] = useState<SquareTerminalConfig | null>(null);
-  const [posLaunchBusy, setPosLaunchBusy] = useState(false);
   const [displayName, setDisplayName] = useState("");
   /** Saved on the appointment row for handoff / next doctor (separate from visit-only notes). */
   const [handoffNotes, setHandoffNotes] = useState("");
@@ -270,33 +265,88 @@ export default function DoctorDashboardPage() {
   }, []);
 
   useEffect(() => {
+    paymentHandledForInvoiceRef.current = null;
+  }, [paymentFollowUp?.invoice_id]);
+
+  useEffect(() => {
     if (!paymentFollowUp?.invoice_id) {
-      setSquarePosConfig(null);
       setSquareTerminalConfig(null);
       return;
     }
     let cancelled = false;
-    void Promise.all([
-      apiGetAuth<SquarePosConfig>("/doctor/square_pos_config/").catch(() => ({
-        pos_callback_configured: false,
-        has_location: false,
-        has_application_id: false,
-      })),
-      apiGetAuth<SquareTerminalConfig>("/doctor/square_terminal_config/").catch(() => ({
+    void apiGetAuth<SquareTerminalConfig>("/doctor/square_terminal_config/")
+      .catch(() => ({
         location_id: null,
         has_location: false,
         device_id_configured: false,
-      })),
-    ]).then(([pos, term]) => {
-      if (!cancelled) {
-        setSquarePosConfig(pos);
-        setSquareTerminalConfig(term);
-      }
-    });
+      }))
+      .then((term) => {
+        if (!cancelled) setSquareTerminalConfig(term);
+      });
     return () => {
       cancelled = true;
     };
   }, [paymentFollowUp?.invoice_id]);
+
+  const handlePaymentReceived = useCallback(
+    async (invoiceId: number, message = "Payment received.") => {
+      if (paymentHandledForInvoiceRef.current === invoiceId) return;
+      paymentHandledForInvoiceRef.current = invoiceId;
+      toast.success(message);
+      setPaymentFollowUp((prev) =>
+        prev
+          ? {
+              ...prev,
+              payment: {
+                ...prev.payment,
+                charged: true,
+                status: "charged_saved_card",
+                checkout_url: null,
+                charge_error: null,
+              },
+            }
+          : null,
+      );
+      setSquareCheckoutId(null);
+      await tryOpenPatientBill(invoiceId, { maxAttempts: 12, quiet: true });
+      await load();
+    },
+    // tryOpenPatientBill and load are stable enough for this screen session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  /** Poll invoice paid status while the green banner is open (Terminal, webhook, or saved card). */
+  useEffect(() => {
+    const invId = paymentFollowUp?.invoice_id;
+    if (!invId || paymentFollowUp?.payment.charged) return;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 180;
+
+    const tick = async () => {
+      if (cancelled) return;
+      attempts += 1;
+      if (attempts > maxAttempts) return;
+      try {
+        const st = await apiGetAuth<{ paid: boolean }>(
+          `/doctor/invoice_payment_status/?invoice_id=${invId}`,
+        );
+        if (st.paid) {
+          await handlePaymentReceived(invId, "Payment received — schedule updated.");
+          return;
+        }
+      } catch {
+        /* retry */
+      }
+      setTimeout(tick, 2000);
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentFollowUp?.invoice_id, paymentFollowUp?.payment?.charged, handlePaymentReceived]);
 
   const firstName = displayName.trim().split(/\s+/)[0] || "there";
 
@@ -595,6 +645,7 @@ export default function DoctorDashboardPage() {
           invoice_number: string;
           total_amount: string;
           patient_credit_balance?: string;
+          terminal_checkout_id?: string | null;
           payment: CompleteVisitPayment;
         }>(endpoint, {
           doctor_notes: doctorNotes,
@@ -612,9 +663,11 @@ export default function DoctorDashboardPage() {
           invoice_number: result.invoice_number,
           total_amount: result.total_amount,
           patient_credit_balance: result.patient_credit_balance,
+          terminal_checkout_id: result.terminal_checkout_id,
           payment: result.payment,
         });
-        setSquareCheckoutId(null);
+        const terminalId = result.terminal_checkout_id ?? null;
+        setSquareCheckoutId(terminalId);
 
         if (isRevisingAwaitingPayment) {
           billingEditSavedFingerprintRef.current = billingFormFingerprint(
@@ -625,7 +678,7 @@ export default function DoctorDashboardPage() {
             professionalDiscountReason,
           );
           await load();
-          if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
+          if (options?.autoTerminal && !result.payment.charged && result.invoice_id && !terminalId) {
             try {
               await createTerminalCheckout(result.invoice_id);
             } catch (err) {
@@ -652,7 +705,7 @@ export default function DoctorDashboardPage() {
         setProfessionalDiscountReason("");
         setBillLines([]);
         await load({ skipReconnectBillingEdit: true });
-        if (options?.autoTerminal && !result.payment.charged && result.invoice_id) {
+        if (options?.autoTerminal && !result.payment.charged && result.invoice_id && !terminalId) {
           try {
             await createTerminalCheckout(result.invoice_id);
           } catch (err) {
@@ -827,39 +880,6 @@ export default function DoctorDashboardPage() {
       },
     );
     setApplyingCredit(false);
-  };
-
-  /** Opens Square Point of Sale on iPad/Android — patient taps card on Stand + reader. */
-  const prepareSquarePosPayment = async () => {
-    if (!paymentFollowUp) return;
-    setPosLaunchBusy(true);
-    setError("");
-    await runWithFeedback(
-      async () => {
-        const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-        const isLikelyTabletPos =
-          /iPad|iPhone|iPod|Android/i.test(ua) ||
-          (typeof navigator !== "undefined" &&
-            navigator.platform === "MacIntel" &&
-            (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints > 1);
-        if (!isLikelyTabletPos) {
-          toast.info(
-            "Square POS is meant for iPad/Android with the Square Point of Sale app. On a desktop browser it often does nothing. For the desk card reader, use “Square Terminal device” instead.",
-          );
-        }
-        const out = await apiGetAuth<{ ios_url: string; android_intent_url: string }>(
-          `/doctor/square_pos_launch/?invoice_id=${paymentFollowUp.invoice_id}`,
-        );
-        const isAndroid = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
-        window.location.href = isAndroid ? out.android_intent_url : out.ios_url;
-      },
-      {
-        loadingMessage: "Opening Square POS…",
-        successMessage: "Complete payment on the reader, then return here.",
-        errorFallback: "Could not start Square POS checkout. Check SQUARE_POS_CALLBACK_URL on the server.",
-      },
-    );
-    setPosLaunchBusy(false);
   };
 
   const sortedBillServices = useMemo(
@@ -1444,10 +1464,9 @@ export default function DoctorDashboardPage() {
               )}
               {!paymentFollowUp.payment.charged && (
                 <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs leading-relaxed text-slate-700">
-                  <strong className="text-slate-900">Desk Square Terminal (black reader):</strong> only starts after you tap{" "}
-                  <strong>Square Terminal device</strong> below — finishing the visit with “desk link” or “show options” does{" "}
-                  <em>not</em> send anything to that reader. <strong>iPad “POS” button:</strong> opens the Square POS app on the tablet,
-                  not the standalone Terminal.
+                  <strong className="text-slate-900">Desk Square Terminal:</strong> the bill usually appears on the black reader
+                  automatically when you finish the visit. You can also tap <strong>Square Terminal device</strong> below to send it
+                  again. This page updates on its own when payment completes.
                 </p>
               )}
               {squareTerminalConfig && !squareTerminalConfig.device_id_configured && (
@@ -1466,16 +1485,6 @@ export default function DoctorDashboardPage() {
                   >
                     {applyingCredit ? "Applying…" : "Apply patient credit"}
                   </button>
-                  {squarePosConfig?.pos_callback_configured && (
-                    <button
-                      type="button"
-                      onClick={() => void prepareSquarePosPayment()}
-                      disabled={posLaunchBusy}
-                      className="rounded-lg border border-[#16a349] bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
-                    >
-                      {posLaunchBusy ? "Opening…" : "Tap card on Square reader (iPad / POS)"}
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={prepareTerminalPayment}
@@ -1585,35 +1594,18 @@ export default function DoctorDashboardPage() {
               </button>
             </div>
           </div>
-          {squareCheckoutId && (
+          {(squareCheckoutId || paymentFollowUp.terminal_checkout_id) && !paymentFollowUp.payment.charged ? (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
               <p className="font-semibold text-amber-950">Square Terminal</p>
               <p className="mt-1 text-amber-900">
-                Complete the payment on the paired Square Terminal at the desk. This page updates when the device
-                finishes.
+                Complete the payment on the paired Square Terminal at the desk. This page refreshes automatically when
+                the device finishes.
               </p>
               <SquareTerminalCheckoutPoller
-                checkoutId={squareCheckoutId}
+                checkoutId={squareCheckoutId || paymentFollowUp.terminal_checkout_id!}
                 onComplete={() => {
-                  const invId = paymentFollowUp?.invoice_id;
-                  toast.success("Payment completed on the Square Terminal.");
-                  setPaymentFollowUp((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          payment: {
-                            ...prev.payment,
-                            charged: true,
-                            status: "charged_saved_card",
-                            checkout_url: null,
-                            charge_error: null,
-                          },
-                        }
-                      : null,
-                  );
-                  setSquareCheckoutId(null);
-                  if (invId) void tryOpenPatientBill(invId, { maxAttempts: 12 });
-                  void load();
+                  const invId = paymentFollowUp.invoice_id;
+                  void handlePaymentReceived(invId, "Payment completed on the Square Terminal.");
                 }}
                 onTerminalError={(msg) => {
                   toast.error(msg);
@@ -1621,7 +1613,7 @@ export default function DoctorDashboardPage() {
                 }}
               />
             </div>
-          )}
+          ) : null}
         </section>
       )}
       <section className="doctor-panel lg:col-span-2">
@@ -2108,11 +2100,11 @@ export default function DoctorDashboardPage() {
                     onClick={() => void doCompleteVisit(false)}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    Desk pay link, Square POS app, or decide in a moment
+                    Desk pay link or other options in the green banner
                   </button>
                   <p className="text-center text-[11px] leading-snug text-slate-500">
-                    Does not wake the physical Square Terminal — use the green banner after and tap{" "}
-                    <strong className="font-semibold text-slate-700">Square Terminal device</strong>.
+                    The bill is usually sent to the desk Terminal automatically. Use the green banner for desk pay link
+                    or to resend to the reader.
                   </p>
                 </>
               ) : (
@@ -2131,7 +2123,7 @@ export default function DoctorDashboardPage() {
                     onClick={() => void doCompleteVisit(false)}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    Show all payment options (desk link, POS, Terminal from banner)
+                    Show all payment options (desk link, Terminal from banner)
                   </button>
                   <p className="text-center text-[11px] leading-snug text-slate-500">
                     Terminal reader starts only from that banner — not automatically here.
