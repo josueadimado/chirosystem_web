@@ -32,6 +32,7 @@ import { ChartNoteWorkspace } from "@/components/chart-note-document";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
+import { cancelAppointmentConfirmMessage } from "@/lib/appointment-previsit";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -132,6 +133,7 @@ function DoctorSchedulePageInner() {
   const [focusDate, setFocusDate] = useState(() => new Date());
   const [selected, setSelected] = useState<AppointmentRow | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [appointmentSaving, setAppointmentSaving] = useState(false);
 
   const [handoffNotes, setHandoffNotes] = useState("");
   const [handoffLoading, setHandoffLoading] = useState(false);
@@ -401,6 +403,41 @@ function DoctorSchedulePageInner() {
       bookedServiceId: appt.booked_service,
       providerId: appt.provider,
     });
+  };
+
+  const patchAppointmentStatus = async (id: number, status: "cancelled" | "no_show") => {
+    setAppointmentSaving(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch(`/appointments/${id}/`, { status });
+          await loadAppointments();
+          setSelected(null);
+        },
+        {
+          loadingMessage: status === "cancelled" ? "Cancelling…" : "Updating…",
+          successMessage: status === "cancelled" ? "Appointment cancelled." : "Marked as no-show.",
+          errorFallback: status === "cancelled" ? "Could not cancel." : "Could not update this visit.",
+        },
+      );
+    } finally {
+      setAppointmentSaving(false);
+    }
+  };
+
+  const handleNoShow = (appt: AppointmentRow) => {
+    if (!confirm("Mark as no-show? This visit will no longer count as an active booking.")) return;
+    void patchAppointmentStatus(appt.id, "no_show");
+  };
+
+  const handleCancel = (appt: AppointmentRow) => {
+    const msg = cancelAppointmentConfirmMessage(
+      appt.service_type,
+      appt.appointment_date,
+      appt.start_time,
+    );
+    if (!confirm(msg)) return;
+    void patchAppointmentStatus(appt.id, "cancelled");
   };
 
   const scheduleAppts = useMemo(() => filterAppointmentsForScheduleGrid(appointments), [appointments]);
@@ -704,9 +741,15 @@ function DoctorSchedulePageInner() {
               <VisitDoctorScheduleActions
                 status={selected.status}
                 checkingIn={checkingIn}
+                saving={appointmentSaving}
+                serviceType={selected.service_type}
+                appointmentDate={selected.appointment_date}
+                startTime={selected.start_time}
                 onCheckIn={() => void handleCheckIn()}
                 onReschedule={() => openReschedule(selected)}
                 onBookNext={() => openBookNext(selected)}
+                onNoShow={() => handleNoShow(selected)}
+                onCancel={() => handleCancel(selected)}
               />
 
               <div className="mt-8 max-w-none border-t border-slate-200 pt-6">
