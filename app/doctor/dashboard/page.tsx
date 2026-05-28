@@ -963,7 +963,7 @@ export default function DoctorDashboardPage() {
   /** Ask the server to match this invoice against Square (fixes stuck awaiting_payment after Terminal paid). */
   const checkSquarePaymentForAppointment = async (appt: Appointment) => {
     if (!appt.invoice_id) {
-      toast("No invoice on file for this visit yet.", "error");
+      toast.error("No invoice on file for this visit yet.");
       return;
     }
     await runWithFeedback(
