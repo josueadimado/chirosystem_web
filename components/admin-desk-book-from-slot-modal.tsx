@@ -115,9 +115,17 @@ export function AdminDeskBookFromSlotModal({
     return `${minutesToLabel(seed.gapStartMin)} – ${minutesToLabel(seed.gapEndMin)}`;
   }, [seed]);
 
+  const bookableServices = useMemo(() => {
+    const all = options?.services ?? [];
+    if (!lockProvider || !providerId) return all;
+    return all.filter((s) =>
+      (options?.providers_by_service[String(s.id)] ?? []).some((p) => p.id === providerId),
+    );
+  }, [options, lockProvider, providerId]);
+
   const selectedService = useMemo(
-    () => options?.services.find((s) => s.id === serviceId) ?? null,
-    [options, serviceId],
+    () => bookableServices.find((s) => s.id === serviceId) ?? null,
+    [bookableServices, serviceId],
   );
 
   const gapContextActive = useMemo(() => {
@@ -161,7 +169,12 @@ export function AdminDeskBookFromSlotModal({
       .then((opts) => {
         if (cancelled) return;
         setOptions(opts);
-        const first = opts.services[0]?.id ?? 0;
+        const forProvider = lockProvider
+          ? opts.services.filter((s) =>
+              (opts.providers_by_service[String(s.id)] ?? []).some((p) => p.id === seed.providerId),
+            )
+          : opts.services;
+        const first = forProvider[0]?.id ?? opts.services[0]?.id ?? 0;
         setServiceId(first);
         const provs = opts.providers_by_service[String(first)] ?? [];
         const pid = lockProvider
@@ -181,6 +194,13 @@ export function AdminDeskBookFromSlotModal({
       cancelled = true;
     };
   }, [open, seed, lockProvider]);
+
+  useEffect(() => {
+    if (!open || bookableServices.length === 0) return;
+    if (!bookableServices.some((s) => s.id === serviceId)) {
+      setServiceId(bookableServices[0].id);
+    }
+  }, [open, bookableServices, serviceId]);
 
   useEffect(() => {
     if (!open || !options || !serviceId || !providerId || !dateIso) {
@@ -432,10 +452,10 @@ export function AdminDeskBookFromSlotModal({
                       : provs[0]?.id ?? seed.providerId;
                   setProviderId(pid);
                 }}
-                disabled={!options?.services?.length}
+                disabled={!bookableServices.length}
                 className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
               >
-                {(options?.services ?? []).map((s) => (
+                {bookableServices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name} — {s.duration_minutes} min
                     {s.service_type === "massage" ? ` (+${MASSAGE_DESK_BOOK_TAIL_MINUTES} min on schedule)` : ""}

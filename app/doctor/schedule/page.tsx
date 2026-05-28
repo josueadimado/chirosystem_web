@@ -129,7 +129,7 @@ function DoctorSchedulePageInner() {
   const [blocks, setBlocks] = useState<ProviderBlock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [view, setView] = useState<ScheduleViewMode>("week");
+  const [view, setView] = useState<ScheduleViewMode>("day");
   const [focusDate, setFocusDate] = useState(() => new Date());
   const [selected, setSelected] = useState<AppointmentRow | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -603,7 +603,9 @@ function DoctorSchedulePageInner() {
           pageHelp={
             <>
               Use <strong>Day</strong> for the detailed time grid, <strong>Week</strong> for Monday–Friday columns, <strong>Month</strong>{" "}
-              for counts. Click a block to open the patient chart drawer (not a small popup).
+              for counts. Click a block to open the patient chart drawer (not a small popup). On <strong>Day</strong> view you can book
+              into open time or into a <strong>cancelled</strong> slot — click the open white space or the red cancelled block, then pick
+              patient and service (same as the front desk).
             </>
           }
         />

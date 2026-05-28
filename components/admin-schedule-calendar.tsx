@@ -181,6 +181,13 @@ function scheduleHoverFromClientY(
 }
 
 /** Snap a click inside an open-gap rectangle to a 15-minute start minute within [gapStart, gapEnd). */
+/** Snap a preferred start (e.g. from a cancelled visit) into a 15-minute step inside a free gap. */
+function snapMinuteInsideGap(preferredMin: number, gapStartMin: number, gapEndMin: number): number {
+  const snapped = Math.round(preferredMin / 15) * 15;
+  const maxStart = Math.max(gapStartMin, gapEndMin - 15);
+  return Math.max(gapStartMin, Math.min(maxStart, snapped));
+}
+
 function snapOpenSlotStartMinute(clientY: number, gapRect: DOMRect, gapStartMin: number, gapEndMin: number): number {
   const step = 15;
   const h = Math.max(gapRect.height, 1);
@@ -540,8 +547,9 @@ export function AdminScheduleCalendar({
     <div className="space-y-2">
       {showDeskHint ? (
         <p className="text-sm text-slate-600">
-          <span className="font-medium text-[#0d5c2e]">Desk booking:</span> click open white space on the grid. Schedule runs through{" "}
-          <strong>9:00 PM</strong> for staff.
+          <span className="font-medium text-[#0d5c2e]">Desk booking:</span> click open white space on the grid, or click a{" "}
+          <span className="font-medium text-rose-800">cancelled</span> / no-show block to book someone new in that time. Schedule
+          runs through <strong>9:00 PM</strong> for staff.
         </p>
       ) : null}
 
@@ -1086,6 +1094,8 @@ function DayProviderColumn({
               const leftPx = lane * (laneW + LANE_GAP_PX);
               const draggable = !!onAppointmentPointerDown && canDragAppointmentOnSchedule(a.status);
               const isDragging = drag?.appointment.id === a.id;
+              const freedSlot =
+                !!onPickOpenSlot && (a.status === "cancelled" || a.status === "no_show");
               return (
                 <button
                   key={a.id}
@@ -1095,15 +1105,45 @@ function DayProviderColumn({
                     if (draggable) onAppointmentPointerDown(a, e);
                   }}
                   onClick={(e) => {
-                    if (draggable) e.preventDefault();
-                    else onSelect(a);
+                    if (draggable) {
+                      e.preventDefault();
+                      return;
+                    }
+                    if (freedSlot) {
+                      e.stopPropagation();
+                      const st = parseTimeToMinutes(a.start_time);
+                      const en = parseTimeToMinutes(a.end_time);
+                      const gap =
+                        openGapAtMinute(openGaps, st) ?? {
+                          startMin: st,
+                          endMin: Math.max(en, st + 15),
+                        };
+                      const startMinute = snapMinuteInsideGap(st, gap.startMin, gap.endMin);
+                      onPickOpenSlot({
+                        providerId: provider.id,
+                        providerName: provider.provider_name,
+                        dateIso: isoDate,
+                        startMinute,
+                        gapStartMin: gap.startMin,
+                        gapEndMin: gap.endMin,
+                      });
+                      return;
+                    }
+                    onSelect(a);
                   }}
-                  title={draggable ? "Drag to reschedule · release without moving to open details" : undefined}
+                  title={
+                    freedSlot
+                      ? "Book a new visit in this open slot"
+                      : draggable
+                        ? "Drag to reschedule · release without moving to open details"
+                        : undefined
+                  }
                   className={cn(
                     "pointer-events-auto absolute flex flex-col overflow-hidden rounded-lg border px-1 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                     styles.wrap,
                     selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
                     draggable && "cursor-grab touch-none active:cursor-grabbing",
+                    freedSlot && "cursor-pointer hover:ring-2 hover:ring-emerald-400/80",
                     isDragging && dragActive && "opacity-40",
                   )}
                   style={{
