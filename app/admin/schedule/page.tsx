@@ -17,6 +17,7 @@ import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-pa
 import { VisitAppointmentStaffNotes } from "@/components/visit-panel/visit-appointment-staff-notes";
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
+import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useAppFeedback } from "@/components/app-feedback";
@@ -62,6 +63,8 @@ type Appointment = {
   start_time_display?: string;
   end_time_display?: string;
   status: string;
+  display_status?: string;
+  invoice_kind?: string | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
 };
@@ -137,6 +140,10 @@ function blockListRange(view: ScheduleViewMode, focusDate: Date): { from: string
     return { from: toIsoDate(mon), to: toIsoDate(fri) };
   }
   return { from: toIsoDate(startOfMonth(focusDate)), to: toIsoDate(endOfMonth(focusDate)) };
+}
+
+function appointmentUiStatus(row: { status: string; display_status?: string; invoice_kind?: string | null }): string {
+  return row.display_status ?? effectiveAppointmentStatus(row.status, row.invoice_kind);
 }
 
 function formatAppointmentDuration(start: string, end: string): string {
@@ -440,7 +447,7 @@ function AdminSchedulePageContent() {
   }, [selected, adjustEndTime]);
 
   const handleCheckIn = async () => {
-    if (!selected || selected.status === "no_show" || selected.status === "cancelled") return;
+    if (!selected || appointmentBlocksDeskActions(selected.status, selected.invoice_kind)) return;
     setCheckingIn(true);
     setError("");
     await runWithFeedback(
@@ -469,7 +476,16 @@ function AdminSchedulePageContent() {
       if (nextStatus === "cancelled" || nextStatus === "no_show") {
         setShowReschedule(false);
         setShowAdjustDuration(false);
-        setSelected((prev) => (prev && prev.id === id ? { ...prev, status: nextStatus } : prev));
+        setSelected((prev) =>
+          prev && prev.id === id
+            ? {
+                ...prev,
+                status: nextStatus,
+                display_status: nextStatus,
+                invoice_kind: nextStatus === "no_show" ? prev.invoice_kind ?? "no_show_fee" : prev.invoice_kind,
+              }
+            : prev,
+        );
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not update appointment.";
@@ -490,7 +506,7 @@ function AdminSchedulePageContent() {
     s !== "completed" && s !== "no_show" && s !== "cancelled";
 
   const submitReschedule = async () => {
-    if (!selected || !canRescheduleStaff(selected.status)) return;
+    if (!selected || !canRescheduleStaff(appointmentUiStatus(selected))) return;
     const pid = Number.parseInt(resProviderId, 10);
     const body: Record<string, unknown> = {
       appointment_date: resDate,
@@ -524,7 +540,7 @@ function AdminSchedulePageContent() {
   };
 
   const submitAdjustDuration = async () => {
-    if (!selected || !adjustEndTime || !canRescheduleStaff(selected.status)) return;
+    if (!selected || !adjustEndTime || !canRescheduleStaff(appointmentUiStatus(selected))) return;
     const endApi = adjustEndTime.length === 5 ? `${adjustEndTime}:00` : adjustEndTime;
     let saved = false;
     await runWithFeedback(
@@ -548,7 +564,7 @@ function AdminSchedulePageContent() {
     startMinute: number;
   }) => {
     const { appointment, providerId, dateIso, startMinute } = pick;
-    if (!canRescheduleStaff(appointment.status)) {
+    if (!canRescheduleStaff(appointment.display_status ?? appointment.status)) {
       toast.error("This visit cannot be moved from the calendar.");
       return;
     }
@@ -815,7 +831,7 @@ function AdminSchedulePageContent() {
               durationLabel={formatAppointmentDuration(selected.start_time, selected.end_time)}
               providerName={selected.provider_name}
               providerColor={providerColorForId(selected.provider)}
-              status={selected.status}
+              status={appointmentUiStatus(selected)}
               estimatedPrice={estimatedPriceFromSnapshot(visitSnapshot)}
               appointmentId={selected.id}
               reasonForVisit={visitSnapshot?.reason_for_visit || selected.reason_for_visit}
@@ -869,7 +885,8 @@ function AdminSchedulePageContent() {
                     onSave: () => void submitAdjustDuration(),
                   }}
                   billing={
-                    selected.status === "awaiting_payment"
+                    selected.status === "awaiting_payment" ||
+                    (appointmentUiStatus(selected) === "no_show" && selected.invoice_kind === "no_show_fee")
                       ? {
                           invoiceId: billInvoiceId,
                           hintLoading: billingHintLoading,

@@ -1,11 +1,13 @@
 "use client";
 
 import { HelpTip } from "@/components/help-tip";
-import { appointmentBlocksDeskActions } from "@/lib/visit-status-utils";
+import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 
 export type DeskAppointmentActions = {
   id: number;
   status: string;
+  display_status?: string;
+  invoice_kind?: string | null;
   service_type?: string;
   appointment_date: string;
   start_time: string;
@@ -85,8 +87,14 @@ export function VisitDeskActions({
   onMarkCompleted: () => void;
   onBookNext: () => void;
 }) {
-  if (appointmentBlocksDeskActions(appointment.status)) {
-    const isNoShow = appointment.status === "no_show";
+  const uiStatus =
+    appointment.display_status ??
+    effectiveAppointmentStatus(appointment.status, appointment.invoice_kind);
+
+  if (appointmentBlocksDeskActions(appointment.status, appointment.invoice_kind)) {
+    const isNoShow = uiStatus === "no_show";
+    const showNoShowBilling =
+      isNoShow && appointment.status === "awaiting_payment" && billing?.invoiceId != null;
     return (
       <div className="space-y-3">
         <div
@@ -114,6 +122,29 @@ export function VisitDeskActions({
             </>
           )}
         </div>
+        {showNoShowBilling ? (
+          <div className="rounded-xl border border-red-200/80 bg-red-50/50 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-red-900">No-show fee</p>
+            <p className="mt-1 text-xs text-red-950/90">Collect or preview the no-show fee bill below.</p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                disabled={billing.previewing}
+                onClick={billing.onPreview}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:flex-1"
+              >
+                {billing.previewing ? "Opening…" : "Preview bill"}
+              </button>
+              <button
+                type="button"
+                onClick={billing.onEditBilling}
+                className="w-full rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-950 shadow-sm hover:bg-red-50 sm:flex-1"
+              >
+                Edit billing
+              </button>
+            </div>
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={onBookNext}
@@ -138,15 +169,17 @@ export function VisitDeskActions({
   }
 
   const showCheckIn =
-    appointment.status !== "checked_in" &&
-    appointment.status !== "in_consultation" &&
-    appointment.status !== "completed" &&
-    appointment.status !== "no_show" &&
-    appointment.status !== "cancelled";
+    uiStatus !== "checked_in" &&
+    uiStatus !== "in_consultation" &&
+    uiStatus !== "completed" &&
+    uiStatus !== "no_show" &&
+    uiStatus !== "cancelled";
 
   return (
     <>
-      {appointment.status === "awaiting_payment" && billing ? (
+      {appointment.status === "awaiting_payment" &&
+      uiStatus !== "no_show" &&
+      billing ? (
         <div className="rounded-xl border border-[#16a349]/30 bg-gradient-to-br from-[#ecfdf5] to-white p-4 shadow-sm ring-1 ring-[#16a349]/10">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0d5c2e]">Billing</p>
           <p className="mt-1 text-xs text-slate-600">
@@ -205,7 +238,7 @@ export function VisitDeskActions({
         </div>
       ) : null}
 
-      {canReschedule(appointment.status) && adjustDuration ? (
+      {canReschedule(uiStatus) && adjustDuration ? (
         <div className="space-y-2">
           <button
             type="button"
@@ -274,7 +307,7 @@ export function VisitDeskActions({
         </div>
       ) : null}
 
-      {canReschedule(appointment.status) ? (
+      {canReschedule(uiStatus) ? (
         <div className="space-y-2">
           <button
             type="button"
@@ -334,7 +367,7 @@ export function VisitDeskActions({
         </div>
       ) : null}
 
-      {canNoShowOrCancel(appointment.status) ? (
+      {canNoShowOrCancel(uiStatus) ? (
         <div className="space-y-2">
           {appointment.service_type === "massage" &&
             within24HoursBeforeStart(appointment.appointment_date, appointment.start_time) && (
@@ -370,7 +403,7 @@ export function VisitDeskActions({
         </div>
       ) : null}
 
-      {canMarkCompleted(appointment.status) ? (
+      {canMarkCompleted(uiStatus) ? (
         <button
           type="button"
           disabled={savingDesk}

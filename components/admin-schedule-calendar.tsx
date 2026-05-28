@@ -48,8 +48,16 @@ export type ScheduleAppointment = {
   start_time_display?: string;
   end_time_display?: string;
   status: string;
+  /** UI/calendar status (e.g. no_show when legacy row was awaiting_payment + no_show_fee). */
+  display_status?: string;
+  invoice_kind?: string | null;
   reason_for_visit?: string;
 };
+
+/** Status used for colors, labels, and desk rules on the schedule grid. */
+export function scheduleAppointmentUiStatus(a: ScheduleAppointment): string {
+  return a.display_status ?? a.status;
+}
 
 export type ProviderRow = { id: number; provider_name: string };
 
@@ -1111,8 +1119,9 @@ function DayProviderColumn({
               const st = parseTimeToMinutes(a.start_time);
               const dur = appointmentDurationMinutes(a.start_time, a.end_time);
               const { topPct, heightPct } = timePositionPercent(st, dur, dayEndMin);
-              const styles = statusBlockStyles(a.status, base);
-              const bg = blockBackground(a.status, base);
+              const uiStatus = scheduleAppointmentUiStatus(a);
+              const styles = statusBlockStyles(uiStatus, base);
+              const bg = blockBackground(uiStatus, base);
               const selected = selectedId === a.id;
               const startShown = a.start_time_display || formatTimeShort(a.start_time);
               const endShown = a.end_time_display || formatTimeShort(a.end_time);
@@ -1121,7 +1130,7 @@ function DayProviderColumn({
               const draggable = !!onAppointmentPointerDown && canDragAppointmentOnSchedule(a.status);
               const isDragging = drag?.appointment.id === a.id;
               const freedSlot =
-                !!onPickOpenSlot && (a.status === "cancelled" || a.status === "no_show");
+                !!onPickOpenSlot && (uiStatus === "cancelled" || uiStatus === "no_show");
               return (
                 <button
                   key={a.id}
@@ -1179,34 +1188,34 @@ function DayProviderColumn({
                     width: laneW,
                     background: bg,
                     borderColor:
-                      a.status === "cancelled"
+                      uiStatus === "cancelled"
                         ? "#fda4af"
-                        : a.status === "no_show"
+                        : uiStatus === "no_show"
                           ? "#dc2626"
                           : selected
                             ? "#16a349"
                             : "rgb(148 163 184 / 0.9)",
                   }}
                 >
-                  <AppointmentBlockDecor status={a.status} />
+                  <AppointmentBlockDecor status={uiStatus} />
                   <AppointmentBlockTooltip
                     patientName={a.patient_name}
                     serviceName={a.service_name || ""}
                     startLabel={startShown}
                     endLabel={endShown}
                     providerName={a.provider_name}
-                    status={a.status}
+                    status={uiStatus}
                     reasonForVisit={a.reason_for_visit}
                   >
                     <div className="flex min-h-0 flex-1 flex-col">
                       <div
                         className={cn(
                           "shrink-0 border-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
-                          a.status === "cancelled" && "border-rose-800/20 text-rose-950",
-                          a.status === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
-                          a.status === "completed" && "border-slate-400/40 text-slate-900",
-                          !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
-                          a.status !== "cancelled" && styles.text,
+                          uiStatus === "cancelled" && "border-rose-800/20 text-rose-950",
+                          uiStatus === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
+                          uiStatus === "completed" && "border-slate-400/40 text-slate-900",
+                          !["cancelled", "no_show", "completed"].includes(uiStatus) && "border-white/25 text-inherit",
+                          uiStatus !== "cancelled" && styles.text,
                         )}
                       >
                         {startShown} – {endShown}
@@ -1659,17 +1668,18 @@ function WeekDayStack({
             );
           }
           const a = entry.appt;
+          const uiStatus = scheduleAppointmentUiStatus(a);
           const dur = appointmentDurationMinutes(a.start_time, a.end_time);
           const { topPct, heightPct } = timePositionPercent(entry.start, dur, dayEndMin);
           const lane = laneByKey.get(entry.key) ?? 0;
           const base = providerColorForId(a.provider);
-          const bg = blockBackground(a.status, base);
-          const styles = statusBlockStyles(a.status, base);
+          const bg = blockBackground(uiStatus, base);
+          const styles = statusBlockStyles(uiStatus, base);
           const selected = selectedId === a.id;
           const leftPx = lane * (laneW + LANE_GAP_PX);
           const startShown = a.start_time_display || formatTimeShort(a.start_time);
           const endShown = a.end_time_display || formatTimeShort(a.end_time);
-          const freedSlot = !!onPickOpenSlot && (a.status === "cancelled" || a.status === "no_show");
+          const freedSlot = !!onPickOpenSlot && (uiStatus === "cancelled" || uiStatus === "no_show");
           return (
             <button
               key={entry.key}
@@ -1695,34 +1705,34 @@ function WeekDayStack({
                 width: laneW,
                 background: bg,
                 borderColor:
-                  a.status === "cancelled"
+                  uiStatus === "cancelled"
                     ? "#fecaca"
-                    : a.status === "no_show"
+                    : uiStatus === "no_show"
                       ? "#f87171"
                       : selected
                         ? "#16a349"
                         : "rgb(148 163 184 / 0.9)",
               }}
             >
-              <AppointmentBlockDecor status={a.status} />
+              <AppointmentBlockDecor status={uiStatus} />
               <AppointmentBlockTooltip
                 patientName={a.patient_name}
                 serviceName={a.service_name || ""}
                 startLabel={startShown}
                 endLabel={endShown}
                 providerName={a.provider_name}
-                status={a.status}
+                status={uiStatus}
                 reasonForVisit={a.reason_for_visit}
               >
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div
                     className={cn(
                       "shrink-0 border-b px-1 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
-                      a.status === "cancelled" && "border-rose-800/20 text-rose-950",
-                      a.status === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
-                      a.status === "completed" && "border-slate-400/40 text-slate-900",
-                      !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
-                      a.status !== "cancelled" && styles.text,
+                      uiStatus === "cancelled" && "border-rose-800/20 text-rose-950",
+                      uiStatus === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
+                      uiStatus === "completed" && "border-slate-400/40 text-slate-900",
+                      !["cancelled", "no_show", "completed"].includes(uiStatus) && "border-white/25 text-inherit",
+                      uiStatus !== "cancelled" && styles.text,
                     )}
                   >
                     {startShown} – {endShown}

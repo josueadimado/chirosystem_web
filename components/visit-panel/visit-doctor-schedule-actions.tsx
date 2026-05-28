@@ -1,10 +1,12 @@
 "use client";
 
-import { appointmentBlocksDeskActions } from "@/lib/visit-status-utils";
+import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 
 /** Doctor schedule side panel: check-in, reschedule, cancel, no-show, and book-next. */
 export function VisitDoctorScheduleActions({
   status,
+  displayStatus,
+  invoiceKind,
   checkingIn,
   saving,
   serviceType,
@@ -17,6 +19,8 @@ export function VisitDoctorScheduleActions({
   onCancel,
 }: {
   status: string;
+  displayStatus?: string;
+  invoiceKind?: string | null;
   checkingIn?: boolean;
   saving?: boolean;
   serviceType?: string;
@@ -28,11 +32,12 @@ export function VisitDoctorScheduleActions({
   onNoShow?: () => void;
   onCancel?: () => void;
 }) {
-  const canPreVisit = status === "booked" || status === "checked_in" || status === "scheduled";
+  const uiStatus = displayStatus ?? effectiveAppointmentStatus(status, invoiceKind);
+  const canPreVisit = uiStatus === "booked" || uiStatus === "checked_in" || uiStatus === "scheduled";
   const busy = checkingIn || saving;
 
-  if (appointmentBlocksDeskActions(status)) {
-    const isNoShow = status === "no_show";
+  if (appointmentBlocksDeskActions(status, invoiceKind)) {
+    const isNoShow = uiStatus === "no_show";
     return (
       <div className="space-y-3">
         <div
@@ -64,7 +69,7 @@ export function VisitDoctorScheduleActions({
     );
   }
 
-  if (status === "completed") {
+  if (uiStatus === "completed") {
     return (
       <button
         type="button"
@@ -82,7 +87,7 @@ export function VisitDoctorScheduleActions({
 
   return (
     <div className="space-y-2">
-      {(status === "booked" || status === "scheduled") && (
+      {(uiStatus === "booked" || uiStatus === "scheduled") && (
         <button
           type="button"
           onClick={onCheckIn}

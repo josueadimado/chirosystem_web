@@ -33,7 +33,7 @@ import { ChartNoteWorkspace } from "@/components/chart-note-document";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
-import { appointmentBlocksDeskActions } from "@/lib/visit-status-utils";
+import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 import { cancelAppointmentConfirmMessage } from "@/lib/appointment-previsit";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -62,11 +62,17 @@ type AppointmentRow = {
   start_time_display?: string;
   end_time_display?: string;
   status: string;
+  display_status?: string;
+  invoice_kind?: string | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
 };
 
 type ScheduleViewMode = "day" | "week" | "month";
+
+function appointmentUiStatus(row: { status: string; display_status?: string; invoice_kind?: string | null }): string {
+  return row.display_status ?? effectiveAppointmentStatus(row.status, row.invoice_kind);
+}
 
 function formatTime(t: string): string {
   if (!t) return "";
@@ -737,7 +743,7 @@ function DoctorSchedulePageInner() {
               durationLabel={formatAppointmentDuration(selected.start_time, selected.end_time)}
               providerName={selected.provider_name}
               providerColor="#16a349"
-              status={selected.status}
+              status={appointmentUiStatus(selected)}
               appointmentId={selected.id}
               reasonForVisit={selected.reason_for_visit}
             />
@@ -750,6 +756,8 @@ function DoctorSchedulePageInner() {
               />
               <VisitDoctorScheduleActions
                 status={selected.status}
+                displayStatus={selected.display_status}
+                invoiceKind={selected.invoice_kind}
                 checkingIn={checkingIn}
                 saving={appointmentSaving}
                 serviceType={selected.service_type}

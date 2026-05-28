@@ -1,8 +1,17 @@
 /** Status badge styling for visit side panels (schedule drawer, doctor schedule). */
 
+/** Status for calendar and side panel (handles legacy no-shows stored as awaiting_payment). */
+export function effectiveAppointmentStatus(status: string, invoiceKind?: string | null): string {
+  if (status === "awaiting_payment" && invoiceKind === "no_show_fee") {
+    return "no_show";
+  }
+  return status;
+}
+
 /** Cancelled or no-show — patient did not complete a normal visit; no check-in, extend, or reschedule. */
-export function appointmentBlocksDeskActions(status: string): boolean {
-  return status === "cancelled" || status === "no_show";
+export function appointmentBlocksDeskActions(status: string, invoiceKind?: string | null): boolean {
+  const effective = effectiveAppointmentStatus(status, invoiceKind);
+  return effective === "cancelled" || effective === "no_show";
 }
 
 export function visitStatusBadgeClass(status: string): string {
