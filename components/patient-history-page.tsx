@@ -11,7 +11,7 @@ import { clinicTodayIso } from "@/lib/format-date";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
-import { FileText, Printer, Receipt } from "lucide-react";
+import { CalendarClock, FileText, Printer, Receipt } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const inputClass =
@@ -51,6 +51,7 @@ type AppointmentHistoryRow = {
   invoice: {
     id: number;
     invoice_number: string;
+    kind?: string;
     subtotal: string;
     discount: string;
     credit_applied_total: string;
@@ -65,6 +66,20 @@ type AppointmentHistoryRow = {
   } | null;
 };
 
+type PatientAccountSummary = {
+  balance_total: string;
+  balance_visit: string;
+  balance_no_show_fee: string;
+  balance_late_cancel_fee: string;
+  has_overdue: boolean;
+  visit_count: number;
+  no_show_count: number;
+  upcoming_count: number;
+  cancelled_count: number;
+  next_appointment_date: string | null;
+  next_appointment_time: string | null;
+};
+
 type PatientDetail = {
   id: number;
   first_name: string;
@@ -72,8 +87,139 @@ type PatientDetail = {
   phone: string;
   clinical_access?: "full" | "read_only";
   clinical_access_message?: string;
+  account_summary?: PatientAccountSummary;
   appointments: AppointmentHistoryRow[];
 };
+
+function formatMoney(amount: string): string {
+  const n = parseFloat(amount);
+  if (!Number.isFinite(n)) return amount;
+  return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
+function invoiceKindLabel(kind: string | undefined): string {
+  switch (kind) {
+    case "no_show_fee":
+      return "No-show fee";
+    case "late_cancel_fee":
+      return "Late cancel";
+    case "visit":
+      return "Visit";
+    default:
+      return "Bill";
+  }
+}
+
+function PatientAccountSummaryCard({
+  summary,
+  billingHref,
+  patientName,
+}: {
+  summary: PatientAccountSummary;
+  billingHref?: string;
+  patientName: string;
+}) {
+  const totalDue = parseFloat(summary.balance_total) || 0;
+  const visitDue = parseFloat(summary.balance_visit) || 0;
+  const nsDue = parseFloat(summary.balance_no_show_fee) || 0;
+  const lcDue = parseFloat(summary.balance_late_cancel_fee) || 0;
+  const hasBalance = totalDue > 0.009;
+
+  return (
+    <section
+      className="mt-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-100/80"
+      aria-label="Account summary"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Balance &amp; visits</p>
+          {hasBalance ? (
+            <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-amber-950">
+              {formatMoney(summary.balance_total)}
+              <span className="ml-2 text-sm font-semibold uppercase text-amber-700">
+                {summary.has_overdue ? "Overdue" : "Due"}
+              </span>
+            </p>
+          ) : (
+            <p className="mt-1 text-lg font-semibold text-[#0d5c2e]">No balance due</p>
+          )}
+        </div>
+        {billingHref ? (
+          <Link
+            href={billingHref}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white"
+          >
+            All invoices →
+          </Link>
+        ) : null}
+      </div>
+
+      {hasBalance ? (
+        <ul className="mt-3 flex flex-wrap gap-2 text-xs">
+          {visitDue > 0.009 ? (
+            <li className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-800">
+              Visit bills {formatMoney(summary.balance_visit)}
+            </li>
+          ) : null}
+          {nsDue > 0.009 ? (
+            <li className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 font-medium text-red-950">
+              No-show fees {formatMoney(summary.balance_no_show_fee)}
+            </li>
+          ) : null}
+          {lcDue > 0.009 ? (
+            <li className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 font-medium text-rose-950">
+              Cancel fees {formatMoney(summary.balance_late_cancel_fee)}
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Completed visits</p>
+          <p className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">{summary.visit_count}</p>
+        </div>
+        <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Upcoming</p>
+          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#047857]">{summary.upcoming_count}</p>
+        </div>
+        <div className="rounded-xl border border-red-100 bg-red-50/50 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-red-800/80">No-shows on record</p>
+          <p className="mt-0.5 text-lg font-bold tabular-nums text-red-950">{summary.no_show_count}</p>
+        </div>
+        <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Cancelled</p>
+          <p className="mt-0.5 text-lg font-bold tabular-nums text-slate-700">{summary.cancelled_count}</p>
+        </div>
+      </div>
+
+      {summary.upcoming_count > 0 && summary.next_appointment_date ? (
+        <p className="mt-3 flex items-center gap-2 text-sm text-[#0d5c2e]">
+          <CalendarClock className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+          <span>
+            <span className="font-semibold">Next:</span>{" "}
+            {formatWeekdayMonthDayYear(summary.next_appointment_date)}
+            {summary.next_appointment_time ? ` at ${summary.next_appointment_time}` : ""}
+          </span>
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-slate-500">No upcoming appointments on the schedule.</p>
+      )}
+
+      <p className="mt-2 text-[11px] text-slate-500">
+        Unpaid totals match{" "}
+        {billingHref ? (
+          <Link href={billingHref} className="font-medium text-[#0d5c2e] hover:underline">
+            Invoices &amp; Billing
+          </Link>
+        ) : (
+          "billing"
+        )}
+        . Search for <span className="font-medium text-slate-700">{patientName}</span> to see every bill.
+      </p>
+    </section>
+  );
+}
 
 function isVisitToday(appointmentDate: string): boolean {
   return appointmentDate === clinicTodayIso();
@@ -297,7 +443,8 @@ function VisitListRow({
       </p>
       {inv ? (
         <p className="mt-1 text-xs font-medium text-[#0f766e]">
-          Bill {inv.invoice_number} · ${inv.total_amount}
+          {invoiceKindLabel(inv.kind)} {inv.invoice_number} · ${inv.total_amount}
+          {inv.status !== "paid" ? ` · ${inv.status}` : " · paid"}
         </p>
       ) : (
         <p className="mt-1 text-xs text-slate-400">No bill yet</p>
@@ -485,6 +632,7 @@ export function PatientHistoryPage({
   invoiceEmailPath,
   invoiceSyncPath,
   invoiceConfirmPaidPath,
+  billingHref,
 }: {
   patientId: number;
   detailPath: string;
@@ -492,6 +640,8 @@ export function PatientHistoryPage({
   backHref: string;
   /** When set, shows a shortcut to the full chart (doctor record page). */
   chartHref?: string;
+  /** Admin only — link to Invoices & Billing (search patient name there). */
+  billingHref?: string;
   scheduleHrefPrefix: string;
   /** e.g. `/admin/invoice_bill` or `/doctor/invoice_bill` */
   invoiceBillPath: string;
@@ -709,6 +859,13 @@ export function PatientHistoryPage({
           >
             {handoffMsg}
           </p>
+        ) : null}
+        {detail.account_summary ? (
+          <PatientAccountSummaryCard
+            summary={detail.account_summary}
+            billingHref={billingHref}
+            patientName={`${detail.first_name} ${detail.last_name}`}
+          />
         ) : null}
       </header>
 
