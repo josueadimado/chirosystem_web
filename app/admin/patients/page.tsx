@@ -87,9 +87,9 @@ function balanceDueHints(p: Patient): string[] {
   const ns = parseBalanceNum(p.balance_no_show_fee);
   const lc = parseBalanceNum(p.balance_late_cancel_fee);
   if (p.has_overdue) hints.push("Overdue");
+  if (visit > 0.009) hints.push(`Visit ${formatBalance(p.balance_visit ?? "0")}`);
   if (ns > 0.009) hints.push(`No-show ${formatBalance(p.balance_no_show_fee ?? "0")}`);
   if (lc > 0.009) hints.push(`Cancel ${formatBalance(p.balance_late_cancel_fee ?? "0")}`);
-  if (visit > 0.009 && ns < 0.009 && lc < 0.009) hints.push("Visit due");
   return hints;
 }
 
