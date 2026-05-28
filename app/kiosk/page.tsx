@@ -30,7 +30,21 @@ function toE164(phone: string): string {
   return "";
 }
 
+type KioskPatientChoice = {
+  appointment_id: number;
+  patient: string;
+  provider: string;
+  start_time_display: string;
+  can_checkin: boolean;
+  earliest_checkin_display?: string;
+};
+
 type KioskLookupOk =
+  | {
+      result: "choose_patient";
+      message: string;
+      choices: KioskPatientChoice[];
+    }
   | {
       result: "ready";
       appointment_id: number;
@@ -168,6 +182,8 @@ export default function KioskPage() {
   const [successVisible, setSuccessVisible] = useState(false);
   const [successPatientName, setSuccessPatientName] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [patientChoices, setPatientChoices] = useState<KioskPatientChoice[] | null>(null);
+  const [chooseMessage, setChooseMessage] = useState("");
 
   const append = (char: string) => {
     if (char === "+") {
@@ -196,23 +212,83 @@ export default function KioskPage() {
     setSuccessVisible(false);
     setSuccessPatientName("");
     setNotice(null);
+    setPatientChoices(null);
+    setChooseMessage("");
+  };
+
+  const completeCheckIn = async (appointmentId: number, patientName: string) => {
+    await apiPostPublic<{ detail: string }>("/kiosk/checkin/", {
+      appointment_id: appointmentId,
+      phone: e164,
+    });
+    setSuccessPatientName(patientName.trim());
+    setSuccessVisible(true);
+    setPatientChoices(null);
+    setChooseMessage("");
+    toast.success("Check-in complete.");
+  };
+
+  const handleLookupResult = async (lookup: KioskLookupOk) => {
+    if (lookup.result === "choose_patient") {
+      setPatientChoices(lookup.choices);
+      setChooseMessage(lookup.message);
+      setNotice(null);
+      return;
+    }
+    if (lookup.result === "ready") {
+      await completeCheckIn(lookup.appointment_id, lookup.patient);
+      return;
+    }
+    setPatientChoices(null);
+    setChooseMessage("");
+    setNotice(lookupToNotice(lookup));
   };
 
   const checkIn = async () => {
     if (!canCheckIn) return;
     setCheckingIn(true);
     setNotice(null);
+    setPatientChoices(null);
+    setChooseMessage("");
     try {
       const lookup = await apiPostPublic<KioskLookupOk>("/kiosk/lookup/", { phone: e164 });
-      if (lookup.result === "ready") {
-        await apiPostPublic<{ detail: string }>("/kiosk/checkin/", { appointment_id: lookup.appointment_id });
-        setSuccessPatientName(lookup.patient?.trim() || "");
-      } else {
-        setNotice(lookupToNotice(lookup));
+      await handleLookupResult(lookup);
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : "Something went wrong. Please see the front desk or try again.";
+      setNotice({
+        tone: "rose",
+        icon: "!",
+        title: "Could not complete check-in",
+        action: "See the front desk, or tap Start over to try again.",
+        detail: msg,
+      });
+      toast.error(msg);
+    } finally {
+      setCheckingIn(false);
+    }
+  };
+
+  const checkInAsChoice = async (choice: KioskPatientChoice) => {
+    if (!e164 || checkingIn) return;
+    setCheckingIn(true);
+    setNotice(null);
+    try {
+      if (!choice.can_checkin) {
+        setNotice({
+          tone: "amber",
+          icon: "⏰",
+          title: "A little early",
+          action: "Please wait until check-in opens, or see the front desk if they are ready for you.",
+          detail: choice.earliest_checkin_display
+            ? `Appointment at ${choice.start_time_display}. Kiosk check-in opens around ${choice.earliest_checkin_display}.`
+            : `Appointment at ${choice.start_time_display}.`,
+        });
         return;
       }
-      setSuccessVisible(true);
-      toast.success("Check-in complete.");
+      await completeCheckIn(choice.appointment_id, choice.patient);
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -301,7 +377,43 @@ export default function KioskPage() {
 
                 {notice ? <KioskNoticeCard notice={notice} /> : null}
 
-                <div className="grid grid-cols-3 gap-3 sm:gap-3.5">
+                {patientChoices && patientChoices.length > 0 ? (
+                  <div className="space-y-3 text-left">
+                    <p className="text-center text-base font-semibold text-foreground">{chooseMessage}</p>
+                    {patientChoices.map((choice) => (
+                      <button
+                        key={choice.appointment_id}
+                        type="button"
+                        disabled={checkingIn}
+                        onClick={() => void checkInAsChoice(choice)}
+                        className="flex w-full flex-col rounded-2xl border-2 border-primary/25 bg-white px-4 py-4 text-left shadow-sm transition hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50 sm:py-5"
+                      >
+                        <span className="text-lg font-bold text-foreground">{choice.patient}</span>
+                        <span className="mt-1 text-sm text-muted-foreground">
+                          {choice.start_time_display} · {choice.provider}
+                        </span>
+                        {!choice.can_checkin ? (
+                          <span className="mt-2 text-xs font-medium text-amber-800">
+                            Check-in opens around {choice.earliest_checkin_display ?? "your appointment time"}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={resetKiosk}
+                      className="w-full text-sm font-medium text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      Start over with a different number
+                    </button>
+                  </div>
+                ) : null}
+
+                <div
+                  className={
+                    patientChoices && patientChoices.length > 0 ? "hidden" : "grid grid-cols-3 gap-3 sm:gap-3.5"
+                  }
+                >
                   {"123456789".split("").map((digit) => (
                     <button
                       key={digit}
@@ -339,8 +451,12 @@ export default function KioskPage() {
                 <button
                   type="button"
                   onClick={() => void checkIn()}
-                  disabled={!canCheckIn}
-                  className="flex w-full min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#16a349] px-4 text-lg font-semibold text-white shadow-lg shadow-[#16a349]/25 transition hover:bg-[#13823d] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-16 sm:text-xl"
+                  disabled={!canCheckIn || (patientChoices != null && patientChoices.length > 0)}
+                  className={
+                    patientChoices && patientChoices.length > 0
+                      ? "hidden"
+                      : "flex w-full min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#16a349] px-4 text-lg font-semibold text-white shadow-lg shadow-[#16a349]/25 transition hover:bg-[#13823d] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-16 sm:text-xl"
+                  }
                 >
                   {checkingIn ? (
                     <Loader variant="spinner" label="Completing check-in…" />
