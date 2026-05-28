@@ -83,8 +83,11 @@ type KioskLookupOk =
       message: string;
     };
 
-/** Lookup outcomes that need a message (not the success path). */
-type KioskLookupNotice = Exclude<KioskLookupOk, { result: "ready" }>;
+/** Lookup outcomes that show a notice card (not ready check-in or name picker). */
+type KioskLookupNotice = Exclude<
+  KioskLookupOk,
+  { result: "ready" } | { result: "choose_patient" }
+>;
 
 type NoticeTone = "amber" | "sky" | "rose";
 
