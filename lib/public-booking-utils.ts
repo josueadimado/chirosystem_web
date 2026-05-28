@@ -134,6 +134,12 @@ export function formatPublicClosingLabel(dateIso: string): string {
   return `${h12}:${String(min).padStart(2, "0")} ${isPm ? "PM" : "AM"}`;
 }
 
+/** Minutes for slot checks from API/catalog; only falls back to 30 when missing or invalid. */
+export function bookingDurationMinutes(durationMinutes: unknown): number {
+  const n = Number(durationMinutes);
+  return Number.isFinite(n) && n >= 5 ? Math.round(n) : 30;
+}
+
 export function massageReservedBlockExtendsPastPublicClose(
   dateIso: string,
   slot: string,
@@ -142,7 +148,7 @@ export function massageReservedBlockExtendsPastPublicClose(
   if (service.service_type !== "massage") return false;
   const start = parsePublicSlotLabelToMinutes(slot);
   if (start === null) return false;
-  const duration = Math.max(5, Number(service.duration_minutes) || 30);
+  const duration = bookingDurationMinutes(service.duration_minutes);
   return start + duration > publicBookingDayEndMinutes(dateIso);
 }
 
@@ -152,7 +158,7 @@ export function massagePastClosingScheduleMessage(dateIso: string): string {
 }
 
 function slotChainFitsPublicDayEnd(dateIso: string, slot: string, durationMinutes: number): boolean {
-  const duration = Math.max(5, Number(durationMinutes) || 30);
+  const duration = bookingDurationMinutes(durationMinutes);
   const dayEnd = publicBookingDayEndMinutes(dateIso);
   const start = parsePublicSlotLabelToMinutes(slot);
   if (start === null) return true;
@@ -189,7 +195,7 @@ export function buildFallbackTimeSlots(
 ): string[] {
   const openMin = publicBookingOpenMinutes(dateIso, serviceType);
   const closeMin = publicBookingDayEndMinutes(dateIso);
-  const duration = Math.max(5, Number(durationMinutes) || 30);
+  const duration = bookingDurationMinutes(durationMinutes);
   const step = PUBLIC_BOOKING_SLOT_STEP_MIN;
   const lastSlotStart = publicBookingLastSlotStartMinutes(dateIso);
   if (openMin >= closeMin || openMin > lastSlotStart) return [];

@@ -32,6 +32,7 @@ import type {
 } from "@/lib/public-booking-types";
 import {
   addCalendarMonths,
+  bookingDurationMinutes,
   buildFallbackTimeSlots,
   chiroIntakeRuleFromLookupResponse,
   formatBookingPrice,
@@ -353,7 +354,9 @@ export default function BookingPage() {
     }
     apiGet<AvailabilityApiResponse>(`/booking-options/availability/?${params.toString()}`)
       .then((res) => {
-        const visitDurationMin = Number(effectiveSlotService.duration_minutes) || 30;
+        const visitDurationMin = bookingDurationMinutes(
+          res.visit_duration_minutes ?? effectiveSlotService.duration_minutes,
+        );
         const { bookableLabels, slotGrid } = normalizeAvailabilityFromResponse(
           res,
           selectedDate,
@@ -372,7 +375,7 @@ export default function BookingPage() {
         const fb = buildFallbackTimeSlots(
           selectedDate,
           effectiveSlotService.service_type,
-          Number(effectiveSlotService.duration_minutes) || 30,
+          bookingDurationMinutes(effectiveSlotService.duration_minutes),
         );
         setScheduleSlotGrid(fb.map((label) => ({ label, bookable: true })));
         setAvailableSlots(fb);
@@ -425,7 +428,9 @@ export default function BookingPage() {
       apiGet<AvailabilityApiResponse>(`/booking-options/availability/?${params.toString()}`)
         .then((res) => {
           if (cartSlotFetchGenRef.current[lineId] !== gen) return;
-          const visitDurationMin = Number(item.service.duration_minutes) || 30;
+          const visitDurationMin = bookingDurationMinutes(
+            res.visit_duration_minutes ?? item.service.duration_minutes,
+          );
           const { bookableLabels, slotGrid } = normalizeAvailabilityFromResponse(
             res,
             dateSnapshot,
@@ -439,7 +444,7 @@ export default function BookingPage() {
           const fb = buildFallbackTimeSlots(
             dateSnapshot,
             item.service.service_type,
-            Number(item.service.duration_minutes) || 30,
+            bookingDurationMinutes(item.service.duration_minutes),
           );
           setCartSlotGridByLineId((p) => ({
             ...p,
@@ -1923,7 +1928,9 @@ export default function BookingPage() {
                                 startAfterIso: selectedDate,
                                 providerId: effectiveSlotProvider.id,
                                 serviceId: effectiveSlotService.id,
-                                durationMinutes: Number(effectiveSlotService.duration_minutes) || 30,
+                                durationMinutes: bookingDurationMinutes(
+                                  effectiveSlotService.duration_minutes,
+                                ),
                                 serviceType: effectiveSlotService.service_type,
                                 excludeAppointmentId: reschedulePick?.id,
                                 onFound: (dateIso) => {
@@ -2267,7 +2274,9 @@ export default function BookingPage() {
                                       startAfterIso: pick.date,
                                       providerId: item.provider!.id,
                                       serviceId: item.service.id,
-                                      durationMinutes: Number(item.service.duration_minutes) || 30,
+                                      durationMinutes: bookingDurationMinutes(
+                                        item.service.duration_minutes,
+                                      ),
                                       serviceType: item.service.service_type,
                                       onFound: (dateIso) => {
                                         setCartSlotPicksByLineId((p) => ({

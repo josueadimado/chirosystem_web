@@ -67,7 +67,13 @@ export type CartSlotPick = { date: string; time: string };
 
 export type AvailabilityApiResponse = {
   available_slots?: string[];
+  slot_start_times?: string[];
   slot_grid?: Array<{ label?: string; bookable?: boolean }>;
+  /** Minutes used to build this grid (from the service in the database). */
+  visit_duration_minutes?: number;
+  calendar_span_minutes?: number;
+  service_id?: number;
+  service_name?: string;
 };
 
 export type ChiroIntakeRule = {
