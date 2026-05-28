@@ -1,7 +1,10 @@
 "use client";
 
 import { HelpTip } from "@/components/help-tip";
-import { VisitDiagnosisPicker } from "@/components/visit-panel/visit-diagnosis-picker";
+import {
+  VisitDiagnosisPicker,
+  type DiagnosisPriorVisitHint,
+} from "@/components/visit-panel/visit-diagnosis-picker";
 import type { DiagnosisCatalogEntry } from "@/lib/diagnosis-catalog";
 import {
   computeBillingEstimates,
@@ -20,6 +23,7 @@ export function VisitBillingForm({
   onToggleDiagnosis,
   diagnosisSearchQuery,
   onDiagnosisSearchQueryChange,
+  diagnosisPriorVisitHint,
   doctorNotes,
   onDoctorNotesChange,
   professionalDiscount,
@@ -55,6 +59,7 @@ export function VisitBillingForm({
   onToggleDiagnosis?: (id: number) => void;
   diagnosisSearchQuery?: string;
   onDiagnosisSearchQueryChange?: (value: string) => void;
+  diagnosisPriorVisitHint?: DiagnosisPriorVisitHint | null;
   doctorNotes: string;
   onDoctorNotesChange: (value: string) => void;
   professionalDiscount: string;
@@ -123,6 +128,7 @@ export function VisitBillingForm({
             onToggle={onToggleDiagnosis}
             searchQuery={diagnosisSearchQuery ?? ""}
             onSearchQueryChange={onDiagnosisSearchQueryChange ?? (() => {})}
+            priorVisitHint={diagnosisPriorVisitHint}
             compact={compact}
             spacious={spacious}
             sectionId={diagnosisSectionId}

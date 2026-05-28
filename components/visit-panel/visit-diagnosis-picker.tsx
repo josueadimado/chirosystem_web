@@ -1,7 +1,14 @@
 "use client";
 
 import type { DiagnosisCatalogEntry } from "@/lib/diagnosis-catalog";
+import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
+
+export type DiagnosisPriorVisitHint = {
+  appointment_date: string;
+  start_time: string;
+  service_name?: string;
+};
 
 /** Pick one or more catalog diagnoses (code + description) for the patient bill and chart. */
 export function VisitDiagnosisPicker({
@@ -10,6 +17,7 @@ export function VisitDiagnosisPicker({
   onToggle,
   searchQuery,
   onSearchQueryChange,
+  priorVisitHint,
   compact = false,
   spacious = false,
   sectionId,
@@ -19,6 +27,8 @@ export function VisitDiagnosisPicker({
   onToggle: (id: number) => void;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
+  /** When set, diagnoses were pre-checked from this patient's last visit. */
+  priorVisitHint?: DiagnosisPriorVisitHint | null;
   compact?: boolean;
   spacious?: boolean;
   sectionId?: string;
@@ -46,6 +56,15 @@ export function VisitDiagnosisPicker({
       <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
         Tap to add diagnoses from the clinic list. They print on the bill and save in the patient&apos;s visit history.
       </p>
+      {priorVisitHint && selectedIds.length > 0 ? (
+        <p className="mb-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] leading-relaxed text-sky-950">
+          <span className="font-semibold">From last visit:</span> diagnoses below are pre-selected from this patient&apos;s prior
+          appointment
+          {priorVisitHint.service_name?.trim() ? ` (${priorVisitHint.service_name.trim()})` : ""} on{" "}
+          {formatWeekdayMonthDayYear(priorVisitHint.appointment_date)}
+          {priorVisitHint.start_time ? ` at ${priorVisitHint.start_time}` : ""}. Uncheck, add, or change as needed for today.
+        </p>
+      ) : null}
       <input
         type="search"
         value={searchQuery}

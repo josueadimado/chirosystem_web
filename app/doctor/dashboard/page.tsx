@@ -7,6 +7,7 @@ import { ChartNoteOpenWideButton, ChartNoteWideViewModal } from "@/components/ch
 import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-modal";
 import { RescheduleVisitSlotsModal } from "@/components/visit-panel/reschedule-visit-slots-modal";
 import { VisitBillingForm } from "@/components/visit-panel/visit-billing-form";
+import type { DiagnosisPriorVisitHint } from "@/components/visit-panel/visit-diagnosis-picker";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
 import {
@@ -134,6 +135,7 @@ export default function DoctorDashboardPage() {
   const [doctorNotes, setDoctorNotes] = useState("");
   const [diagnosisCatalog, setDiagnosisCatalog] = useState<DiagnosisCatalogEntry[]>([]);
   const [selectedDiagnosisIds, setSelectedDiagnosisIds] = useState<number[]>([]);
+  const [diagnosisPriorVisitHint, setDiagnosisPriorVisitHint] = useState<DiagnosisPriorVisitHint | null>(null);
   const [diagnosisSearch, setDiagnosisSearch] = useState("");
   /** Legacy display string — server builds bill text from diagnosis_ids on save. */
   const [diagnosis, setDiagnosis] = useState("");
@@ -472,6 +474,7 @@ export default function DoctorDashboardPage() {
       setBillLines([]);
       setDiagnosis("");
       setSelectedDiagnosisIds([]);
+      setDiagnosisPriorVisitHint(null);
       setDiagnosisSearch("");
       setProfessionalDiscount("");
       setProfessionalDiscountReason("");
@@ -487,6 +490,7 @@ export default function DoctorDashboardPage() {
       setBillLines([]);
       setDiagnosis("");
       setSelectedDiagnosisIds([]);
+      setDiagnosisPriorVisitHint(null);
       setDiagnosisSearch("");
       setProfessionalDiscount("");
       setProfessionalDiscountReason("");
@@ -494,10 +498,38 @@ export default function DoctorDashboardPage() {
     }
     setBillLines([{ service_id: activeAppt.booked_service_id, quantity: "1", unit_price: "" }]);
     setDiagnosis("");
-    setSelectedDiagnosisIds([]);
     setDiagnosisSearch("");
     setProfessionalDiscount("");
     setProfessionalDiscountReason("");
+
+    if (activeAppt.status !== "in_consultation") {
+      setSelectedDiagnosisIds([]);
+      setDiagnosisPriorVisitHint(null);
+      return;
+    }
+
+    let cancelled = false;
+    void apiGetAuth<{
+      diagnosis_ids: number[];
+      prefilled_from_prior: boolean;
+      prior_visit: DiagnosisPriorVisitHint | null;
+    }>(`/doctor/${activeAppt.id}/consultation_diagnoses/`)
+      .then((data) => {
+        if (cancelled) return;
+        setSelectedDiagnosisIds(data.diagnosis_ids ?? []);
+        setDiagnosisPriorVisitHint(
+          data.prefilled_from_prior && data.prior_visit ? data.prior_visit : null,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedDiagnosisIds([]);
+          setDiagnosisPriorVisitHint(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [
     activeAppt?.id,
     activeAppt?.booked_service_id,
@@ -574,6 +606,7 @@ export default function DoctorDashboardPage() {
         setDoctorNotes(data.doctor_notes ?? "");
         setDiagnosis(data.diagnosis ?? "");
         setSelectedDiagnosisIds(data.diagnosis_ids ?? []);
+        setDiagnosisPriorVisitHint(null);
         setDiagnosisSearch("");
         setProfessionalDiscount(data.discount ?? "");
         setProfessionalDiscountReason(data.professional_discount_reason ?? "");
@@ -602,6 +635,7 @@ export default function DoctorDashboardPage() {
     setDoctorNotes("");
     setDiagnosis("");
     setSelectedDiagnosisIds([]);
+    setDiagnosisPriorVisitHint(null);
     setDiagnosisSearch("");
     setProfessionalDiscount("");
     setProfessionalDiscountReason("");
@@ -701,6 +735,7 @@ export default function DoctorDashboardPage() {
         setDoctorNotes("");
         setDiagnosis("");
         setSelectedDiagnosisIds([]);
+        setDiagnosisPriorVisitHint(null);
         setDiagnosisSearch("");
         setProfessionalDiscount("");
         setProfessionalDiscountReason("");
@@ -1248,6 +1283,7 @@ export default function DoctorDashboardPage() {
           onToggleDiagnosis={(id) => setSelectedDiagnosisIds((prev) => toggleDiagnosisId(prev, id))}
           diagnosisSearchQuery={diagnosisSearch}
           onDiagnosisSearchQueryChange={setDiagnosisSearch}
+          diagnosisPriorVisitHint={diagnosisPriorVisitHint}
           doctorNotes={doctorNotes}
           onDoctorNotesChange={setDoctorNotes}
           professionalDiscount={professionalDiscount}
