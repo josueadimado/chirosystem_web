@@ -551,21 +551,28 @@ function VisitRecordCard({
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-2">
         <section className={cn("space-y-4", panel === "bill" ? "hidden lg:block" : "")}>
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Chart & clinical notes</p>
-            <ChartNoteWorkspace
-              value={handoffValue}
-              onChange={onHandoffChange}
-              editable={a.can_edit_handoff_notes}
-              saving={savingHandoff}
-              onSave={onSaveHandoff}
-              meta={{
-                dateLabel: `${dateLabel} at ${a.start_time}`,
-                provider: a.provider ?? undefined,
-                service: a.service ?? undefined,
-              }}
-              lineItems={a.visit?.rendered_services}
-              inputClassName={inputClass}
-            />
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Visit reminders & handoff
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Saved on this appointment for the next visit — not the same as consultation SOAP notes below.
+            </p>
+            <div className="mt-2">
+              <ChartNoteWorkspace
+                value={handoffValue}
+                onChange={onHandoffChange}
+                editable={a.can_edit_handoff_notes}
+                saving={savingHandoff}
+                onSave={onSaveHandoff}
+                meta={{
+                  dateLabel: `${dateLabel} at ${a.start_time}`,
+                  provider: a.provider ?? undefined,
+                  service: a.service ?? undefined,
+                }}
+                lineItems={a.visit?.rendered_services}
+                inputClassName={inputClass}
+              />
+            </div>
           </div>
 
           {a.visit ? (
@@ -776,7 +783,7 @@ export function PatientHistoryPage({
         appointment_id: appointmentId,
         clinical_handoff_notes: handoffEdits[appointmentId] ?? "",
       });
-      setHandoffMsg("Chart note saved.");
+      setHandoffMsg("Reminders & handoff saved.");
       await loadDetail();
     } catch (e) {
       setHandoffMsg(e instanceof ApiError ? e.message : "Could not save chart note.");
@@ -851,7 +858,7 @@ export function PatientHistoryPage({
           <p
             className={cn(
               "mt-2 rounded-lg px-3 py-2 text-xs font-medium",
-              handoffMsg === "Chart note saved." ||
+              handoffMsg === "Reminders & handoff saved." ||
               /marked paid|already marked paid|payment found/i.test(handoffMsg)
                 ? "bg-emerald-50 text-emerald-900"
                 : "bg-amber-50 text-amber-950",

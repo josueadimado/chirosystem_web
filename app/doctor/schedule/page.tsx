@@ -18,6 +18,7 @@ import {
   addDays,
   endOfMonth,
   filterAppointmentsForScheduleGrid,
+  minutesToApiTime,
   mondayOfWeekContaining,
   parseTimeToMinutes,
   startOfMonth,
@@ -29,7 +30,8 @@ import { VisitDoctorScheduleActions } from "@/components/visit-panel/visit-docto
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
-import { ChartNoteWorkspace } from "@/components/chart-note-document";
+import { VisitAppointmentStaffNotes } from "@/components/visit-panel/visit-appointment-staff-notes";
+import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
@@ -382,7 +384,7 @@ function DoctorSchedulePageInner() {
         },
         {
           loadingMessage: "Saving chart note…",
-          successMessage: "Chart note saved.",
+          successMessage: "Reminders & handoff saved.",
           errorFallback: "Could not save chart note.",
         },
       );
@@ -447,6 +449,56 @@ function DoctorSchedulePageInner() {
     );
     if (!confirm(msg)) return;
     void patchAppointmentStatus(appt.id, "cancelled");
+  };
+
+  const canRescheduleOnCalendar = (s: string) =>
+    s !== "completed" && s !== "no_show" && s !== "cancelled";
+
+  const handleRescheduleFromGrid = async (pick: {
+    appointment: ScheduleAppointment;
+    providerId: number;
+    dateIso: string;
+    startMinute: number;
+  }) => {
+    const { appointment, providerId, dateIso, startMinute } = pick;
+    const uiStatus = appointmentUiStatus(appointment);
+    if (!canRescheduleOnCalendar(uiStatus)) {
+      toast.error("This visit cannot be moved from the calendar.");
+      return;
+    }
+    const body: Record<string, unknown> = {
+      appointment_date: dateIso,
+      start_time: minutesToApiTime(startMinute),
+    };
+    if (providerId !== appointment.provider) {
+      body.provider = providerId;
+    }
+    setAppointmentSaving(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch(`/appointments/${appointment.id}/`, body);
+          await loadAppointments();
+          setSelected((prev) =>
+            prev && prev.id === appointment.id
+              ? {
+                  ...prev,
+                  appointment_date: dateIso,
+                  start_time: minutesToApiTime(startMinute),
+                  provider: providerId,
+                }
+              : prev,
+          );
+        },
+        {
+          loadingMessage: "Moving appointment…",
+          successMessage: "Appointment moved on the calendar.",
+          errorFallback: "Could not move this appointment — the slot may be taken or outside booking rules.",
+        },
+      );
+    } finally {
+      setAppointmentSaving(false);
+    }
   };
 
   const scheduleAppts = useMemo(() => filterAppointmentsForScheduleGrid(appointments), [appointments]);
@@ -724,6 +776,11 @@ function DoctorSchedulePageInner() {
                 setView("day");
               }}
               onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
+              onRescheduleAppointment={
+                view === "day" || view === "week"
+                  ? (pick) => void handleRescheduleFromGrid(pick)
+                  : undefined
+              }
             />
           </div>
         )}
@@ -770,29 +827,16 @@ function DoctorSchedulePageInner() {
                 onCancel={() => handleCancel(selected)}
               />
 
-              <div className="mt-8 max-w-none border-t border-slate-200 pt-6">
-                <p className="text-sm leading-relaxed text-slate-500">
-                  Staff notes for admin and doctors — saved on this appointment only (not shown to patients).
-                </p>
-                <div className="mt-3">
-                  <ChartNoteWorkspace
-                    value={handoffNotes}
-                    onChange={setHandoffNotes}
-                    editable={!handoffLoading && !!selected}
-                    saving={savingHandoff}
-                    onSave={() => void saveHandoff()}
-                    defaultEditOpen
-                    meta={
-                      selected
-                        ? {
-                            dateLabel: `${formatWeekdayMonthDayYear(selected.appointment_date)} at ${selected.start_time_display || selected.start_time}`,
-                            provider: selected.provider_name,
-                            service: selected.service_name,
-                          }
-                        : undefined
-                    }
-                  />
-                </div>
+              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6">
+                <VisitPriorChartNotes appointmentId={selected.id} />
+                <VisitAppointmentStaffNotes
+                  value={handoffNotes}
+                  onChange={setHandoffNotes}
+                  onSave={() => void saveHandoff()}
+                  saving={savingHandoff}
+                  loading={handoffLoading}
+                  savePathLabel="you and the front desk"
+                />
               </div>
 
             </div>

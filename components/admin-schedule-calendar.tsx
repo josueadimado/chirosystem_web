@@ -453,7 +453,7 @@ type CalendarProps = {
     gapStartMin: number;
     gapEndMin: number;
   }) => void;
-  /** Day view: drag a visit block to another time or provider column (15-minute snap, working hours). */
+  /** Day or week view: drag a visit block to another time, day, or provider (15-minute snap, working hours). */
   onRescheduleAppointment?: (pick: {
     appointment: ScheduleAppointment;
     providerId: number;
@@ -472,7 +472,13 @@ type ScheduleDragState = {
   startY: number;
   moved: boolean;
   durationMin: number;
-  preview: { providerId: number; providerName: string; startMinute: number } | null;
+  preview: {
+    providerId: number;
+    providerName: string;
+    startMinute: number;
+    /** Set when dropping on the week grid (day column). */
+    dateIso?: string;
+  } | null;
 };
 
 function resolveScheduleDropTarget(
@@ -517,6 +523,60 @@ function resolveWeekDeskBookingAtMinute(
     if (gap) {
       return { providerId: p.id, providerName: p.provider_name, gap };
     }
+  }
+  return null;
+}
+
+function weekDropFitsInGap(gap: TimeInterval, startMinute: number, durationMin: number): boolean {
+  const snapped = snapMinuteInsideGap(startMinute, gap.startMin, gap.endMin);
+  return snapped + durationMin <= gap.endMin;
+}
+
+/** Week grid drop: day column + time snap, then first provider with room (keeps dragged provider when possible). */
+function resolveWeekScheduleDropTarget(
+  clientX: number,
+  clientY: number,
+  durationMin: number,
+  dayEndMin: number,
+  providers: ProviderRow[],
+  appointments: ScheduleAppointment[],
+  blocks: ProviderBlock[],
+  preferredProviderId?: number,
+): { providerId: number; providerName: string; dateIso: string; startMinute: number } | null {
+  const el = document.elementFromPoint(clientX, clientY);
+  const col = el?.closest("[data-schedule-day-column]") as HTMLElement | null;
+  if (!col) return null;
+  const dateIso = col.getAttribute("data-schedule-date-iso") ?? "";
+  if (!dateIso) return null;
+  const grid = col.querySelector("[data-schedule-grid-body]") as HTMLElement | null;
+  if (!grid) return null;
+  const rect = grid.getBoundingClientRect();
+  const startMinute = snapScheduleGridStartMinute(clientY, rect, durationMin, dayEndMin);
+
+  const tryProvider = (p: ProviderRow) => {
+    const gaps = providerDayOpenGaps(p.id, dateIso, appointments, blocks, dayEndMin, true);
+    const gap = openGapAtMinute(gaps, startMinute);
+    if (!gap || !weekDropFitsInGap(gap, startMinute, durationMin)) return null;
+    const snapped = snapMinuteInsideGap(startMinute, gap.startMin, gap.endMin);
+    if (snapped + durationMin > gap.endMin) return null;
+    return {
+      providerId: p.id,
+      providerName: p.provider_name,
+      dateIso,
+      startMinute: snapped,
+    };
+  };
+
+  if (preferredProviderId != null) {
+    const preferred = providers.find((p) => p.id === preferredProviderId);
+    if (preferred) {
+      const hit = tryProvider(preferred);
+      if (hit) return hit;
+    }
+  }
+  for (const p of providers) {
+    const hit = tryProvider(p);
+    if (hit) return hit;
   }
   return null;
 }
@@ -642,6 +702,7 @@ export function AdminScheduleCalendar({
           onSelect={onSelect}
           dayEndMin={dayEndMin}
           onPickOpenSlot={guardedPickOpenSlot}
+          onRescheduleAppointment={onRescheduleAppointment}
         />
       )}
 
@@ -766,12 +827,11 @@ function ScheduleCalendarGuide({
           <p className="text-xs leading-relaxed text-slate-500">
             Gray stripes block online booking only — staff can still book in open white areas in <strong>Day</strong> or{" "}
             <strong>Week</strong> view. Cancelled and no-show visits appear in red; that time stays open for a new booking unless another
-            active visit is there. Drag to reschedule is available in <strong>Day</strong> view only.
+            active visit is there. Drag to reschedule works in <strong>Day</strong> and <strong>Week</strong> view.
           </p>
         ) : (
           <p className="text-xs leading-relaxed text-slate-500">
-            Month view summarizes visits. Use <strong>Day</strong> or <strong>Week</strong> to book open slots, or <strong>Day</strong> to drag
-            appointments to a new time.
+            Month view summarizes visits. Use <strong>Day</strong> or <strong>Week</strong> to book open slots or drag appointments to a new time.
           </p>
         )}
       </div>
@@ -1354,6 +1414,7 @@ function WeekGrid({
   onSelect,
   dayEndMin,
   onPickOpenSlot,
+  onRescheduleAppointment,
 }: {
   weekDays: Date[];
   providers: ProviderRow[];
@@ -1363,9 +1424,90 @@ function WeekGrid({
   onSelect: (a: ScheduleAppointment) => void;
   dayEndMin: number;
   onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
+  onRescheduleAppointment?: CalendarProps["onRescheduleAppointment"];
 }) {
   const gridPx = scheduleGridPx(dayEndMin);
   const providerIds = useMemo(() => providers.map((p) => p.id), [providers]);
+  const [drag, setDrag] = useState<ScheduleDragState | null>(null);
+
+  const appointmentsForDrag = useMemo(() => {
+    if (!drag) return appointments;
+    return appointments.filter((a) => a.id !== drag.appointment.id);
+  }, [appointments, drag]);
+
+  useEffect(() => {
+    if (!drag) return;
+
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== drag.pointerId) return;
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      const dist2 = dx * dx + dy * dy;
+      const moved = drag.moved || dist2 >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
+      const preview = moved
+        ? resolveWeekScheduleDropTarget(
+            e.clientX,
+            e.clientY,
+            drag.durationMin,
+            dayEndMin,
+            providers,
+            appointmentsForDrag,
+            blocks,
+            drag.appointment.provider,
+          )
+        : drag.preview;
+      setDrag((prev) =>
+        prev && prev.pointerId === e.pointerId ? { ...prev, moved, preview } : prev,
+      );
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== drag.pointerId) return;
+      const appt = drag.appointment;
+      if (drag.moved && drag.preview?.dateIso && onRescheduleAppointment) {
+        const { providerId, providerName, startMinute, dateIso } = drag.preview;
+        const same =
+          appt.provider === providerId &&
+          appt.appointment_date === dateIso &&
+          parseTimeToMinutes(appt.start_time) === startMinute;
+        if (!same) {
+          void onRescheduleAppointment({
+            appointment: appt,
+            providerId,
+            providerName,
+            dateIso,
+            startMinute,
+          });
+        }
+      } else if (!drag.moved) {
+        onSelect(appt);
+      }
+      setDrag(null);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [drag, appointmentsForDrag, blocks, dayEndMin, onRescheduleAppointment, onSelect, providers]);
+
+  const dragActive = drag?.moved ?? false;
+
+  useEffect(() => {
+    if (!dragActive) return;
+    const prev = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    document.body.classList.add("cursor-grabbing");
+    return () => {
+      document.body.style.userSelect = prev;
+      document.body.classList.remove("cursor-grabbing");
+    };
+  }, [dragActive]);
+
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
       <div className="flex min-w-[980px]">
@@ -1389,7 +1531,7 @@ function WeekGrid({
                 dayBlocks={dayBlocks}
                 providers={providers}
                 providerIds={providerIds}
-                appointments={appointments}
+                appointments={drag ? appointmentsForDrag : appointments}
                 blocks={blocks}
                 selectedId={selectedId}
                 onSelect={onSelect}
@@ -1397,6 +1539,25 @@ function WeekGrid({
                 gridPx={gridPx}
                 nowPct={nowPct}
                 onPickOpenSlot={onPickOpenSlot}
+                drag={drag}
+                dragActive={dragActive}
+                onAppointmentPointerDown={
+                  onRescheduleAppointment
+                    ? (appt, e) => {
+                        if (e.button !== 0 || !canDragAppointmentOnSchedule(appt.status)) return;
+                        const durationMin = appointmentDurationMinutes(appt.start_time, appt.end_time);
+                        setDrag({
+                          appointment: appt,
+                          pointerId: e.pointerId,
+                          startX: e.clientX,
+                          startY: e.clientY,
+                          moved: false,
+                          durationMin,
+                          preview: null,
+                        });
+                      }
+                    : undefined
+                }
                 dayLabel={
                   <>
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -1429,6 +1590,9 @@ function WeekDayColumn({
   gridPx,
   nowPct,
   onPickOpenSlot,
+  drag,
+  dragActive,
+  onAppointmentPointerDown,
   dayLabel,
 }: {
   iso: string;
@@ -1445,6 +1609,9 @@ function WeekDayColumn({
   gridPx: number;
   nowPct: number | null;
   onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
+  drag: ScheduleDragState | null;
+  dragActive: boolean;
+  onAppointmentPointerDown?: (appt: ScheduleAppointment, e: React.PointerEvent) => void;
   dayLabel: ReactNode;
 }) {
   const bookableGaps = useMemo(() => {
@@ -1470,8 +1637,16 @@ function WeekDayColumn({
     });
   };
 
+  const dropPreview =
+    dragActive && drag?.preview?.dateIso === iso ? drag.preview : null;
+  const dropDurationMin = drag?.durationMin ?? 15;
+
   return (
-    <div className={cn("relative border-l border-slate-100", isToday && "bg-emerald-50/40")}>
+    <div
+      className={cn("relative border-l border-slate-100", isToday && "bg-emerald-50/40")}
+      data-schedule-day-column
+      data-schedule-date-iso={iso}
+    >
       <div
         className="flex shrink-0 flex-col items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
         style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
@@ -1479,6 +1654,7 @@ function WeekDayColumn({
         {dayLabel}
       </div>
       <ScheduleGridColumnBody
+        dragActive={dragActive}
         dayEndMin={dayEndMin}
         gridPx={gridPx}
         onOpenSlotClick={
@@ -1501,6 +1677,9 @@ function WeekDayColumn({
           onSelect={onSelect}
           dayEndMin={dayEndMin}
           deskBooking={!!onPickOpenSlot}
+          drag={drag}
+          dragActive={dragActive}
+          onAppointmentPointerDown={onAppointmentPointerDown}
           onPickOpenSlot={
             onPickOpenSlot
               ? (appt) => {
@@ -1510,6 +1689,25 @@ function WeekDayColumn({
               : undefined
           }
         />
+        {dropPreview &&
+          (() => {
+            const { topPct, heightPct } = timePositionPercent(
+              dropPreview.startMinute,
+              dropDurationMin,
+              dayEndMin,
+            );
+            return (
+              <div
+                className="pointer-events-none absolute left-1 right-1 z-[7] flex items-start justify-center rounded-lg border-2 border-dashed border-[#16a349] bg-[#16a349]/15 px-1 pt-1"
+                style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 12 }}
+                aria-hidden
+              >
+                <span className="rounded bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold text-[#13823d] shadow-sm">
+                  {minutesToLabel(dropPreview.startMinute)}
+                </span>
+              </div>
+            );
+          })()}
         {bookableGaps.map((g, i) => {
           const dur = g.endMin - g.startMin;
           const { topPct, heightPct } = timePositionPercent(g.startMin, dur, dayEndMin);
@@ -1630,6 +1828,9 @@ function WeekDayStack({
   onSelect,
   dayEndMin,
   deskBooking,
+  drag,
+  dragActive,
+  onAppointmentPointerDown,
   onPickOpenSlot,
 }: {
   appointments: ScheduleAppointment[];
@@ -1639,6 +1840,9 @@ function WeekDayStack({
   onSelect: (a: ScheduleAppointment) => void;
   dayEndMin: number;
   deskBooking?: boolean;
+  drag: ScheduleDragState | null;
+  dragActive: boolean;
+  onAppointmentPointerDown?: (appt: ScheduleAppointment, e: React.PointerEvent) => void;
   onPickOpenSlot?: (appt: ScheduleAppointment) => void;
 }) {
   const { entries, laneByKey, laneCount } = useMemo(() => {
@@ -1713,23 +1917,41 @@ function WeekDayStack({
           const startShown = a.start_time_display || formatTimeShort(a.start_time);
           const endShown = a.end_time_display || formatTimeShort(a.end_time);
           const freedSlot = !!onPickOpenSlot && (uiStatus === "cancelled" || uiStatus === "no_show");
+          const draggable = !!onAppointmentPointerDown && canDragAppointmentOnSchedule(a.status);
+          const isDragging = drag?.appointment.id === a.id;
           return (
             <button
               key={entry.key}
               type="button"
-              onClick={() => {
+              data-schedule-appointment
+              onPointerDown={(e) => {
+                if (draggable) onAppointmentPointerDown(a, e);
+              }}
+              onClick={(e) => {
+                if (draggable) {
+                  e.preventDefault();
+                  return;
+                }
                 if (freedSlot && onPickOpenSlot) {
                   onPickOpenSlot(a);
                   return;
                 }
                 onSelect(a);
               }}
-              title={freedSlot ? "Book a new visit in this open slot" : undefined}
+              title={
+                freedSlot
+                  ? "Book a new visit in this open slot"
+                  : draggable
+                    ? "Drag to reschedule · release without moving to open details"
+                    : undefined
+              }
               className={cn(
                 "absolute z-[3] flex flex-col overflow-hidden rounded-lg border px-0.5 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                 styles.wrap,
                 selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
                 freedSlot && "cursor-pointer hover:ring-2 hover:ring-emerald-400/80",
+                draggable && "cursor-grab touch-none active:cursor-grabbing",
+                isDragging && dragActive && "opacity-40",
               )}
               style={{
                 top: `${topPct}%`,

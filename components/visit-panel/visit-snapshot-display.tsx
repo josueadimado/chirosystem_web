@@ -49,8 +49,8 @@ export function VisitSnapshotDisplay({
               </p>
             )}
             <SnapshotField label="Patient&apos;s reason (from booking)" value={snapshot.reason_for_visit} />
-            <SnapshotField label="Chart note for the team" value={snapshot.clinical_handoff_notes} />
-            <SnapshotField label="Doctor notes" value={snapshot.doctor_notes} />
+            <SnapshotField label="Reminders & handoff" value={snapshot.clinical_handoff_notes} />
+            <SnapshotField label="Consultation notes (SOAP)" value={snapshot.doctor_notes} />
             <SnapshotField label="Diagnosis" value={snapshot.diagnosis} />
             {snapshot.rendered_services.length > 0 ? (
               <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white text-xs">

@@ -3,7 +3,10 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-/** Compact staff-only notes on an appointment (admin + doctor). Saved per visit on the appointment row. */
+/**
+ * Reminders & handoff for this appointment only (not consultation SOAP notes).
+ * Saved on the appointment row — visible on future visits via “Notes from prior visits”.
+ */
 export function VisitAppointmentStaffNotes({
   value,
   onChange,
@@ -23,10 +26,13 @@ export function VisitAppointmentStaffNotes({
 }) {
   return (
     <div className={cn("rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3", className)}>
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Staff notes & reminders</p>
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+        Visit reminders & handoff
+      </p>
       <p className="mt-0.5 text-xs text-slate-500">
-        For {savePathLabel} only — not shown to patients. Saved on this appointment (birthday reminders, desk notes,
-        etc.).
+        For {savePathLabel} only — not shown to patients. Use for birthday cards, preferences, or what the next doctor
+        should know. This is <span className="font-medium">not</span> your SOAP notes from the exam (those are saved
+        when you finish the consultation).
       </p>
       <textarea
         value={value}
@@ -44,7 +50,7 @@ export function VisitAppointmentStaffNotes({
           disabled={loading || saving}
           onClick={onSave}
         >
-          {saving ? "Saving…" : "Save notes"}
+          {saving ? "Saving…" : "Save reminders"}
         </Button>
       </div>
     </div>

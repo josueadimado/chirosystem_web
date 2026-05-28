@@ -26,6 +26,7 @@ import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { AppointmentStatusBadge } from "@/components/status-chip";
 import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
+import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
@@ -519,7 +520,7 @@ export default function DoctorDashboardPage() {
         },
         {
           loadingMessage: "Saving chart note…",
-          successMessage: "Chart note saved — other providers can see it on this patient’s history.",
+          successMessage: "Reminders & handoff saved — visible on this patient’s next visits.",
           errorFallback: "Could not save chart note.",
         },
       );
@@ -1096,10 +1097,10 @@ export default function DoctorDashboardPage() {
     };
 
     const consultNavItems = [
-      { id: "consult-chart", label: "Chart" },
+      { id: "consult-chart", label: "Handoff" },
       { id: "consult-diagnosis", label: "Diagnosis" },
       { id: "consult-procedures", label: "Procedures" },
-      { id: "consult-notes", label: "Notes" },
+      { id: "consult-notes", label: "SOAP notes" },
       { id: "consult-finish", label: "Finish" },
     ] as const;
 
@@ -1199,18 +1200,21 @@ export default function DoctorDashboardPage() {
             <AppointmentClientReason reason={activeAppt.reason_for_visit} />
           ) : (
             <p className="text-sm text-slate-700">
-              Not recorded yet — the patient may add a reason when booking online, or you can note details in Visit notes
-              below.
+              Not recorded yet — the patient may add a reason when booking online, or you can note details in consultation
+              (SOAP) notes below.
             </p>
           )}
         </div>
+        <VisitPriorChartNotes appointmentId={activeAppt.id} className="mb-3" />
         <div id="consult-chart" className="scroll-mt-24 rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Chart note for the team</p>
-              <HelpTip label="Chart note for the team" tone="emerald">
-                Stays on this appointment in the patient chart. Use it for follow-up reminders, preferences, or anything the next doctor
-                should know—even if they see the patient on a different day.
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Visit reminders & handoff
+              </p>
+              <HelpTip label="Visit reminders & handoff" tone="emerald">
+                Saved on this appointment for the next visit (not your SOAP exam notes). Use for follow-up reminders,
+                preferences, or anything the next doctor should know.
               </HelpTip>
             </div>
             {handoffNotes.trim() ? (
@@ -1230,7 +1234,7 @@ export default function DoctorDashboardPage() {
             onClick={() => void saveHandoffNote()}
             className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 shadow-sm hover:bg-sky-100 disabled:opacity-50"
           >
-            {savingHandoff ? "Saving…" : "Save chart note"}
+            {savingHandoff ? "Saving…" : "Save reminders & handoff"}
           </button>
         </div>
         <VisitBillingForm
@@ -1381,7 +1385,7 @@ export default function DoctorDashboardPage() {
           open={handoffWideOpen}
           onClose={() => setHandoffWideOpen(false)}
           value={handoffNotes}
-          title="Chart note for the team"
+          title="Visit reminders & handoff"
           editable
           editOpen={handoffWideEditOpen}
           onEditOpenChange={setHandoffWideEditOpen}

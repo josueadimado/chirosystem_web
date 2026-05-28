@@ -322,10 +322,16 @@ export function VisitBillingForm({
       ) : null}
       {showVisitNotes ? (
         <div id={notesSectionId} className={notesSectionId ? "scroll-mt-24" : undefined}>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Visit notes</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Consultation notes (SOAP)
+          </p>
+          <p className="mb-2 text-xs text-slate-500">
+            Your exam documentation for this visit — saved when you complete the visit. Separate from visit reminders &
+            handoff on the schedule.
+          </p>
           <textarea
             className={notesClassName ?? defaultNotesClass}
-            placeholder="Clinical notes (not printed on patient bill)…"
+            placeholder="Subjective, objective, assessment, plan… (not printed on the patient bill)"
             value={doctorNotes}
             onChange={(e) => onDoctorNotesChange(e.target.value)}
           />

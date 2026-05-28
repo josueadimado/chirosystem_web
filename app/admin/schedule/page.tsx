@@ -15,6 +15,7 @@ import { VisitDeskActions } from "@/components/visit-panel/visit-desk-actions";
 import { VisitSnapshotDisplay } from "@/components/visit-panel/visit-snapshot-display";
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
 import { VisitAppointmentStaffNotes } from "@/components/visit-panel/visit-appointment-staff-notes";
+import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
@@ -284,7 +285,7 @@ function AdminSchedulePageContent() {
         },
         {
           loadingMessage: "Saving notes…",
-          successMessage: "Staff notes saved on this visit.",
+          successMessage: "Reminders & handoff saved.",
           errorFallback: "Could not save notes.",
         },
       );
@@ -812,7 +813,9 @@ function AdminSchedulePageContent() {
               setView("day");
             }}
             onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
-            onRescheduleAppointment={view === "day" ? (pick) => void handleRescheduleFromGrid(pick) : undefined}
+            onRescheduleAppointment={
+              view === "day" || view === "week" ? (pick) => void handleRescheduleFromGrid(pick) : undefined
+            }
           />
         )}
       </section>
@@ -843,6 +846,7 @@ function AdminSchedulePageContent() {
                   appointmentDate={selected.appointment_date}
                   patientDateOfBirth={selected.patient_date_of_birth}
                 />
+                <VisitPriorChartNotes appointmentId={selected.id} />
                 <VisitAppointmentStaffNotes
                   value={staffNotes}
                   onChange={setStaffNotes}

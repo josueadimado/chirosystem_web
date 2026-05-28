@@ -37,6 +37,7 @@ type KioskPatientChoice = {
   start_time_display: string;
   can_checkin: boolean;
   earliest_checkin_display?: string;
+  early_checkin_minutes_before?: number;
 };
 
 type KioskLookupOk =
@@ -62,6 +63,7 @@ type KioskLookupOk =
       provider: string;
       start_time_display: string;
       earliest_checkin_display: string;
+      early_checkin_minutes_before?: number;
     }
   | {
       result: "wrong_day";
@@ -91,6 +93,21 @@ type KioskLookupNotice = Exclude<
 
 type NoticeTone = "amber" | "sky" | "rose";
 
+function earlyCheckInDetail(
+  startTimeDisplay: string,
+  earliestCheckinDisplay?: string,
+  minutesBefore?: number,
+): string {
+  const windowHint =
+    minutesBefore != null && minutesBefore > 0
+      ? `You can check in up to ${minutesBefore} minutes before your appointment.`
+      : "Check-in opens shortly before your appointment.";
+  const timeLine = earliestCheckinDisplay
+    ? `Appointment at ${startTimeDisplay}. Kiosk check-in opens around ${earliestCheckinDisplay}.`
+    : `Appointment at ${startTimeDisplay}.`;
+  return `${windowHint} ${timeLine}`;
+}
+
 type Notice = {
   tone: NoticeTone;
   icon: string;
@@ -108,7 +125,11 @@ function lookupToNotice(data: KioskLookupNotice): Notice {
         icon: "⏰",
         title: "A little early",
         action: "Please wait until check-in opens, or see the front desk if they are ready for you.",
-        detail: `Appointment at ${data.start_time_display}. Kiosk check-in opens around ${data.earliest_checkin_display}.`,
+        detail: earlyCheckInDetail(
+          data.start_time_display,
+          data.earliest_checkin_display,
+          data.early_checkin_minutes_before,
+        ),
       };
     case "wrong_day":
       return {
@@ -285,9 +306,11 @@ export default function KioskPage() {
           icon: "⏰",
           title: "A little early",
           action: "Please wait until check-in opens, or see the front desk if they are ready for you.",
-          detail: choice.earliest_checkin_display
-            ? `Appointment at ${choice.start_time_display}. Kiosk check-in opens around ${choice.earliest_checkin_display}.`
-            : `Appointment at ${choice.start_time_display}.`,
+          detail: earlyCheckInDetail(
+            choice.start_time_display,
+            choice.earliest_checkin_display,
+            choice.early_checkin_minutes_before,
+          ),
         });
         return;
       }
