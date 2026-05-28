@@ -114,76 +114,195 @@ function moneyLabel(s: string | undefined): string {
   return v.startsWith("$") ? esc(v) : `$${esc(v)}`;
 }
 
-function fitProfileForBill(b: PatientBillPayload) {
+type BillPrintFit = {
+  profileName: string;
+  pageMarginMm: number;
+  bodyFontPx: number;
+  titlePx: number;
+  tealPx: number;
+  uiFontPx: number;
+  tableFontPx: number;
+  lineHeight: number;
+  boxPaddingY: number;
+  boxPaddingX: number;
+  cellPadY: number;
+  cellPadX: number;
+  bodyPadPx: string;
+  topRowMb: number;
+  clinicMb: number;
+  metaMy: number;
+  metaPMb: number;
+  secTitleMy: number;
+  tableMy: number;
+  totalsMy: number;
+  provMt: number;
+  footMt: number;
+  totalsPadY: number;
+  basePrintZoom: number;
+  maxDescriptionChars: number;
+  maxDiagnosisChars: number;
+  maxAddressChars: number;
+};
+
+/** Rough content score — higher means we tighten fonts, spacing, and print zoom. */
+function billDensityScore(b: PatientBillPayload): number {
   const lineCount = b.lines.length;
   const totalDescriptionChars = b.lines.reduce((sum, line) => sum + (line.description || "").length, 0);
-  const densityScore =
-    lineCount * 1.4 +
-    totalDescriptionChars / 180 +
-    (b.diagnosis || "").length / 220 +
-    (b.patient_address || "").length / 140 +
-    (b.is_preview ? 2 : 0);
+  const diagnosisLines = (b.diagnosis || "").split(/\n/).filter((s) => s.trim()).length;
+  const hasProviderBlock = Boolean(b.provider_name?.trim()) || Boolean(b.provider_billing_id || b.employer_tax_id);
+  return (
+    lineCount * 1.65 +
+    totalDescriptionChars / 150 +
+    (b.diagnosis || "").length / 200 +
+    diagnosisLines * 0.85 +
+    (b.patient_address || "").length / 120 +
+    (hasProviderBlock ? 1.2 : 0) +
+    (b.is_preview ? 1.5 : 0)
+  );
+}
 
-  if (densityScore >= 26) {
+function fitProfileForBill(b: PatientBillPayload): BillPrintFit {
+  const score = billDensityScore(b);
+
+  if (score >= 22) {
     return {
-      profileName: "Extra compact",
+      profileName: "Ultra compact (1 page)",
+      pageMarginMm: 4,
+      bodyFontPx: 7.6,
+      titlePx: 17,
+      tealPx: 9.5,
+      uiFontPx: 7.6,
+      tableFontPx: 7.2,
+      lineHeight: 1.12,
+      boxPaddingY: 5,
+      boxPaddingX: 8,
+      cellPadY: 2,
+      cellPadX: 4,
+      bodyPadPx: "4px 8px 6px",
+      topRowMb: 6,
+      clinicMb: 6,
+      metaMy: 4,
+      metaPMb: 2,
+      secTitleMy: 4,
+      tableMy: 4,
+      totalsMy: 4,
+      provMt: 6,
+      footMt: 6,
+      totalsPadY: 3,
+      basePrintZoom: 0.72,
+      maxDescriptionChars: 42,
+      maxDiagnosisChars: 180,
+      maxAddressChars: 95,
+    };
+  }
+  if (score >= 16) {
+    return {
+      profileName: "Extra compact (1 page)",
       pageMarginMm: 5,
-      bodyFontPx: 8.6,
+      bodyFontPx: 8.2,
+      titlePx: 20,
+      tealPx: 10.5,
+      uiFontPx: 8.2,
+      tableFontPx: 7.8,
+      lineHeight: 1.18,
+      boxPaddingY: 6,
+      boxPaddingX: 9,
+      cellPadY: 3,
+      cellPadX: 5,
+      bodyPadPx: "6px 10px 8px",
+      topRowMb: 8,
+      clinicMb: 8,
+      metaMy: 6,
+      metaPMb: 3,
+      secTitleMy: 6,
+      tableMy: 6,
+      totalsMy: 6,
+      provMt: 8,
+      footMt: 8,
+      totalsPadY: 4,
+      basePrintZoom: 0.78,
+      maxDescriptionChars: 54,
+      maxDiagnosisChars: 260,
+      maxAddressChars: 110,
+    };
+  }
+  if (score >= 10) {
+    return {
+      profileName: "Compact (1 page)",
+      pageMarginMm: 6,
+      bodyFontPx: 8.8,
       titlePx: 22,
-      tealPx: 11,
-      uiFontPx: 8.6,
-      tableFontPx: 8,
+      tealPx: 11.5,
+      uiFontPx: 8.8,
+      tableFontPx: 8.2,
+      lineHeight: 1.22,
       boxPaddingY: 8,
       boxPaddingX: 10,
       cellPadY: 4,
       cellPadX: 5,
-      printZoom: 0.84,
-      maxDescriptionChars: 52,
-      maxDiagnosisChars: 220,
-      maxAddressChars: 110,
-    };
-  }
-  if (densityScore >= 20) {
-    return {
-      profileName: "Compact",
-      pageMarginMm: 6,
-      bodyFontPx: 9.2,
-      titlePx: 24,
-      tealPx: 12,
-      uiFontPx: 9.2,
-      tableFontPx: 8.6,
-      boxPaddingY: 10,
-      boxPaddingX: 12,
-      cellPadY: 5,
-      cellPadX: 6,
-      printZoom: 0.88,
-      maxDescriptionChars: 68,
-      maxDiagnosisChars: 320,
-      maxAddressChars: 140,
+      bodyPadPx: "8px 10px 10px",
+      topRowMb: 10,
+      clinicMb: 10,
+      metaMy: 8,
+      metaPMb: 4,
+      secTitleMy: 8,
+      tableMy: 8,
+      totalsMy: 8,
+      provMt: 10,
+      footMt: 10,
+      totalsPadY: 5,
+      basePrintZoom: 0.84,
+      maxDescriptionChars: 64,
+      maxDiagnosisChars: 360,
+      maxAddressChars: 130,
     };
   }
   return {
     profileName: "Standard",
     pageMarginMm: 7,
-    bodyFontPx: 10,
-    titlePx: 26,
-    tealPx: 13,
-    uiFontPx: 10,
-    tableFontPx: 9.2,
-    boxPaddingY: 12,
-    boxPaddingX: 14,
-    cellPadY: 6,
-    cellPadX: 8,
-    printZoom: 0.92,
-    maxDescriptionChars: 88,
-    maxDiagnosisChars: 520,
-    maxAddressChars: 180,
+    bodyFontPx: 9.5,
+    titlePx: 24,
+    tealPx: 12.5,
+    uiFontPx: 9.5,
+    tableFontPx: 8.8,
+    lineHeight: 1.28,
+    boxPaddingY: 10,
+    boxPaddingX: 12,
+    cellPadY: 5,
+    cellPadX: 7,
+    bodyPadPx: "10px 12px 12px",
+    topRowMb: 12,
+    clinicMb: 12,
+    metaMy: 10,
+    metaPMb: 5,
+    secTitleMy: 10,
+    tableMy: 10,
+    totalsMy: 10,
+    provMt: 12,
+    footMt: 12,
+    totalsPadY: 5,
+    basePrintZoom: 0.9,
+    maxDescriptionChars: 80,
+    maxDiagnosisChars: 480,
+    maxAddressChars: 170,
   };
+}
+
+/** Extra shrink for print when many service lines or long diagnosis (targets one letter page). */
+function printZoomForBill(b: PatientBillPayload, fit: BillPrintFit): number {
+  const lineCount = b.lines.length;
+  const diagnosisLines = (b.diagnosis || "").split(/\n/).filter((s) => s.trim()).length;
+  const linePenalty = Math.max(0, lineCount - 3) * 0.022;
+  const diagPenalty = Math.max(0, diagnosisLines - 1) * 0.014;
+  const descPenalty =
+    b.lines.reduce((sum, line) => sum + (line.description || "").length, 0) > 400 ? 0.03 : 0;
+  return Math.max(0.62, fit.basePrintZoom - linePenalty - diagPenalty - descPenalty);
 }
 
 /** Full HTML document for the bill (no scripts). Safe for iframe srcDoc. */
 export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
   const fit = fitProfileForBill(b);
+  const printZoom = printZoomForBill(b, fit);
   const diagnosisForPrint = trimTextForPrint(b.diagnosis || "", fit.maxDiagnosisChars);
   const patientAddressForPrint = trimTextForPrint(b.patient_address || "", fit.maxAddressChars);
 
@@ -264,49 +383,55 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
     b.remaining_client_responsibility_total ?? remainingClientNum.toFixed(2),
   );
 
+  const footNote =
+    printZoom < 0.8
+      ? `(*) Tax per clinic settings. Patient Payments = clinic charge; Remaining balance = insurance-only lines; Client Responsibility = due after payments.${b.status ? ` Status: ${esc(b.status)}.` : ""} ${esc(formatNowMonthDayYearTime())}.`
+      : `(*) Tax per clinic settings. Patient Payments = amount charged to the patient at the clinic. Remaining balance = insurance-only services. Remaining Client Responsibility = Patient Payments minus payments received (0 when paid in full).${b.status ? ` Invoice status: ${esc(b.status)}.` : ""} Generated ${esc(formatNowMonthDayYearTime())}.`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <title>${esc(b.bill_title || "Patient Bill")} — ${esc(b.invoice_number)}</title>
   <style>
-    @page { margin: ${fit.pageMarginMm}mm; size: letter; }
+    @page { margin: ${fit.pageMarginMm}mm; size: letter portrait; }
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body {
       font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       color: #0f172a;
       font-size: ${fit.bodyFontPx}px;
       margin: 0;
-      padding: 10px 12px 14px;
-      line-height: 1.35;
+      padding: ${fit.bodyPadPx};
+      line-height: ${fit.lineHeight};
     }
     .preview-banner {
-      margin: 0 0 12px;
-      padding: 8px 10px;
+      margin: 0 0 10px;
+      padding: 6px 8px;
       background: #fffbeb;
       border: 1px solid #f59e0b;
       border-radius: 6px;
-      font-size: ${Math.max(8, fit.uiFontPx - 0.2)}px;
+      font-size: ${Math.max(7.5, fit.uiFontPx - 0.2)}px;
       color: #78350f;
-      line-height: 1.25;
+      line-height: 1.2;
     }
-    .preview-banner strong { display: block; font-size: ${Math.max(9, fit.uiFontPx)}px; margin-bottom: 3px; }
+    .preview-banner strong { display: block; font-size: ${Math.max(8, fit.uiFontPx)}px; margin-bottom: 2px; }
     .fit-chip {
       display: inline-block;
-      margin-top: 6px;
+      margin-top: 4px;
       padding: 2px 6px;
       border-radius: 999px;
       border: 1px solid #f59e0b;
       background: #fff7ed;
       color: #9a3412;
-      font-size: ${Math.max(8, fit.uiFontPx - 0.8)}px;
+      font-size: ${Math.max(7, fit.uiFontPx - 0.8)}px;
       font-weight: 600;
     }
     .top-row {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 10px;
+      margin-bottom: ${fit.topRowMb}px;
     }
     .doc-title {
       font-size: ${fit.titlePx}px;
@@ -327,32 +452,34 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
       border-radius: 4px;
       text-align: center;
       padding: ${fit.boxPaddingY}px ${fit.boxPaddingX}px;
-      margin: 0 auto 14px;
+      margin: 0 auto ${fit.clinicMb}px;
       max-width: 420px;
       font-size: ${fit.uiFontPx}px;
-      line-height: 1.45;
+      line-height: ${fit.lineHeight + 0.08};
     }
-    .clinic-dash strong { font-size: ${Math.min(fit.uiFontPx + 1.2, fit.titlePx - 2)}px; color: #0f172a; }
-    .meta-lines { margin: 12px 0 14px; font-size: ${fit.uiFontPx}px; }
-    .meta-lines p { margin: 5px 0; }
+    .clinic-dash strong { font-size: ${Math.min(fit.uiFontPx + 1, fit.titlePx - 2)}px; color: #0f172a; }
+    .meta-lines { margin: ${fit.metaMy}px 0 ${fit.metaMy + 2}px; font-size: ${fit.uiFontPx}px; }
+    .meta-lines p { margin: ${fit.metaPMb}px 0; }
     .lbl { font-weight: 600; color: #0f172a; }
     .sec-title {
       font-size: ${fit.tealPx}px;
       font-weight: 700;
       color: ${teal};
-      margin: 16px 0 8px;
+      margin: ${fit.secTitleMy}px 0 ${Math.max(3, fit.secTitleMy - 2)}px;
       letter-spacing: 0.01em;
+      line-height: 1.15;
     }
     .diag-body {
       white-space: pre-wrap;
-      margin: 0 0 6px;
+      margin: 0 0 ${Math.max(2, fit.secTitleMy - 2)}px;
       font-size: ${fit.uiFontPx}px;
       color: #0f172a;
+      line-height: ${fit.lineHeight};
     }
     table.charges {
       width: 100%;
       border-collapse: collapse;
-      margin: 8px 0 18px;
+      margin: ${fit.tableMy}px 0 ${fit.tableMy + 4}px;
       font-size: ${fit.tableFontPx}px;
     }
     table.charges thead th {
@@ -373,7 +500,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
     table.totals {
       width: 100%;
       max-width: 380px;
-      margin: 10px 0 18px auto;
+      margin: ${fit.totalsMy}px 0 ${fit.totalsMy + 4}px auto;
       border-collapse: collapse;
       font-size: ${fit.uiFontPx}px;
     }
@@ -381,36 +508,63 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
       background: ${theadBg};
       color: ${teal};
       font-weight: 700;
-      padding: 6px 10px;
+      padding: ${fit.totalsPadY}px 8px;
       border-bottom: 2px solid #e2e8f0;
     }
     table.totals thead th.amt { text-align: right; }
     table.totals td {
-      padding: 6px 10px;
+      padding: ${fit.totalsPadY}px 8px;
       border-bottom: 1px solid #f1f5f9;
     }
     table.totals td.lab { color: ${teal}; font-weight: 600; }
     table.totals td.amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-    table.totals tr.balance td { border-bottom: none; padding-top: 10px; font-size: ${Math.max(fit.uiFontPx + 0.5, 11)}px; }
-    .prov { margin-top: 16px; font-size: ${fit.uiFontPx}px; }
-    .prov-line { margin: 6px 0; }
-    .foot {
-      margin-top: 18px;
-      padding-top: 10px;
-      border-top: 1px solid #e2e8f0;
-      font-size: ${Math.max(8, fit.uiFontPx - 0.6)}px;
-      color: ${headerMuted};
-      line-height: 1.35;
+    table.totals tr.balance td {
+      border-bottom: none;
+      padding-top: ${Math.max(4, fit.totalsPadY + 2)}px;
+      font-size: ${Math.max(fit.uiFontPx, 9)}px;
     }
-    @media print { body { zoom: ${fit.printZoom}; } }
+    .prov { margin-top: ${fit.provMt}px; font-size: ${fit.uiFontPx}px; }
+    .prov-line { margin: ${Math.max(2, fit.metaPMb)}px 0; }
+    .foot {
+      margin-top: ${fit.footMt}px;
+      padding-top: ${Math.max(4, fit.totalsPadY)}px;
+      border-top: 1px solid #e2e8f0;
+      font-size: ${Math.max(7, fit.uiFontPx - 0.8)}px;
+      color: ${headerMuted};
+      line-height: 1.2;
+    }
+    @media print {
+      .preview-banner { display: none !important; }
+      body {
+        zoom: ${printZoom};
+        padding: ${fit.bodyPadPx};
+      }
+      .top-row, .clinic-dash, .meta-lines, .sec-title, table.charges, table.totals, .prov, .foot {
+        page-break-inside: avoid;
+      }
+      table.charges tr { page-break-inside: avoid; }
+    }
+    @media screen {
+      .print-fit-hint {
+        margin: 0 0 8px;
+        font-size: ${Math.max(7, fit.uiFontPx - 0.6)}px;
+        color: ${headerMuted};
+      }
+    }
+    @media print {
+      .print-fit-hint { display: none !important; }
+    }
   </style>
 </head>
 <body>
   ${
     b.is_preview
-      ? `<div class="preview-banner"><strong>Preview only</strong>This is how the bill will look before payment is recorded. After the invoice is paid, open &ldquo;Print patient bill&rdquo; for the official copy.<span class="fit-chip">Auto-fit: ${esc(fit.profileName)}</span></div>`
+      ? `<div class="preview-banner"><strong>Preview only</strong>This is how the bill will look before payment is recorded. After the invoice is paid, open &ldquo;Print patient bill&rdquo; for the official copy.<span class="fit-chip">Auto-fit: ${esc(fit.profileName)} · ${Math.round(printZoom * 100)}%</span></div>`
       : ""
   }
+  <p class="print-fit-hint" aria-hidden="true">
+    Print layout: ${esc(fit.profileName)} · scale ${Math.round(printZoom * 100)}% (auto-adjusts to help fit one page)
+  </p>
   <header class="top-row">
     <h1 class="doc-title">PATIENT BILL</h1>
     <div class="stmt-date">${esc(stmtDate)}</div>
@@ -489,11 +643,7 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
 
   ${providerBlock}
 
-  <p class="foot">
-    (*) Tax per clinic settings. Patient Payments = amount charged to the patient at the clinic. Remaining balance = insurance-only services. Remaining Client Responsibility = Patient Payments minus payments received (0 when paid in full).
-    ${b.status ? ` Invoice status: ${esc(b.status)}.` : ""}
-    Generated ${esc(formatNowMonthDayYearTime())}.
-  </p>
+  <p class="foot">${footNote}</p>
 </body>
 </html>`;
 }
