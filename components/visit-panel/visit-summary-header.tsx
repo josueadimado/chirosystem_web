@@ -2,6 +2,7 @@
 
 import { AppointmentStatusBadge } from "@/components/status-chip";
 import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
+import { cn } from "@/lib/utils";
 
 /** Shared header for appointment visit panels (admin schedule sheet, etc.). */
 export function VisitSummaryHeader({
@@ -29,7 +30,14 @@ export function VisitSummaryHeader({
   reasonForVisit?: string | null;
 }) {
   return (
-    <div className="shrink-0 border-b border-slate-100 px-5 pb-4 pt-14">
+    <div
+      className={cn(
+        "shrink-0 border-b px-5 pb-4 pt-14",
+        status === "no_show" && "border-red-300 bg-red-50",
+        status === "cancelled" && "border-stone-200 bg-stone-50/90",
+        status !== "no_show" && status !== "cancelled" && "border-slate-100",
+      )}
+    >
       <h2 className="text-xl font-bold tracking-tight text-slate-900">{patientName}</h2>
       <p className="mt-1 text-sm font-medium text-slate-600">{serviceName || "—"}</p>
       <AppointmentClientReason reason={reasonForVisit} className="mt-3" />

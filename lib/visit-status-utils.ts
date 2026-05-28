@@ -1,5 +1,10 @@
 /** Status badge styling for visit side panels (schedule drawer, doctor schedule). */
 
+/** Cancelled or no-show — patient did not complete a normal visit; no check-in, extend, or reschedule. */
+export function appointmentBlocksDeskActions(status: string): boolean {
+  return status === "cancelled" || status === "no_show";
+}
+
 export function visitStatusBadgeClass(status: string): string {
   switch (status) {
     case "booked":

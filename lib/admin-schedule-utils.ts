@@ -124,6 +124,117 @@ export function computeOpenGaps(busy: TimeInterval[], dayStart = SCHEDULE_DAY_ST
   return gaps;
 }
 
+/** Merge overlapping or adjacent intervals (used for week-view bookable strips). */
+export function mergeTimeIntervals(intervals: TimeInterval[]): TimeInterval[] {
+  if (intervals.length === 0) return [];
+  const sorted = [...intervals]
+    .filter((x) => x.endMin > x.startMin)
+    .sort((a, b) => a.startMin - b.startMin);
+  const out: TimeInterval[] = [{ startMin: sorted[0].startMin, endMin: sorted[0].endMin }];
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i];
+    const last = out[out.length - 1];
+    if (cur.startMin <= last.endMin) {
+      last.endMin = Math.max(last.endMin, cur.endMin);
+    } else {
+      out.push({ startMin: cur.startMin, endMin: cur.endMin });
+    }
+  }
+  return out;
+}
+
+export type ScheduleBusyAppointment = {
+  id?: number;
+  provider: number;
+  appointment_date: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+};
+
+export type ScheduleBusyBlock = {
+  provider: number;
+  block_date: string;
+  all_day: boolean;
+  start_time: string | null;
+  end_time: string | null;
+};
+
+/** Busy ranges for one provider on one day (appointments + optional online blocks). */
+export function buildProviderDayBusyIntervals(
+  providerId: number,
+  isoDate: string,
+  appointments: ScheduleBusyAppointment[],
+  blocks: ScheduleBusyBlock[],
+  dayEndMin: number,
+  options?: { deskBooking?: boolean; excludeAppointmentId?: number },
+): TimeInterval[] {
+  const deskBooking = options?.deskBooking ?? false;
+  const excludeId = options?.excludeAppointmentId;
+  const ap = appointments
+    .filter(
+      (a) =>
+        a.provider === providerId &&
+        a.appointment_date === isoDate &&
+        appointmentBlocksScheduleGrid(a.status) &&
+        (excludeId == null || a.id !== excludeId),
+    )
+    .map((a) => ({
+      startMin: parseTimeToMinutes(a.start_time),
+      endMin: parseTimeToMinutes(a.end_time),
+    }));
+  const bl = deskBooking
+    ? []
+    : blocks
+        .filter((b) => b.provider === providerId && b.block_date === isoDate)
+        .flatMap((b) => {
+          if (b.all_day) {
+            return [{ startMin: SCHEDULE_DAY_START_MIN, endMin: dayEndMin }];
+          }
+          if (b.start_time && b.end_time) {
+            return [
+              {
+                startMin: parseTimeToMinutes(b.start_time),
+                endMin: parseTimeToMinutes(b.end_time),
+              },
+            ];
+          }
+          return [];
+        });
+  return [...ap, ...bl].filter((x) => x.endMin > x.startMin);
+}
+
+export function providerDayOpenGaps(
+  providerId: number,
+  isoDate: string,
+  appointments: ScheduleBusyAppointment[],
+  blocks: ScheduleBusyBlock[],
+  dayEndMin: number,
+  deskBooking?: boolean,
+): TimeInterval[] {
+  return computeOpenGaps(
+    buildProviderDayBusyIntervals(providerId, isoDate, appointments, blocks, dayEndMin, { deskBooking }),
+    SCHEDULE_DAY_START_MIN,
+    dayEndMin,
+  );
+}
+
+/** Open times when at least one provider has availability (week view click-to-book). */
+export function unionProviderBookableGaps(
+  providerIds: number[],
+  isoDate: string,
+  appointments: ScheduleBusyAppointment[],
+  blocks: ScheduleBusyBlock[],
+  dayEndMin: number,
+  deskBooking?: boolean,
+): TimeInterval[] {
+  const merged: TimeInterval[] = [];
+  for (const pid of providerIds) {
+    merged.push(...providerDayOpenGaps(pid, isoDate, appointments, blocks, dayEndMin, deskBooking));
+  }
+  return mergeTimeIntervals(merged);
+}
+
 export function formatIntervalLabel(startMin: number, endMin: number): string {
   return `${minutesToLabel(startMin)} – ${minutesToLabel(endMin)}`;
 }

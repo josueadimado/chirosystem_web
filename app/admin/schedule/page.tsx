@@ -440,7 +440,7 @@ function AdminSchedulePageContent() {
   }, [selected, adjustEndTime]);
 
   const handleCheckIn = async () => {
-    if (!selected) return;
+    if (!selected || selected.status === "no_show" || selected.status === "cancelled") return;
     setCheckingIn(true);
     setError("");
     await runWithFeedback(
@@ -467,7 +467,9 @@ function AdminSchedulePageContent() {
       await loadAppointments();
       const nextStatus = typeof body.status === "string" ? body.status : undefined;
       if (nextStatus === "cancelled" || nextStatus === "no_show") {
-        setSelected(null);
+        setShowReschedule(false);
+        setShowAdjustDuration(false);
+        setSelected((prev) => (prev && prev.id === id ? { ...prev, status: nextStatus } : prev));
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not update appointment.";
@@ -488,7 +490,7 @@ function AdminSchedulePageContent() {
     s !== "completed" && s !== "no_show" && s !== "cancelled";
 
   const submitReschedule = async () => {
-    if (!selected) return;
+    if (!selected || !canRescheduleStaff(selected.status)) return;
     const pid = Number.parseInt(resProviderId, 10);
     const body: Record<string, unknown> = {
       appointment_date: resDate,
@@ -522,7 +524,7 @@ function AdminSchedulePageContent() {
   };
 
   const submitAdjustDuration = async () => {
-    if (!selected || !adjustEndTime) return;
+    if (!selected || !adjustEndTime || !canRescheduleStaff(selected.status)) return;
     const endApi = adjustEndTime.length === 5 ? `${adjustEndTime}:00` : adjustEndTime;
     let saved = false;
     await runWithFeedback(
@@ -793,7 +795,7 @@ function AdminSchedulePageContent() {
               setFocusDate(d);
               setView("day");
             }}
-            onPickOpenSlot={view === "day" ? (pick) => setDeskBookSeed(pick) : undefined}
+            onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
             onRescheduleAppointment={view === "day" ? (pick) => void handleRescheduleFromGrid(pick) : undefined}
           />
         )}

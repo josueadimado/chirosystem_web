@@ -15,11 +15,13 @@ import {
   mondayOfWeekContaining,
   parseTimeToMinutes,
   providerColorForId,
+  providerDayOpenGaps,
   scheduleDayEndMinute,
   scheduleTotalMinutes,
   snapScheduleGridStartMinute,
   timePositionPercent,
   toIsoDate,
+  unionProviderBookableGaps,
   type TimeInterval,
 } from "@/lib/admin-schedule-utils";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
@@ -85,8 +87,8 @@ function statusBlockStyles(status: string, baseColor: string): { wrap: string; t
   }
   if (status === "no_show") {
     return {
-      wrap: "border border-red-400 bg-red-100/95 text-red-950 shadow-sm",
-      text: "",
+      wrap: "border-2 border-red-600 bg-red-200 text-red-950 shadow-md ring-1 ring-red-400/60",
+      text: "font-semibold",
     };
   }
   if (status === "completed") {
@@ -108,8 +110,8 @@ function statusBlockStyles(status: string, baseColor: string): { wrap: string; t
 }
 
 function blockBackground(status: string, baseColor: string): string {
-  if (status === "cancelled") return "";
-  if (status === "no_show") return "";
+  if (status === "cancelled") return "linear-gradient(to bottom, #ffe4e6, #fecdd3)";
+  if (status === "no_show") return "linear-gradient(to bottom, #fecaca, #f87171)";
   if (status === "completed") return `linear-gradient(to bottom, ${baseColor}aa, ${baseColor}77)`;
   return baseColor;
 }
@@ -428,7 +430,7 @@ type CalendarProps = {
   onSelect: (a: ScheduleAppointment) => void;
   onPickDayInMonth: (d: Date) => void;
   /**
-   * Day view only: click an open (unbooked) strip to book — start time snaps to the nearest 15 minutes
+   * Day or week view: click an open (unbooked) strip to book — start time snaps to the nearest 15 minutes
    * under the cursor within that open range.
    */
   onPickOpenSlot?: (pick: {
@@ -489,6 +491,25 @@ function openGapAtMinute(gaps: TimeInterval[], minute: number): TimeInterval | u
   return gaps.find((g) => minute >= g.startMin && minute < g.endMin);
 }
 
+/** First provider (in list order) with a free gap at this clock time — used for week-view desk booking. */
+function resolveWeekDeskBookingAtMinute(
+  providers: ProviderRow[],
+  iso: string,
+  minute: number,
+  appointments: ScheduleAppointment[],
+  blocks: ProviderBlock[],
+  dayEndMin: number,
+): { providerId: number; providerName: string; gap: TimeInterval } | null {
+  for (const p of providers) {
+    const gaps = providerDayOpenGaps(p.id, iso, appointments, blocks, dayEndMin, true);
+    const gap = openGapAtMinute(gaps, minute);
+    if (gap) {
+      return { providerId: p.id, providerName: p.provider_name, gap };
+    }
+  }
+  return null;
+}
+
 function minuteAtGridY(clientY: number, gridRect: DOMRect, dayEndMin: number): number {
   const h = Math.max(gridRect.height, 1);
   const frac = Math.max(0, Math.min(1, (clientY - gridRect.top) / h));
@@ -541,13 +562,14 @@ export function AdminScheduleCalendar({
     );
   }
 
-  const showDeskHint = view === "day" && !!onPickOpenSlot;
+  const showDeskHint = (view === "day" || view === "week") && !!onPickOpenSlot;
 
   return (
     <div className="space-y-2">
       {showDeskHint ? (
         <p className="text-sm text-slate-600">
-          <span className="font-medium text-[#0d5c2e]">Desk booking:</span> click open white space on the grid, or click a{" "}
+          <span className="font-medium text-[#0d5c2e]">Desk booking:</span> in{" "}
+          <strong>Day</strong> or <strong>Week</strong> view, click open white space on the grid, or click a{" "}
           <span className="font-medium text-rose-800">cancelled</span> / no-show block to book someone new in that time. Schedule
           runs through <strong>9:00 PM</strong> for staff.
         </p>
@@ -577,6 +599,8 @@ export function AdminScheduleCalendar({
           blocks={blocks}
           selectedId={selectedId}
           onSelect={onSelect}
+          dayEndMin={dayEndMin}
+          onPickOpenSlot={onPickOpenSlot}
         />
       )}
 
@@ -699,12 +723,14 @@ function ScheduleCalendarGuide({
         </div>
         {showDeskDetails ? (
           <p className="text-xs leading-relaxed text-slate-500">
-            Gray stripes block online booking only — staff can still book in open white areas. Cancelled and no-show visits appear in red with a
-            line-through; that time stays open for a new booking unless another active visit is there.
+            Gray stripes block online booking only — staff can still book in open white areas in <strong>Day</strong> or{" "}
+            <strong>Week</strong> view. Cancelled and no-show visits appear in red; that time stays open for a new booking unless another
+            active visit is there. Drag to reschedule is available in <strong>Day</strong> view only.
           </p>
         ) : (
           <p className="text-xs leading-relaxed text-slate-500">
-            Week and month views summarize visits. Switch to <strong>Day</strong> to book or drag appointments on the time grid.
+            Month view summarizes visits. Use <strong>Day</strong> or <strong>Week</strong> to book open slots, or <strong>Day</strong> to drag
+            appointments to a new time.
           </p>
         )}
       </div>
@@ -1086,7 +1112,7 @@ function DayProviderColumn({
               const dur = appointmentDurationMinutes(a.start_time, a.end_time);
               const { topPct, heightPct } = timePositionPercent(st, dur, dayEndMin);
               const styles = statusBlockStyles(a.status, base);
-              const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
+              const bg = blockBackground(a.status, base);
               const selected = selectedId === a.id;
               const startShown = a.start_time_display || formatTimeShort(a.start_time);
               const endShown = a.end_time_display || formatTimeShort(a.end_time);
@@ -1154,9 +1180,9 @@ function DayProviderColumn({
                     background: bg,
                     borderColor:
                       a.status === "cancelled"
-                        ? "#fecaca"
+                        ? "#fda4af"
                         : a.status === "no_show"
-                          ? "#f87171"
+                          ? "#dc2626"
                           : selected
                             ? "#16a349"
                             : "rgb(148 163 184 / 0.9)",
@@ -1177,7 +1203,7 @@ function DayProviderColumn({
                         className={cn(
                           "shrink-0 border-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
                           a.status === "cancelled" && "border-rose-800/20 text-rose-950",
-                          a.status === "no_show" && "border-red-800/25 text-red-950",
+                          a.status === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
                           a.status === "completed" && "border-slate-400/40 text-slate-900",
                           !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
                           a.status !== "cancelled" && styles.text,
@@ -1284,6 +1310,8 @@ function WeekGrid({
   blocks,
   selectedId,
   onSelect,
+  dayEndMin,
+  onPickOpenSlot,
 }: {
   weekDays: Date[];
   providers: ProviderRow[];
@@ -1291,9 +1319,11 @@ function WeekGrid({
   blocks: ProviderBlock[];
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
+  dayEndMin: number;
+  onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
 }) {
-  const dayEndMin = SCHEDULE_DAY_END_MIN;
   const gridPx = scheduleGridPx(dayEndMin);
+  const providerIds = useMemo(() => providers.map((p) => p.id), [providers]);
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
       <div className="flex min-w-[980px]">
@@ -1307,37 +1337,183 @@ function WeekGrid({
             const dayAppts = appointments.filter((a) => a.appointment_date === iso);
             const dayBlocks = blocks.filter((b) => b.block_date === iso);
             const isToday = isSameDay(d, new Date());
+            const nowPct = isToday ? nowLinePercent(d, dayEndMin) : null;
             return (
-              <div
+              <WeekDayColumn
                 key={iso}
-                className={cn(
-                  "relative border-l border-slate-100",
-                  isToday && "bg-emerald-50/40",
-                )}
-              >
-                <div
-                  className="flex shrink-0 flex-col items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
-                  style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    {d.toLocaleDateString(undefined, { weekday: "short" })}
-                  </p>
-                  <p className="text-[15px] font-bold leading-none text-slate-900">{d.getDate()}</p>
-                </div>
-                <ScheduleGridColumnBody dayEndMin={dayEndMin} gridPx={gridPx}>
-                  <WeekDayStack
-                    appointments={dayAppts}
-                    blocks={dayBlocks}
-                    providers={providers}
-                    selectedId={selectedId}
-                    onSelect={onSelect}
-                  />
-                </ScheduleGridColumnBody>
-              </div>
+                iso={iso}
+                isToday={isToday}
+                dayAppts={dayAppts}
+                dayBlocks={dayBlocks}
+                providers={providers}
+                providerIds={providerIds}
+                appointments={appointments}
+                blocks={blocks}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                dayEndMin={dayEndMin}
+                gridPx={gridPx}
+                nowPct={nowPct}
+                onPickOpenSlot={onPickOpenSlot}
+                dayLabel={
+                  <>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      {d.toLocaleDateString(undefined, { weekday: "short" })}
+                    </p>
+                    <p className="text-[15px] font-bold leading-none text-slate-900">{d.getDate()}</p>
+                  </>
+                }
+              />
             );
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+function WeekDayColumn({
+  iso,
+  isToday,
+  dayAppts,
+  dayBlocks,
+  providers,
+  providerIds,
+  appointments,
+  blocks,
+  selectedId,
+  onSelect,
+  dayEndMin,
+  gridPx,
+  nowPct,
+  onPickOpenSlot,
+  dayLabel,
+}: {
+  iso: string;
+  isToday: boolean;
+  dayAppts: ScheduleAppointment[];
+  dayBlocks: ProviderBlock[];
+  providers: ProviderRow[];
+  providerIds: number[];
+  appointments: ScheduleAppointment[];
+  blocks: ProviderBlock[];
+  selectedId: number | null;
+  onSelect: (a: ScheduleAppointment) => void;
+  dayEndMin: number;
+  gridPx: number;
+  nowPct: number | null;
+  onPickOpenSlot?: CalendarProps["onPickOpenSlot"];
+  dayLabel: ReactNode;
+}) {
+  const bookableGaps = useMemo(() => {
+    if (!onPickOpenSlot || providerIds.length === 0) return [];
+    return unionProviderBookableGaps(providerIds, iso, appointments, blocks, dayEndMin, true);
+  }, [onPickOpenSlot, providerIds, iso, appointments, blocks, dayEndMin]);
+
+  const pickAtMinute = (minute: number, preferredStartMin?: number) => {
+    if (!onPickOpenSlot) return;
+    const target = resolveWeekDeskBookingAtMinute(providers, iso, minute, appointments, blocks, dayEndMin);
+    if (!target) return;
+    const startMinute =
+      preferredStartMin != null
+        ? snapMinuteInsideGap(preferredStartMin, target.gap.startMin, target.gap.endMin)
+        : snapMinuteInsideGap(minute, target.gap.startMin, target.gap.endMin);
+    onPickOpenSlot({
+      providerId: target.providerId,
+      providerName: target.providerName,
+      dateIso: iso,
+      startMinute,
+      gapStartMin: target.gap.startMin,
+      gapEndMin: target.gap.endMin,
+    });
+  };
+
+  return (
+    <div className={cn("relative border-l border-slate-100", isToday && "bg-emerald-50/40")}>
+      <div
+        className="flex shrink-0 flex-col items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
+        style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
+      >
+        {dayLabel}
+      </div>
+      <ScheduleGridColumnBody
+        dayEndMin={dayEndMin}
+        gridPx={gridPx}
+        onOpenSlotClick={
+          onPickOpenSlot
+            ? (clientY, rect) => {
+                const minute = minuteAtGridY(clientY, rect, dayEndMin);
+                const gap = openGapAtMinute(bookableGaps, minute);
+                if (!gap) return;
+                const startMinute = snapOpenSlotStartMinute(clientY, rect, gap.startMin, gap.endMin);
+                pickAtMinute(startMinute, startMinute);
+              }
+            : undefined
+        }
+      >
+        <WeekDayStack
+          appointments={dayAppts}
+          blocks={dayBlocks}
+          providers={providers}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          dayEndMin={dayEndMin}
+          deskBooking={!!onPickOpenSlot}
+          onPickOpenSlot={
+            onPickOpenSlot
+              ? (appt) => {
+                  const st = parseTimeToMinutes(appt.start_time);
+                  pickAtMinute(st, st);
+                }
+              : undefined
+          }
+        />
+        {bookableGaps.map((g, i) => {
+          const dur = g.endMin - g.startMin;
+          const { topPct, heightPct } = timePositionPercent(g.startMin, dur, dayEndMin);
+          const labelRange = formatIntervalLabel(g.startMin, g.endMin);
+          if (!onPickOpenSlot) {
+            return (
+              <div
+                key={`gap-${i}`}
+                className="pointer-events-none absolute left-1 right-1 z-[6]"
+                style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
+                title={`Open · ${labelRange}`}
+              />
+            );
+          }
+          return (
+            <button
+              key={`gap-${i}`}
+              type="button"
+              data-schedule-open-gap
+              className="group absolute left-1 right-1 z-[10] cursor-pointer rounded-md border border-transparent text-left transition hover:border-emerald-300/60 hover:bg-emerald-500/[0.09] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]"
+              style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
+              title={`Book here · ${labelRange} · ${dur} min free`}
+              aria-label={`Book appointment in open time ${labelRange}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                const startMinute = snapOpenSlotStartMinute(e.clientY, r, g.startMin, g.endMin);
+                pickAtMinute(startMinute, startMinute);
+              }}
+            >
+              <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-max max-w-[220px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-800 shadow-lg group-hover:block group-focus-visible:block">
+                Click to book · {labelRange}
+              </span>
+            </button>
+          );
+        })}
+        {nowPct != null && (
+          <div
+            className="pointer-events-none absolute left-0 right-0 z-[12]"
+            style={{ top: `${nowPct}%` }}
+            aria-hidden
+          >
+            <div className="h-0.5 bg-red-500 shadow-sm" />
+          </div>
+        )}
+      </ScheduleGridColumnBody>
     </div>
   );
 }
@@ -1410,12 +1586,18 @@ function WeekDayStack({
   providers,
   selectedId,
   onSelect,
+  dayEndMin,
+  deskBooking,
+  onPickOpenSlot,
 }: {
   appointments: ScheduleAppointment[];
   blocks: ProviderBlock[];
   providers: ProviderRow[];
   selectedId: number | null;
   onSelect: (a: ScheduleAppointment) => void;
+  dayEndMin: number;
+  deskBooking?: boolean;
+  onPickOpenSlot?: (appt: ScheduleAppointment) => void;
 }) {
   const { entries, laneByKey, laneCount } = useMemo(() => {
     const providerSet = new Set(providers.map((p) => p.id));
@@ -1452,7 +1634,7 @@ function WeekDayStack({
         {entries.map((entry) => {
           if (entry.kind === "block") {
             const b = entry.block;
-            const { topPct, heightPct } = timePositionPercent(entry.start, entry.end - entry.start);
+            const { topPct, heightPct } = timePositionPercent(entry.start, entry.end - entry.start, dayEndMin);
             const lane = laneByKey.get(entry.key) ?? 0;
             const leftPx = lane * (laneW + LANE_GAP_PX);
             return (
@@ -1468,30 +1650,43 @@ function WeekDayStack({
                   backgroundImage: STRIPE_BG,
                   backgroundColor: "#e5e7eb",
                 }}
-                title="Blocked (online booking)"
+                title={
+                  deskBooking
+                    ? "Online booking block — patients cannot book here; click to book from the desk schedule"
+                    : "Blocked (online booking)"
+                }
               />
             );
           }
           const a = entry.appt;
           const dur = appointmentDurationMinutes(a.start_time, a.end_time);
-          const { topPct, heightPct } = timePositionPercent(entry.start, dur);
+          const { topPct, heightPct } = timePositionPercent(entry.start, dur, dayEndMin);
           const lane = laneByKey.get(entry.key) ?? 0;
           const base = providerColorForId(a.provider);
-          const bg = a.status === "cancelled" || a.status === "no_show" ? undefined : blockBackground(a.status, base);
+          const bg = blockBackground(a.status, base);
           const styles = statusBlockStyles(a.status, base);
           const selected = selectedId === a.id;
           const leftPx = lane * (laneW + LANE_GAP_PX);
           const startShown = a.start_time_display || formatTimeShort(a.start_time);
           const endShown = a.end_time_display || formatTimeShort(a.end_time);
+          const freedSlot = !!onPickOpenSlot && (a.status === "cancelled" || a.status === "no_show");
           return (
             <button
               key={entry.key}
               type="button"
-              onClick={() => onSelect(a)}
+              onClick={() => {
+                if (freedSlot && onPickOpenSlot) {
+                  onPickOpenSlot(a);
+                  return;
+                }
+                onSelect(a);
+              }}
+              title={freedSlot ? "Book a new visit in this open slot" : undefined}
               className={cn(
                 "absolute z-[3] flex flex-col overflow-hidden rounded-lg border px-0.5 text-left shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#16a349]",
                 styles.wrap,
                 selected && "z-[4] ring-2 ring-[#16a349] ring-offset-1",
+                freedSlot && "cursor-pointer hover:ring-2 hover:ring-emerald-400/80",
               )}
               style={{
                 top: `${topPct}%`,
@@ -1524,7 +1719,7 @@ function WeekDayStack({
                     className={cn(
                       "shrink-0 border-b px-1 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
                       a.status === "cancelled" && "border-rose-800/20 text-rose-950",
-                      a.status === "no_show" && "border-red-800/25 text-red-950",
+                      a.status === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
                       a.status === "completed" && "border-slate-400/40 text-slate-900",
                       !["cancelled", "no_show", "completed"].includes(a.status) && "border-white/25 text-inherit",
                       a.status !== "cancelled" && styles.text,
@@ -1627,7 +1822,11 @@ function MonthGrid({
                         className="h-1.5 max-w-[40%] flex-1 rounded-full"
                         style={{
                           backgroundColor:
-                            a.status === "cancelled" ? "#fecdd3" : a.status === "no_show" ? "#fecaca" : providerColorForId(a.provider),
+                            a.status === "cancelled"
+                              ? "#fecdd3"
+                              : a.status === "no_show"
+                                ? "#ef4444"
+                                : providerColorForId(a.provider),
                         }}
                         title={`${a.patient_name} · ${formatTimeShort(a.start_time)}`}
                       />

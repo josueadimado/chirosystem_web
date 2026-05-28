@@ -1,6 +1,7 @@
 "use client";
 
 import { HelpTip } from "@/components/help-tip";
+import { appointmentBlocksDeskActions } from "@/lib/visit-status-utils";
 
 export type DeskAppointmentActions = {
   id: number;
@@ -84,8 +85,44 @@ export function VisitDeskActions({
   onMarkCompleted: () => void;
   onBookNext: () => void;
 }) {
-  if (appointment.status === "cancelled" || appointment.status === "no_show") {
-    return <p className="text-center text-sm text-slate-500">No actions available</p>;
+  if (appointmentBlocksDeskActions(appointment.status)) {
+    const isNoShow = appointment.status === "no_show";
+    return (
+      <div className="space-y-3">
+        <div
+          className={
+            isNoShow
+              ? "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-950"
+              : "rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm text-rose-950"
+          }
+        >
+          {isNoShow ? (
+            <>
+              <p className="font-semibold">Marked as no-show</p>
+              <p className="mt-1 text-xs leading-relaxed text-red-900/90">
+                The patient did not attend this visit. Check-in, extend period, reschedule, and other visit actions are
+                not available. Use <span className="font-semibold">Book next visit</span> below to schedule a new
+                appointment.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-semibold">Visit cancelled</p>
+              <p className="mt-1 text-xs leading-relaxed text-rose-900/90">
+                This slot is cleared. Check-in and schedule changes are not available for this visit.
+              </p>
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onBookNext}
+          className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 transition hover:bg-[#13823d]"
+        >
+          Book next visit
+        </button>
+      </div>
+    );
   }
 
   if (appointment.status === "completed") {

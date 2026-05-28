@@ -1,5 +1,7 @@
 "use client";
 
+import { appointmentBlocksDeskActions } from "@/lib/visit-status-utils";
+
 /** Doctor schedule side panel: check-in, reschedule, cancel, no-show, and book-next. */
 export function VisitDoctorScheduleActions({
   status,
@@ -29,8 +31,37 @@ export function VisitDoctorScheduleActions({
   const canPreVisit = status === "booked" || status === "checked_in" || status === "scheduled";
   const busy = checkingIn || saving;
 
-  if (status === "cancelled" || status === "no_show") {
-    return <p className="text-center text-sm text-slate-500">No actions available</p>;
+  if (appointmentBlocksDeskActions(status)) {
+    const isNoShow = status === "no_show";
+    return (
+      <div className="space-y-3">
+        <div
+          className={
+            isNoShow
+              ? "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-950"
+              : "rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm text-rose-950"
+          }
+        >
+          {isNoShow ? (
+            <>
+              <p className="font-semibold">No-show</p>
+              <p className="mt-1 text-xs leading-relaxed text-red-900/90">
+                The patient did not attend. Check-in and reschedule are not available for this visit.
+              </p>
+            </>
+          ) : (
+            <p className="font-semibold">This visit was cancelled.</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onBookNext}
+          className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+        >
+          Book next visit
+        </button>
+      </div>
+    );
   }
 
   if (status === "completed") {

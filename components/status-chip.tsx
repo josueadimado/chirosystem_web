@@ -36,7 +36,7 @@ export function appointmentStatusPillClass(status: string): string {
     case "completed":
       return "bg-emerald-100 text-emerald-900";
     case "no_show":
-      return "bg-red-100 text-red-900 ring-1 ring-red-300/80";
+      return "bg-red-200 text-red-950 ring-2 ring-red-500/70";
     case "cancelled":
       return "bg-stone-200 text-stone-800";
     case "booked":
@@ -58,7 +58,7 @@ export function appointmentStatusStripeClass(status: string): string {
     case "completed":
       return "border-l-[3px] border-l-emerald-500";
     case "no_show":
-      return "border-l-[3px] border-l-red-600";
+      return "border-l-[4px] border-l-red-600 bg-red-50/80";
     case "cancelled":
       return "border-l-[3px] border-l-stone-500";
     case "booked":
@@ -71,7 +71,7 @@ export function appointmentStatusStripeClass(status: string): string {
 /** Highlight entire visit/history rows when the appointment was a no-show. */
 export function appointmentHistoryRowClass(status: string): string {
   if (status === "no_show") {
-    return "border-red-300 bg-red-50/50 shadow-sm ring-1 ring-red-200/60";
+    return "border-red-400 bg-red-100 shadow-sm ring-2 ring-red-300/70";
   }
   if (status === "cancelled") {
     return "border-stone-300 bg-stone-50/80";

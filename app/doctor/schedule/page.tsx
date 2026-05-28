@@ -33,6 +33,7 @@ import { ChartNoteWorkspace } from "@/components/chart-note-document";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
+import { appointmentBlocksDeskActions } from "@/lib/visit-status-utils";
 import { cancelAppointmentConfirmMessage } from "@/lib/appointment-previsit";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -345,7 +346,7 @@ function DoctorSchedulePageInner() {
   }, [selected?.id]);
 
   const handleCheckIn = async () => {
-    if (!selected) return;
+    if (!selected || appointmentBlocksDeskActions(selected.status)) return;
     setCheckingIn(true);
     await runWithFeedback(
       async () => {
@@ -414,7 +415,7 @@ function DoctorSchedulePageInner() {
         async () => {
           await apiPatch(`/appointments/${id}/`, { status });
           await loadAppointments();
-          setSelected(null);
+          setSelected((prev) => (prev && prev.id === id ? { ...prev, status } : prev));
         },
         {
           loadingMessage: status === "cancelled" ? "Cancelling…" : "Updating…",
@@ -716,7 +717,7 @@ function DoctorSchedulePageInner() {
                 setFocusDate(d);
                 setView("day");
               }}
-              onPickOpenSlot={view === "day" ? (pick) => setDeskBookSeed(pick) : undefined}
+              onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
             />
           </div>
         )}
