@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMonthDayYear } from "@/lib/format-date";
 import { formatPhoneDisplay } from "@/lib/format-phone";
 import Link from "next/link";
 
@@ -8,12 +9,14 @@ export function VisitPanelPatientFooter({
   loading,
   phone,
   email,
+  dateOfBirth,
   profileHref,
   profileLabel = "View full patient profile",
 }: {
   loading?: boolean;
   phone?: string;
   email?: string;
+  dateOfBirth?: string | null;
   profileHref: string;
   profileLabel?: string;
 }) {
@@ -39,6 +42,12 @@ export function VisitPanelPatientFooter({
               <a href={`mailto:${email.trim()}`} className="block break-all text-slate-700 hover:text-[#0d5c2e]">
                 {email.trim()}
               </a>
+            ) : null}
+            {dateOfBirth?.trim() ? (
+              <p className="text-slate-600">
+                <span className="font-semibold text-slate-500">Date of birth: </span>
+                {formatMonthDayYear(dateOfBirth)}
+              </p>
             ) : null}
             <Link
               href={profileHref}

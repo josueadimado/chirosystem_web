@@ -45,6 +45,7 @@ type PaymentConnectionStatus = {
   checks: PaymentCheck[];
   web_payments_ready: boolean;
   terminal_reader_ready: boolean;
+  pos_callback_configured?: boolean;
   square_locations_found: number;
 };
 
@@ -532,7 +533,15 @@ export default function AdminSettingsPage() {
                             payStatus.terminal_reader_ready ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700",
                           )}
                         >
-                          Terminal: {payStatus.terminal_reader_ready ? "ready" : "not set"}
+                          Terminal API: {payStatus.terminal_reader_ready ? "ready" : "not set"}
+                        </span>
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                            payStatus.pos_callback_configured ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700",
+                          )}
+                        >
+                          POS callback: {payStatus.pos_callback_configured ? "set" : "optional"}
                         </span>
                       </div>
                       <Button
@@ -566,6 +575,89 @@ export default function AdminSettingsPage() {
                           </li>
                         ))}
                       </ul>
+                    </details>
+
+                    <details className="rounded-xl border border-[#0f766e]/30 bg-[#f0fdfa]/40">
+                      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-[#0f5c4a] marker:content-none [&::-webkit-details-marker]:hidden">
+                        Terminal + Square POS setup (for Giovanni)
+                      </summary>
+                      <div className="space-y-4 border-t border-[#0f766e]/15 px-4 py-3 text-sm text-slate-700">
+                        <p className="text-xs leading-relaxed text-slate-600">
+                          Your clinic uses <strong>two different Square connections</strong> on the same physical Terminal.
+                          They work together but are configured in different places.
+                        </p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs">
+                            <p className="font-bold text-slate-900">1. ChiroFlow → Terminal (API)</p>
+                            <p className="mt-1 text-slate-600">
+                              Server env <span className="font-mono">SQUARE_DEVICE_ID</span> (and optional{" "}
+                              <span className="font-mono">SQUARE_KIOSK_DEVICE_ID</span>). Pair with a{" "}
+                              <strong>device code</strong> in Square API Explorer (<code className="text-[11px]">TERMINAL_API</code>
+                              ). The app sends amounts after a visit is billed — the Terminal only shows prompts when
+                              ChiroFlow sends them.
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs">
+                            <p className="font-bold text-slate-900">2. Square POS ↔ Terminal (standalone)</p>
+                            <p className="mt-1 text-slate-600">
+                              On an <strong>iPad or phone</strong> running the <strong>Square Point of Sale</strong> app,
+                              connect the Terminal as a buyer-facing reader. Staff can ring up sales in Square POS; the
+                              Terminal also works as a normal register. Payments from Square POS are synced back using{" "}
+                              <strong>Check Square (any device)</strong> on the patient bill.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-xs text-amber-950">
+                          <p className="font-semibold">There is no SQUARE_POS_DEVICE_ID in ChiroFlow</p>
+                          <p className="mt-1">
+                            <span className="font-mono">square_pos.py</span> uses{" "}
+                            <span className="font-mono">SQUARE_POS_CALLBACK_URL</span>
+                            {payStatus.pos_callback_configured ? (
+                              <> — <span className="text-emerald-800">configured on server</span>.</>
+                            ) : (
+                              <> — <span className="font-semibold">not set</span> (optional; only for opening Square POS from a
+                              tablet browser).</>
+                            )}{" "}
+                            It launches the Square POS <strong>mobile app</strong> on iPad/Android — not the Square Terminal
+                            hardware directly.
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                            On the Square Terminal (standalone + connected POS)
+                          </p>
+                          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs leading-relaxed">
+                            <li>
+                              Tap <strong>≡ More</strong> → <strong>Settings</strong> → <strong>Hardware</strong> →{" "}
+                              <strong>Connected Devices</strong> → <strong>Connect a Device</strong>.
+                            </li>
+                            <li>
+                              Follow the prompts to link the Terminal to your <strong>Square POS</strong> app on the iPad
+                              (or phone) at the front desk.
+                            </li>
+                            <li>
+                              After this, the Terminal can take payments started from <strong>ChiroFlow</strong> (API) and
+                              also work when staff use <strong>Square POS</strong> on the tablet.
+                            </li>
+                          </ol>
+                          <p className="mt-2 text-xs text-slate-500">
+                            Square help:{" "}
+                            <a
+                              href="https://squareup.com/help/us/en/article/8345"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-semibold text-[#0d5c2e] underline"
+                            >
+                              Connect Square Terminal with Square POS
+                            </a>
+                            . (Menu paths can vary slightly; look for Hardware → Square Terminal or Connected Devices.)
+                          </p>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Keep <span className="font-mono">SQUARE_DEVICE_ID</span> set for ChiroFlow Terminal checkouts.
+                          Re-pair with a new device code only if Square shows “not authorized” for the device id.
+                        </p>
+                      </div>
                     </details>
 
                     <details className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50">

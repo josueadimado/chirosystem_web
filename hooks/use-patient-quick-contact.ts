@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 export type PatientQuickContact = {
   phone: string;
   email: string;
+  date_of_birth: string | null;
 };
 
 /** Loads phone and email for a patient row (schedule side panels). */
@@ -21,12 +22,15 @@ export function usePatientQuickContact(patientId: number | null) {
     }
     let cancelled = false;
     setLoading(true);
-    void apiGetAuth<{ phone?: string; email?: string }>(`/patients/${patientId}/`)
+    void apiGetAuth<{ phone?: string; email?: string; date_of_birth?: string | null }>(
+      `/patients/${patientId}/`,
+    )
       .then((p) => {
         if (!cancelled) {
           setContact({
             phone: p.phone ?? "",
             email: p.email ?? "",
+            date_of_birth: p.date_of_birth ?? null,
           });
         }
       })

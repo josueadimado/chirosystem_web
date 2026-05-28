@@ -27,6 +27,7 @@ import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-mod
 import { RescheduleVisitSlotsModal } from "@/components/visit-panel/reschedule-visit-slots-modal";
 import { VisitDoctorScheduleActions } from "@/components/visit-panel/visit-doctor-schedule-actions";
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
+import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { ChartNoteWorkspace } from "@/components/chart-note-document";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
@@ -61,6 +62,7 @@ type AppointmentRow = {
   end_time_display?: string;
   status: string;
   reason_for_visit?: string;
+  patient_date_of_birth?: string | null;
 };
 
 type ScheduleViewMode = "day" | "week" | "month";
@@ -740,6 +742,11 @@ function DoctorSchedulePageInner() {
             />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <VisitBirthdayReminder
+                appointmentDate={selected.appointment_date}
+                patientDateOfBirth={selected.patient_date_of_birth}
+                className="mb-4"
+              />
               <VisitDoctorScheduleActions
                 status={selected.status}
                 checkingIn={checkingIn}
@@ -756,7 +763,7 @@ function DoctorSchedulePageInner() {
 
               <div className="mt-8 max-w-none border-t border-slate-200 pt-6">
                 <p className="text-sm leading-relaxed text-slate-500">
-                  Visible on this patient chart to every provider. Saved on this appointment only.
+                  Staff notes for admin and doctors — saved on this appointment only (not shown to patients).
                 </p>
                 <div className="mt-3">
                   <ChartNoteWorkspace
@@ -785,6 +792,7 @@ function DoctorSchedulePageInner() {
               loading={patientContactLoading}
               phone={patientContact?.phone}
               email={patientContact?.email}
+              dateOfBirth={selected.patient_date_of_birth ?? patientContact?.date_of_birth}
               profileHref={`/doctor/patients/${selected.patient}/record`}
               profileLabel="View full patient record →"
             />

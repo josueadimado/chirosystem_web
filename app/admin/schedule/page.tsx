@@ -14,6 +14,8 @@ import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-mod
 import { VisitDeskActions } from "@/components/visit-panel/visit-desk-actions";
 import { VisitSnapshotDisplay } from "@/components/visit-panel/visit-snapshot-display";
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
+import { VisitAppointmentStaffNotes } from "@/components/visit-panel/visit-appointment-staff-notes";
+import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
@@ -61,6 +63,7 @@ type Appointment = {
   end_time_display?: string;
   status: string;
   reason_for_visit?: string;
+  patient_date_of_birth?: string | null;
 };
 
 type Provider = {
@@ -182,6 +185,10 @@ function AdminSchedulePageContent() {
     selected?.patient ?? null,
   );
 
+  const [staffNotes, setStaffNotes] = useState("");
+  const [staffNotesLoading, setStaffNotesLoading] = useState(false);
+  const [savingStaffNotes, setSavingStaffNotes] = useState(false);
+
   const [deskBookSeed, setDeskBookSeed] = useState<DeskBookSlotSeed | null>(null);
   const [dragUndo, setDragUndo] = useState<{
     appointmentId: number;
@@ -234,6 +241,50 @@ function AdminSchedulePageContent() {
       cancelled = true;
     };
   }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected) {
+      setStaffNotes("");
+      return;
+    }
+    let cancelled = false;
+    setStaffNotesLoading(true);
+    void apiGetAuth<{ clinical_handoff_notes?: string }>(`/appointments/${selected.id}/`)
+      .then((row) => {
+        if (!cancelled) setStaffNotes(row.clinical_handoff_notes ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setStaffNotes("");
+      })
+      .finally(() => {
+        if (!cancelled) setStaffNotesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
+
+  const saveStaffNotes = async () => {
+    if (!selected) return;
+    setSavingStaffNotes(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch("/admin/appointment_handoff/", {
+            appointment_id: selected.id,
+            clinical_handoff_notes: staffNotes,
+          });
+        },
+        {
+          loadingMessage: "Saving notes…",
+          successMessage: "Staff notes saved on this visit.",
+          errorFallback: "Could not save notes.",
+        },
+      );
+    } finally {
+      setSavingStaffNotes(false);
+    }
+  };
 
   useEffect(() => {
     if (!selected || selected.status !== "awaiting_payment") {
@@ -770,6 +821,18 @@ function AdminSchedulePageContent() {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-3">
+                <VisitBirthdayReminder
+                  appointmentDate={selected.appointment_date}
+                  patientDateOfBirth={selected.patient_date_of_birth}
+                />
+                <VisitAppointmentStaffNotes
+                  value={staffNotes}
+                  onChange={setStaffNotes}
+                  onSave={() => void saveStaffNotes()}
+                  saving={savingStaffNotes}
+                  loading={staffNotesLoading}
+                  savePathLabel="admin and doctors"
+                />
                 <VisitDeskActions
                   appointment={selected}
                   providers={providers}
@@ -882,6 +945,7 @@ function AdminSchedulePageContent() {
               loading={patientContactLoading}
               phone={patientContact?.phone}
               email={patientContact?.email}
+              dateOfBirth={selected.patient_date_of_birth ?? patientContact?.date_of_birth}
               profileHref={`/admin/patients/${selected.patient}/history`}
             />
           </SheetContent>
