@@ -96,3 +96,48 @@ export function sortDoctorDashboardAppointments<T extends DoctorDashboardSortabl
     return startA - startB;
   });
 }
+
+/** Week/month list: chronological days, each day uses dashboard sort rules. */
+export function sortDoctorDashboardAppointmentsMultiDay<
+  T extends DoctorDashboardSortableAppointment & { appointment_date: string },
+>(appts: T[], todayIso: string): T[] {
+  const byDate = new Map<string, T[]>();
+  for (const a of appts) {
+    const list = byDate.get(a.appointment_date) ?? [];
+    list.push(a);
+    byDate.set(a.appointment_date, list);
+  }
+  const out: T[] = [];
+  for (const d of [...byDate.keys()].sort()) {
+    out.push(...sortDoctorDashboardAppointments(byDate.get(d)!, d, todayIso));
+  }
+  return out;
+}
+
+export type DoctorDashboardScheduleListItem<T> =
+  | { kind: "day-header"; dateIso: string; isToday: boolean }
+  | { kind: "appointment"; appointment: T };
+
+export function doctorDashboardScheduleListItems<T extends { appointment_date: string }>(
+  sorted: T[],
+  todayIso: string,
+  view: "day" | "week" | "month",
+): DoctorDashboardScheduleListItem<T>[] {
+  if (view === "day") {
+    return sorted.map((appointment) => ({ kind: "appointment", appointment }));
+  }
+  const items: DoctorDashboardScheduleListItem<T>[] = [];
+  let last = "";
+  for (const appointment of sorted) {
+    if (appointment.appointment_date !== last) {
+      last = appointment.appointment_date;
+      items.push({
+        kind: "day-header",
+        dateIso: last,
+        isToday: last === todayIso,
+      });
+    }
+    items.push({ kind: "appointment", appointment });
+  }
+  return items;
+}

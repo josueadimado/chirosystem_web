@@ -33,8 +33,18 @@ import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { emailPatientBillDoctor } from "@/lib/patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
-import { sortDoctorDashboardAppointments } from "@/lib/doctor-dashboard-schedule-sort";
-import { clinicTodayIso, formatMonthDayYear } from "@/lib/format-date";
+import {
+  doctorDashboardScheduleListItems,
+  sortDoctorDashboardAppointments,
+  sortDoctorDashboardAppointmentsMultiDay,
+} from "@/lib/doctor-dashboard-schedule-sort";
+import {
+  appointmentsQueryForDashboardView,
+  scheduleRangeLabel,
+  shiftScheduleFocus,
+  type DoctorDashboardScheduleView,
+} from "@/lib/doctor-dashboard-schedule-range";
+import { clinicTodayIso, formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -132,7 +142,9 @@ export default function DoctorDashboardPage() {
   const [services, setServices] = useState<ServiceOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedDate, setSelectedDate] = useState(todayStr);
+  /** Day view = today only; week/month use scheduleFocusIso for navigation. */
+  const [scheduleView, setScheduleView] = useState<DoctorDashboardScheduleView>("day");
+  const [scheduleFocusIso, setScheduleFocusIso] = useState(todayStr);
   const [activeAppt, setActiveAppt] = useState<Appointment | null>(null);
   const [doctorNotes, setDoctorNotes] = useState("");
   const [diagnosisCatalog, setDiagnosisCatalog] = useState<DiagnosisCatalogEntry[]>([]);
@@ -177,7 +189,7 @@ export default function DoctorDashboardPage() {
   const rescheduleVisit = useRescheduleVisitSlots({
     todayMinIso: todayStr,
     providerId: myProviderId,
-    defaultDateIso: selectedDate,
+    defaultDateIso: scheduleView === "day" ? todayStr : scheduleFocusIso,
     onRescheduled: () => load(),
   });
   const [savingDesk, setSavingDesk] = useState(false);
@@ -211,7 +223,7 @@ export default function DoctorDashboardPage() {
     setRevisingBillingForAppointmentId(null);
     setBillingEditJustSaved(false);
     billingEditSavedFingerprintRef.current = null;
-  }, [selectedDate]);
+  }, [scheduleView, scheduleFocusIso, todayStr]);
 
   useEffect(() => {
     if (!billingEditJustSaved) return;
@@ -361,9 +373,16 @@ export default function DoctorDashboardPage() {
 
   const firstName = displayName.trim().split(/\s+/)[0] || "there";
 
-  const sortedAppointments = useMemo(
-    () => sortDoctorDashboardAppointments(appointments, selectedDate, todayStr),
-    [appointments, selectedDate, todayStr],
+  const sortedAppointments = useMemo(() => {
+    if (scheduleView === "day") {
+      return sortDoctorDashboardAppointments(appointments, todayStr, todayStr);
+    }
+    return sortDoctorDashboardAppointmentsMultiDay(appointments, todayStr);
+  }, [appointments, scheduleView, todayStr]);
+
+  const scheduleListItems = useMemo(
+    () => doctorDashboardScheduleListItems(sortedAppointments, todayStr, scheduleView),
+    [sortedAppointments, todayStr, scheduleView],
   );
 
   const dayStats = useMemo(() => {
@@ -372,7 +391,10 @@ export default function DoctorDashboardPage() {
       {
         label: "On your schedule",
         value: list.length,
-        help: "All visits assigned to you for the day you picked—not only people who have finished check-in yet.",
+        help:
+          scheduleView === "day"
+            ? "All of your visits today—not only people who have finished check-in yet."
+            : "All visits in the week or month you are viewing.",
       },
       {
         label: "Checked-in",
@@ -392,10 +414,12 @@ export default function DoctorDashboardPage() {
         help: "Visit is wrapped up or waiting on payment. Awaiting payment still counts as needing checkout at the desk.",
       },
     ];
-  }, [appointments]);
+  }, [appointments, scheduleView]);
 
   const resumableConsultationAppt = useMemo(() => {
-    const inConsult = appointments.filter((a) => a.status === "in_consultation");
+    const inConsult = appointments.filter(
+      (a) => a.status === "in_consultation" && a.appointment_date === todayStr,
+    );
     if (inConsult.length === 0) return null;
     if (lastClosedConsultAppointmentId != null) {
       const last = inConsult.find((a) => a.id === lastClosedConsultAppointmentId);
@@ -408,7 +432,8 @@ export default function DoctorDashboardPage() {
     setLoading(true);
     setError("");
     try {
-      const appts = await apiGetAuth<Appointment[]>(`/doctor/appointments/?date=${selectedDate}`);
+      const query = appointmentsQueryForDashboardView(scheduleView, scheduleFocusIso, todayStr);
+      const appts = await apiGetAuth<Appointment[]>(`/doctor/appointments/?${query}`);
       setAppointments(appts);
       const pickActive = () => {
         const fid = opts?.focusAppointmentId;
@@ -458,13 +483,13 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     load();
-  }, [selectedDate]);
+  }, [scheduleView, scheduleFocusIso, todayStr]);
 
   useEffect(() => {
-    apiGetAuth<ServiceOpt[]>(`/services/?for_date=${encodeURIComponent(selectedDate)}`)
+    apiGetAuth<ServiceOpt[]>(`/services/?for_date=${encodeURIComponent(todayStr)}`)
       .then((list) => setServices(list.filter((s) => s.is_active)))
       .catch(() => setServices([]));
-  }, [selectedDate]);
+  }, [scheduleView, scheduleFocusIso, todayStr]);
 
   useEffect(() => {
     apiGetAuth<DiagnosisCatalogEntry[]>("/diagnoses/")
@@ -1156,7 +1181,7 @@ export default function DoctorDashboardPage() {
         appointmentDate: appt.appointment_date,
         bookedServiceId: appt.booked_service_id,
       },
-      { initialDate: selectedDate >= todayStr ? selectedDate : todayStr },
+      { initialDate: scheduleFocusIso >= todayStr ? scheduleFocusIso : todayStr },
     );
   };
 
@@ -1878,29 +1903,94 @@ export default function DoctorDashboardPage() {
       </section>
       <section className="doctor-panel">
         <DoctorSectionLabel
-          help="Only visits where you are the provider. Click a row to open their chart. Awaiting payment means the visit is done but money is still due — use Collect payment on that row to reopen checkout or the card reader. Before the visit starts you can mark no-show, cancel, or reschedule. After a visit is completed you can book their next visit from the row."
+          help="Day view shows today only. Switch to Week or Month to browse other days. Checked-in patients stay at the top of each day. Click a row to open the chart."
         >
-          {selectedDate === todayStr ? "Today's schedule" : "Appointments for this day"}
+          {scheduleView === "day" ? "Today's schedule" : scheduleView === "week" ? "Week at a glance" : "Month at a glance"}
         </DoctorSectionLabel>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-600">
-            Only your patients · {selectedDate === todayStr ? "Today" : formatMonthDayYear(selectedDate)}
-            {selectedDate === todayStr ? (
-              <span className="mt-1 block text-xs text-slate-500">
-                Checked-in patients appear first, then upcoming visits, then past or finished visits at the bottom.
-              </span>
-            ) : null}
+            {scheduleView === "day" ? (
+              <>
+                <span className="font-semibold text-slate-800">Today only</span> — {formatWeekdayMonthDayYear(todayStr)}
+                <span className="mt-1 block text-xs text-slate-500">
+                  Checked-in patients appear first, then upcoming visits, then past or finished visits at the bottom.
+                  Use Week or Month to see other days.
+                </span>
+              </>
+            ) : (
+              <>
+                Showing <span className="font-semibold text-slate-800">{scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}</span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  Visits are grouped by day. Tap a day header’s date is for orientation — actions work on each row.
+                </span>
+              </>
+            )}
           </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
-              aria-label="Pick schedule date"
-            />
-            <HelpTip label="Date picker" align="center" tone="emerald">
-              Switch days to plan ahead or review a past session. Stats and the list reload for the date you choose.
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5">
+              {(
+                [
+                  { id: "day" as const, label: "Day" },
+                  { id: "week" as const, label: "Week" },
+                  { id: "month" as const, label: "Month" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setScheduleView(t.id);
+                    if (t.id === "day") setScheduleFocusIso(todayStr);
+                  }}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                    scheduleView === t.id
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900",
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {scheduleView !== "day" ? (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setScheduleFocusIso((d) => shiftScheduleFocus(scheduleView, d, -1))}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  aria-label="Previous period"
+                >
+                  ‹
+                </button>
+                <span className="min-w-[8rem] text-center text-xs font-semibold text-slate-800">
+                  {scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setScheduleFocusIso((d) => shiftScheduleFocus(scheduleView, d, 1))}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  aria-label="Next period"
+                >
+                  ›
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setScheduleView("day");
+                  setScheduleFocusIso(todayStr);
+                  void load();
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Refresh today
+              </button>
+            )}
+            <HelpTip label="Schedule view" align="center" tone="emerald">
+              Day = today’s visits only. Week = Mon–Fri for the week you pick. Month = full month. Use arrows in Week/Month to
+              move forward or back.
             </HelpTip>
           </div>
         </div>
@@ -1909,11 +1999,17 @@ export default function DoctorDashboardPage() {
           <Loader variant="page" label="Loading appointments" sublabel="Almost there…" />
         ) : appointments.length === 0 ? (
           <DoctorEmptyWell
-            title={selectedDate === todayStr ? "Clear calendar today" : "No appointments this day"}
+            title={
+              scheduleView === "day"
+                ? "Clear calendar today"
+                : scheduleView === "week"
+                  ? "No visits this week"
+                  : "No visits this month"
+            }
             description={
-              selectedDate === todayStr
-                ? "When patients book with you, they will show up here. You can change the date above to plan ahead."
-                : `Nothing scheduled for ${formatMonthDayYear(selectedDate)}. Pick another date or enjoy the lighter day.`
+              scheduleView === "day"
+                ? "When patients book with you, they will show up here. Use Week or Month above to plan ahead."
+                : `Nothing on your schedule for ${scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}. Try another week or month.`
             }
           >
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100/80 text-[#16a349] shadow-inner">
@@ -1922,7 +2018,26 @@ export default function DoctorDashboardPage() {
           </DoctorEmptyWell>
         ) : (
           <div className="stagger-children space-y-2.5">
-            {sortedAppointments.map((appt) => (
+            {scheduleListItems.map((item) => {
+              if (item.kind === "day-header") {
+                return (
+                  <div
+                    key={`hdr-${item.dateIso}`}
+                    className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-1.5 pt-4 first:pt-0"
+                  >
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-600">
+                      {item.isToday ? "Today" : formatWeekdayMonthDayYear(item.dateIso)}
+                    </p>
+                    {item.isToday ? (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                        Current day
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              }
+              const appt = item.appointment;
+              return (
               <div
                 key={appt.id}
                 className={`overflow-hidden rounded-xl border transition hover:shadow-sm ${
@@ -1942,6 +2057,11 @@ export default function DoctorDashboardPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">{appt.patient}</p>
                       <p className="mt-1.5 text-[13px] leading-normal text-slate-500">
+                        {scheduleView !== "day" ? (
+                          <span className="font-medium text-slate-600">
+                            {formatMonthDayYear(appt.appointment_date)} ·{" "}
+                          </span>
+                        ) : null}
                         {appt.start_time} – {appt.end_time}
                         {appt.service ? ` · ${appt.service}` : " · Follow-up"}
                       </p>
@@ -2144,7 +2264,8 @@ export default function DoctorDashboardPage() {
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </section>
