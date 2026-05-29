@@ -866,7 +866,7 @@ function DoctorSchedulePageInner() {
       <BookNextVisitModal
         bookNext={bookNext}
         titleId="doctor-schedule-book-next-title"
-        showOnlineRulesHint={false}
+        showDeskHoursHint={false}
       />
     </div>
   );
