@@ -2,6 +2,7 @@
 
 import { useAppFeedback } from "@/components/app-feedback";
 import type { BookNextDayAppointment } from "@/components/visit-panel/book-next-schedule-panel";
+import { addDaysIso, monthGridRange, weekRangeContaining } from "@/lib/book-next-schedule-dates";
 import { fetchAvailabilitySlots } from "@/lib/availability-slots";
 import { apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import type { BookingOptionsResponse } from "@/lib/booking-options-types";
@@ -57,6 +58,10 @@ export function useBookNextVisit({
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [dayAppointments, setDayAppointments] = useState<BookNextDayAppointment[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
+  const [rangeAppointments, setRangeAppointments] = useState<BookNextDayAppointment[]>([]);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [scheduleView, setScheduleView] = useState<"day" | "week" | "month">("day");
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
 
   const pickProviderForService = useCallback(
     (sid: number, src: BookNextSource) => {
@@ -78,6 +83,9 @@ export function useBookNextVisit({
     setVisitContext(null);
     setNextHandoffNotes("");
     setDayAppointments([]);
+    setRangeAppointments([]);
+    setScheduleView("day");
+    setScheduleExpanded(false);
   }, []);
 
   const open = useCallback(
@@ -215,6 +223,56 @@ export function useBookNextVisit({
     };
   }, [source?.id, date, providerId]);
 
+  useEffect(() => {
+    if (!source || !providerId || !date || scheduleView === "day") {
+      setRangeAppointments([]);
+      return;
+    }
+    let cancelled = false;
+    const range =
+      scheduleView === "week"
+        ? weekRangeContaining(date)
+        : monthGridRange(date);
+    void (async () => {
+      setRangeLoading(true);
+      try {
+        const params = new URLSearchParams({
+          date_from: range.start,
+          date_to: range.end,
+          provider_id: String(providerId),
+        });
+        const list = await apiGetAuth<
+          Array<{
+            id: number;
+            appointment_date: string;
+            patient_name: string;
+            start_time: string;
+            end_time: string;
+            status: string;
+          }>
+        >(`/appointments/?${params.toString()}`);
+        if (cancelled) return;
+        setRangeAppointments(
+          list.map((a) => ({
+            id: a.id,
+            appointment_date: a.appointment_date,
+            patient_name: a.patient_name,
+            start_time: a.start_time,
+            end_time: a.end_time,
+            status: a.status,
+          })),
+        );
+      } catch {
+        if (!cancelled) setRangeAppointments([]);
+      } finally {
+        if (!cancelled) setRangeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [source?.id, date, providerId, scheduleView]);
+
   const selectSlot = useCallback((time: string) => {
     setSelectedSlot(time);
   }, []);
@@ -309,6 +367,12 @@ export function useBookNextVisit({
     selectedSlot,
     setSelectedSlot: selectSlot,
     dayAppointments,
+    rangeAppointments,
+    rangeLoading,
+    scheduleView,
+    setScheduleView,
+    scheduleExpanded,
+    setScheduleExpanded,
     providerName,
     useDeskAvailability,
     canSubmit,
