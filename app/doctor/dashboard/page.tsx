@@ -33,6 +33,7 @@ import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { emailPatientBillDoctor } from "@/lib/patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import { sortDoctorDashboardAppointments } from "@/lib/doctor-dashboard-schedule-sort";
 import { clinicTodayIso, formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -56,6 +57,7 @@ type Appointment = {
   appointment_date: string;
   /** e.g. "09:30:00" — send to the API when changing start time. */
   start_time_iso: string;
+  end_time_iso?: string;
   start_time: string;
   end_time: string;
   status: string;
@@ -358,6 +360,11 @@ export default function DoctorDashboardPage() {
   }, [paymentFollowUp?.invoice_id, paymentFollowUp?.payment?.charged, handlePaymentReceived]);
 
   const firstName = displayName.trim().split(/\s+/)[0] || "there";
+
+  const sortedAppointments = useMemo(
+    () => sortDoctorDashboardAppointments(appointments, selectedDate, todayStr),
+    [appointments, selectedDate, todayStr],
+  );
 
   const dayStats = useMemo(() => {
     const list = appointments;
@@ -1878,6 +1885,11 @@ export default function DoctorDashboardPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-600">
             Only your patients · {selectedDate === todayStr ? "Today" : formatMonthDayYear(selectedDate)}
+            {selectedDate === todayStr ? (
+              <span className="mt-1 block text-xs text-slate-500">
+                Checked-in patients appear first, then upcoming visits, then past or finished visits at the bottom.
+              </span>
+            ) : null}
           </p>
           <div className="flex items-center gap-2">
             <input
@@ -1910,7 +1922,7 @@ export default function DoctorDashboardPage() {
           </DoctorEmptyWell>
         ) : (
           <div className="stagger-children space-y-2.5">
-            {appointments.map((appt) => (
+            {sortedAppointments.map((appt) => (
               <div
                 key={appt.id}
                 className={`overflow-hidden rounded-xl border transition hover:shadow-sm ${
