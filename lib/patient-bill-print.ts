@@ -655,10 +655,7 @@ export function openPatientBillPrint(b: PatientBillPayload) {
   const w = window.open("", "_blank", "width=900,height=900");
   if (!w) return false;
 
-  let html = getPatientBillDocumentHtml(b);
-  if (!b.is_preview) {
-    html = html.replace("</body>", `<script>window.onload=function(){window.print();};</script></body>`);
-  }
+  const html = getPatientBillDocumentHtml(b);
 
   w.document.open();
   w.document.write(html);

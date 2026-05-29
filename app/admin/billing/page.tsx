@@ -214,7 +214,7 @@ export default function AdminBillingPage() {
     try {
       const bill = await apiGetAuth<PatientBillPayload>(`/admin/invoice_bill/?invoice_id=${invoiceId}`);
       setPatientBillModal(bill);
-      toast.success("Patient bill opened for printing.");
+      toast.success("Patient bill opened — tap Print or Email when ready.");
     } catch (e) {
       toast.error(
         e instanceof ApiError

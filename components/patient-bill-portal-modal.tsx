@@ -14,12 +14,11 @@ type PatientBillPortalModalProps = {
 
 /**
  * Full-screen overlay + scrollable bill preview in an iframe (portal → document.body).
- * Official (non-preview) bills trigger the print dialog once after the iframe loads.
+ * Print runs only when the user taps Print (not automatically after payment).
  */
 export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBill }: PatientBillPortalModalProps) {
   const [portalReady, setPortalReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const autoPrintDoneRef = useRef(false);
 
   useEffect(() => {
     setPortalReady(true);
@@ -34,10 +33,6 @@ export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBil
     };
   }, [bill]);
 
-  useEffect(() => {
-    autoPrintDoneRef.current = false;
-  }, [bill]);
-
   const triggerPrint = useCallback(() => {
     try {
       iframeRef.current?.contentWindow?.focus();
@@ -46,13 +41,6 @@ export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBil
       /* non-fatal */
     }
   }, []);
-
-  const onIframeLoad = useCallback(() => {
-    if (!bill || bill.is_preview) return;
-    if (autoPrintDoneRef.current) return;
-    autoPrintDoneRef.current = true;
-    window.setTimeout(() => triggerPrint(), 150);
-  }, [bill, triggerPrint]);
 
   useEffect(() => {
     if (!bill) return;
@@ -129,7 +117,6 @@ export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBil
             title="Patient bill"
             className="h-full min-h-[50dvh] w-full rounded-lg border border-slate-200 bg-white shadow-inner"
             srcDoc={docHtml}
-            onLoad={onIframeLoad}
           />
         </div>
       </div>

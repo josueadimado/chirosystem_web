@@ -300,7 +300,9 @@ export default function DoctorDashboardPage() {
     async (invoiceId: number, message = "Payment received.") => {
       if (paymentHandledForInvoiceRef.current === invoiceId) return;
       paymentHandledForInvoiceRef.current = invoiceId;
-      toast.success(message);
+      toast.success(
+        message.includes("—") ? message : `${message} Use Print or Email bill on the green banner when ready.`,
+      );
       setPaymentFollowUp((prev) =>
         prev
           ? {
@@ -316,7 +318,6 @@ export default function DoctorDashboardPage() {
           : null,
       );
       setSquareCheckoutId(null);
-      await tryOpenPatientBill(invoiceId, { maxAttempts: 12, quiet: true });
       await load();
     },
     // tryOpenPatientBill and load are stable enough for this screen session
@@ -726,9 +727,6 @@ export default function DoctorDashboardPage() {
           professional_discount_reason: professionalDiscountReason.trim(),
           charge_saved_card_if_present: shouldChargeSavedCard,
         });
-        if (result.payment.charged) {
-          await tryOpenPatientBill(result.invoice_id, { maxAttempts: 3 });
-        }
         setPaymentFollowUp({
           invoice_id: result.invoice_id,
           invoice_number: result.invoice_number,
@@ -798,8 +796,8 @@ export default function DoctorDashboardPage() {
           isRevisingAwaitingPayment
             ? ""
             : r?.payment?.charged
-              ? "Visit completed — payment received; patient bill opened for printing."
-              : "Visit completed — collect payment, then tap Print patient bill.",
+              ? "Visit completed — payment received. Use Print or Email bill on the green banner when ready."
+              : "Visit completed — collect payment, then use Print or Email bill on the green banner.",
         errorFallback: isRevisingAwaitingPayment
           ? "Could not update billing."
           : "Could not complete this visit.",
@@ -937,7 +935,6 @@ export default function DoctorDashboardPage() {
             : prev,
         );
         if (out.already_paid) {
-          await tryOpenPatientBill(out.invoice_id, { maxAttempts: 3, quiet: true });
           await load();
         }
         return out;
@@ -1015,7 +1012,7 @@ export default function DoctorDashboardPage() {
               cache: "no-store",
             });
             setPatientBillModal(bill);
-            if (!opts?.quiet) toast.success("Patient bill opened for printing.");
+            if (!opts?.quiet) toast.success("Patient bill opened — tap Print or Email when ready.");
             return true;
           }
         } catch {
@@ -1070,7 +1067,6 @@ export default function DoctorDashboardPage() {
           try_saved_card: opts?.trySavedCard ?? false,
         });
         if (out.already_paid && out.payment.charged) {
-          await tryOpenPatientBill(out.invoice_id, { maxAttempts: 4, quiet: true });
           await load();
           return out;
         }
@@ -1088,7 +1084,7 @@ export default function DoctorDashboardPage() {
         loadingMessage: "Loading payment options…",
         successMessage: (o) =>
           o?.already_paid
-            ? "Already paid — refreshed schedule and opened patient bill if ready."
+            ? "Already paid — schedule refreshed. Use Print or Email bill on the banner when ready."
             : "Payment banner is open above — desk checkout, reader, or retry saved card.",
         errorFallback: "Could not load payment options.",
       },
@@ -1631,7 +1627,8 @@ export default function DoctorDashboardPage() {
               )}
               {paymentFollowUp.payment.charged && (
                 <p className="mt-2 font-semibold text-[#166534]">
-                  Paid — you can print the patient bill for their records.
+                  Paid — use <strong>Print patient bill</strong> or <strong>Email bill</strong> on the right when you are
+                  ready (nothing prints automatically).
                 </p>
               )}
               {!paymentFollowUp.payment.charged && (
@@ -1743,27 +1740,30 @@ export default function DoctorDashboardPage() {
                   {previewingBill ? "Loading…" : "Preview bill (before payment)"}
                 </button>
               )}
-              <button
-                type="button"
-                disabled={emailingBill}
-                onClick={() => void emailPatientBill(paymentFollowUp.invoice_id)}
-                className="rounded-lg border border-[#0f766e]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
-              >
-                {emailingBill ? "Sending…" : "Email bill"}
-              </button>
-              <button
-                type="button"
-                disabled={printingBill}
-                onClick={() => void tryOpenPatientBill(paymentFollowUp.invoice_id, { maxAttempts: 3 })}
-                className="rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
-              >
-                {printingBill ? "Checking…" : "Print patient bill"}
-              </button>
-              <HelpTip label="Print patient bill" tone="emerald">
-                Preview and print always load the <strong>current saved</strong> bill from the server — same line items, diagnosis, and totals
-                as after you tap <strong>Update invoice</strong>. Official print opens only after payment and may trigger the print dialog. If
-                checkout just finished, wait a moment and tap again if the first try is early.
-              </HelpTip>
+              {paymentFollowUp.payment.charged ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={emailingBill}
+                    onClick={() => void emailPatientBill(paymentFollowUp.invoice_id)}
+                    className="rounded-lg border border-[#0f766e]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    {emailingBill ? "Sending…" : "Email bill"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={printingBill}
+                    onClick={() => void tryOpenPatientBill(paymentFollowUp.invoice_id, { maxAttempts: 3 })}
+                    className="rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+                  >
+                    {printingBill ? "Loading…" : "Print patient bill"}
+                  </button>
+                  <HelpTip label="Print or email bill" tone="emerald">
+                    Opens a preview — you choose <strong>Print</strong> or <strong>Email</strong> from that screen. Loads the
+                    current saved bill from the server. If checkout just finished, wait a moment and try again if needed.
+                  </HelpTip>
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setPaymentFollowUp(null)}
