@@ -159,6 +159,8 @@ export default function DoctorDashboardPage() {
   /** Saved on the appointment row for handoff / next doctor (separate from visit-only notes). */
   const [handoffNotes, setHandoffNotes] = useState("");
   const [savingHandoff, setSavingHandoff] = useState(false);
+  const [savingSoapNotes, setSavingSoapNotes] = useState(false);
+  const [soapNotesLoaded, setSoapNotesLoaded] = useState(false);
   const [handoffWideOpen, setHandoffWideOpen] = useState(false);
   const [handoffWideEditOpen, setHandoffWideEditOpen] = useState(false);
   const [soapWideOpen, setSoapWideOpen] = useState(false);
@@ -167,6 +169,7 @@ export default function DoctorDashboardPage() {
   const bookNext = useBookNextVisit({
     todayMinIso: todayStr,
     preferredProviderId: myProviderId,
+    useDeskAvailability: true,
     onBooked: () => load(),
   });
   const rescheduleVisit = useRescheduleVisitSlots({
@@ -466,7 +469,10 @@ export default function DoctorDashboardPage() {
     if (revisingBillingForAppointmentId === activeAppt.id) {
       return;
     }
-    setDoctorNotes("");
+    if (activeAppt.status !== "in_consultation") {
+      setDoctorNotes("");
+      setSoapNotesLoaded(false);
+    }
     setProfessionalDiscount("");
     setProfessionalDiscountReason("");
   }, [activeAppt?.id, activeAppt?.status, revisingBillingForAppointmentId]);
@@ -511,10 +517,12 @@ export default function DoctorDashboardPage() {
     }
 
     let cancelled = false;
+    setSoapNotesLoaded(false);
     void apiGetAuth<{
       diagnosis_ids: number[];
       prefilled_from_prior: boolean;
       prior_visit: DiagnosisPriorVisitHint | null;
+      doctor_notes?: string;
     }>(`/doctor/${activeAppt.id}/consultation_diagnoses/`)
       .then((data) => {
         if (cancelled) return;
@@ -522,11 +530,15 @@ export default function DoctorDashboardPage() {
         setDiagnosisPriorVisitHint(
           data.prefilled_from_prior && data.prior_visit ? data.prior_visit : null,
         );
+        setDoctorNotes(data.doctor_notes ?? "");
+        setSoapNotesLoaded(true);
       })
       .catch(() => {
         if (!cancelled) {
           setSelectedDiagnosisIds([]);
           setDiagnosisPriorVisitHint(null);
+          setDoctorNotes("");
+          setSoapNotesLoaded(true);
         }
       });
     return () => {
@@ -553,13 +565,35 @@ export default function DoctorDashboardPage() {
           await load({ focusAppointmentId: activeAppt.id });
         },
         {
-          loadingMessage: "Saving chart note…",
+          loadingMessage: "Saving reminders…",
           successMessage: "Reminders & handoff saved — visible on this patient’s next visits.",
-          errorFallback: "Could not save chart note.",
+          errorFallback: "Could not save reminders & handoff.",
         },
       );
     } finally {
       setSavingHandoff(false);
+    }
+  };
+
+  const saveSoapNotes = async () => {
+    if (!activeAppt) return;
+    setSavingSoapNotes(true);
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch("/doctor/appointment_soap_notes/", {
+            appointment_id: activeAppt.id,
+            doctor_notes: doctorNotes,
+          });
+        },
+        {
+          loadingMessage: "Saving consultation notes…",
+          successMessage: "SOAP notes saved — you can keep editing until you complete the visit.",
+          errorFallback: "Could not save consultation notes.",
+        },
+      );
+    } finally {
+      setSavingSoapNotes(false);
     }
   };
 
@@ -1134,12 +1168,12 @@ export default function DoctorDashboardPage() {
     };
 
     const consultNavItems = [
-      { id: "consult-chart", label: "Handoff" },
+      { id: "consult-chart", label: "Chart notes" },
       { id: "consult-diagnosis", label: "Diagnosis" },
       { id: "consult-procedures", label: "Procedures" },
-      { id: "consult-notes", label: "SOAP notes" },
       { id: "consult-finish", label: "Finish" },
     ] as const;
+    const showSoapInBillingForm = isRevisingBilling;
 
     return (
       <>
@@ -1237,46 +1271,98 @@ export default function DoctorDashboardPage() {
             <AppointmentClientReason reason={activeAppt.reason_for_visit} />
           ) : (
             <p className="text-sm text-slate-700">
-              Not recorded yet — the patient may add a reason when booking online, or you can note details in consultation
-              (SOAP) notes below.
+              Not recorded yet — the patient may add a reason when booking online, or note details in consultation (SOAP)
+              notes in the chart section below.
             </p>
           )}
         </div>
         <VisitPriorChartNotes appointmentId={activeAppt.id} className="mb-3" />
-        <div id="consult-chart" className="scroll-mt-24 rounded-xl border border-sky-200/70 bg-sky-50/50 p-3">
-          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Visit reminders & handoff
-              </p>
-              <HelpTip label="Visit reminders & handoff" tone="emerald">
-                Saved on this appointment for the next visit (not your SOAP exam notes). Use for follow-up reminders,
-                preferences, or anything the next doctor should know.
-              </HelpTip>
-            </div>
-            <ChartNoteOpenWideButton
-              onClick={() => {
-                setHandoffWideEditOpen(!handoffNotes.trim());
-                setHandoffWideOpen(true);
-              }}
-            />
-          </div>
-          <ChartNoteRichEditor
-            value={handoffNotes}
-            onChange={setHandoffNotes}
-            className={spacious ? "text-base" : "text-sm"}
-            minHeightClassName={spacious ? "min-h-[5.5rem]" : "min-h-[5rem]"}
-            disabled={savingHandoff}
-          />
-          <button
-            type="button"
-            disabled={savingHandoff}
-            onClick={() => void saveHandoffNote()}
-            className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 shadow-sm hover:bg-sky-100 disabled:opacity-50"
+        {!isRevisingBilling ? (
+          <div
+            id="consult-chart"
+            className="scroll-mt-24 space-y-4 rounded-xl border border-sky-200/70 bg-sky-50/50 p-3 sm:p-4"
           >
-            {savingHandoff ? "Saving…" : "Save reminders & handoff"}
-          </button>
-        </div>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-sky-900">Chart notes for this visit</p>
+            <p className="text-xs leading-relaxed text-sky-950/85">
+              Save as you go — notes are stored on the server before you complete the visit. Handoff is for the{" "}
+              <span className="font-medium">next</span> appointment; SOAP is your exam documentation (not on the patient bill).
+            </p>
+
+            <div id="consult-handoff" className="scroll-mt-24 rounded-lg border border-sky-200/80 bg-white/70 p-3">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Visit reminders & handoff
+                  </p>
+                  <HelpTip label="Visit reminders & handoff" tone="emerald">
+                    For the next visit — birthday cards, preferences, or what the next doctor should check.
+                  </HelpTip>
+                </div>
+                <ChartNoteOpenWideButton
+                  onClick={() => {
+                    setHandoffWideEditOpen(!handoffNotes.trim());
+                    setHandoffWideOpen(true);
+                  }}
+                />
+              </div>
+              <ChartNoteRichEditor
+                value={handoffNotes}
+                onChange={setHandoffNotes}
+                className={spacious ? "text-base" : "text-sm"}
+                minHeightClassName={spacious ? "min-h-[4.5rem]" : "min-h-[4rem]"}
+                disabled={savingHandoff}
+              />
+              <button
+                type="button"
+                disabled={savingHandoff}
+                onClick={() => void saveHandoffNote()}
+                className="mt-2 rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 shadow-sm hover:bg-sky-100 disabled:opacity-50"
+              >
+                {savingHandoff ? "Saving…" : "Save reminders & handoff"}
+              </button>
+            </div>
+
+            <div id="consult-soap" className="scroll-mt-24 rounded-lg border border-violet-200/80 bg-white/70 p-3">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Consultation notes (SOAP)
+                  </p>
+                  <HelpTip label="Consultation notes (SOAP)" tone="emerald">
+                    Exam documentation for this visit. Tap Save often — you do not have to wait until Complete visit.
+                  </HelpTip>
+                </div>
+                <ChartNoteOpenWideButton
+                  onClick={() => {
+                    setSoapWideEditOpen(true);
+                    setSoapWideOpen(true);
+                  }}
+                />
+              </div>
+              {!soapNotesLoaded ? (
+                <p className="text-sm text-slate-500">Loading saved notes…</p>
+              ) : (
+                <>
+                  <ChartNoteRichEditor
+                    value={doctorNotes}
+                    onChange={setDoctorNotes}
+                    className={spacious ? "text-base" : "text-sm"}
+                    minHeightClassName={spacious ? "min-h-[6rem]" : "min-h-[5.5rem]"}
+                    disabled={savingSoapNotes || isCompleting}
+                  />
+                  <button
+                    type="button"
+                    disabled={savingSoapNotes || isCompleting}
+                    onClick={() => void saveSoapNotes()}
+                    className="mt-2 rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-semibold text-violet-950 shadow-sm hover:bg-violet-100 disabled:opacity-50"
+                  >
+                    {savingSoapNotes ? "Saving…" : "Save SOAP notes"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
         <VisitBillingForm
           spacious={spacious}
           discountLayout="embedded"
@@ -1291,6 +1377,7 @@ export default function DoctorDashboardPage() {
           diagnosisPriorVisitHint={diagnosisPriorVisitHint}
           doctorNotes={doctorNotes}
           onDoctorNotesChange={setDoctorNotes}
+          showVisitNotes={showSoapInBillingForm}
           professionalDiscount={professionalDiscount}
           onProfessionalDiscountChange={setProfessionalDiscount}
           professionalDiscountReason={professionalDiscountReason}
@@ -1304,11 +1391,15 @@ export default function DoctorDashboardPage() {
           }
           diagnosisSectionId="consult-diagnosis"
           proceduresSectionId="consult-procedures"
-          notesSectionId="consult-notes"
-          onOpenSoapWideView={() => {
-            setSoapWideEditOpen(true);
-            setSoapWideOpen(true);
-          }}
+          notesSectionId={showSoapInBillingForm ? "consult-notes" : undefined}
+          onOpenSoapWideView={
+            showSoapInBillingForm
+              ? () => {
+                  setSoapWideEditOpen(true);
+                  setSoapWideOpen(true);
+                }
+              : undefined
+          }
           soapNotesDisabled={isCompleting}
           proceduresHelpLabel="Patient bill lines"
           proceduresHelpContent={
@@ -1451,11 +1542,9 @@ export default function DoctorDashboardPage() {
           editOpen={soapWideEditOpen}
           onEditOpenChange={setSoapWideEditOpen}
           onChange={setDoctorNotes}
-          onSave={() => {
-            setSoapWideEditOpen(false);
-            setSoapWideOpen(false);
-          }}
-          saveLabel="Done"
+          onSave={() => void saveSoapNotes()}
+          saving={savingSoapNotes}
+          saveLabel="Save SOAP notes"
         />
       </>
     );

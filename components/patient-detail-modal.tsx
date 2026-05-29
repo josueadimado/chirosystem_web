@@ -20,6 +20,11 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
+import {
+  communicationPrefsFromDetail,
+  PatientCommunicationPrefsFields,
+  type NotifyChannel,
+} from "@/components/patient-communication-prefs";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
@@ -94,6 +99,9 @@ type PatientDetail = {
   online_chiro_intake_waived?: boolean;
   sms_consent?: boolean;
   sms_consent_at?: string | null;
+  notify_booking?: string;
+  notify_reminders?: string;
+  notify_bills?: string;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -136,6 +144,9 @@ export function PatientDetailModal({
     marital_status: "",
     online_chiro_intake_waived: false,
     sms_consent: false,
+    notify_booking: "sms" as NotifyChannel,
+    notify_reminders: "sms" as NotifyChannel,
+    notify_bills: "email" as NotifyChannel,
   });
   const isAdminChart = detailPath === "/admin/patient_detail";
 
@@ -214,6 +225,7 @@ export function PatientDetailModal({
           marital_status: d.marital_status || "",
           online_chiro_intake_waived: d.online_chiro_intake_waived === true,
           sms_consent: d.sms_consent === true,
+          ...communicationPrefsFromDetail(d),
         });
         if (detailPath === "/admin/patient_detail") {
           setTab("intake");
@@ -306,6 +318,9 @@ export function PatientDetailModal({
               email: intakeForm.email.trim(),
             }
           : {}),
+        notify_booking: intakeForm.notify_booking,
+        notify_reminders: intakeForm.notify_reminders,
+        notify_bills: intakeForm.notify_bills,
         ...(isAdminChart
           ? {
               online_chiro_intake_waived: intakeForm.online_chiro_intake_waived,
@@ -332,6 +347,7 @@ export function PatientDetailModal({
         marital_status: refreshed.marital_status || "",
         online_chiro_intake_waived: refreshed.online_chiro_intake_waived === true,
         sms_consent: refreshed.sms_consent === true,
+        ...communicationPrefsFromDetail(refreshed),
       });
     } catch (e) {
       setIntakeMsg(e instanceof ApiError ? e.message : "Save failed.");
@@ -388,6 +404,9 @@ export function PatientDetailModal({
       intakeForm.last_name !== (detail.last_name || "") ||
       intakeForm.phone !== (detail.phone?.trim() ? detail.phone : undefined) ||
       intakeForm.email !== (detail.email || "") ||
+      intakeForm.notify_booking !== communicationPrefsFromDetail(detail).notify_booking ||
+      intakeForm.notify_reminders !== communicationPrefsFromDetail(detail).notify_reminders ||
+      intakeForm.notify_bills !== communicationPrefsFromDetail(detail).notify_bills ||
       (isAdminChart &&
         (intakeForm.online_chiro_intake_waived !== (detail.online_chiro_intake_waived === true) ||
           intakeForm.sms_consent !== (detail.sms_consent === true))));
@@ -946,6 +965,27 @@ export function PatientDetailModal({
                       </section>
                     ) : null}
                   </div>
+                  {!readOnlyChart ? (
+                    <PatientCommunicationPrefsFields
+                      prefs={{
+                        notify_booking: intakeForm.notify_booking,
+                        notify_reminders: intakeForm.notify_reminders,
+                        notify_bills: intakeForm.notify_bills,
+                      }}
+                      smsConsent={
+                        isAdminChart ? intakeForm.sms_consent : detail.sms_consent === true
+                      }
+                      showSmsConsentNote
+                      onChange={(p) =>
+                        setIntakeForm((f) => ({
+                          ...f,
+                          notify_booking: p.notify_booking,
+                          notify_reminders: p.notify_reminders,
+                          notify_bills: p.notify_bills,
+                        }))
+                      }
+                    />
+                  ) : null}
                   {isAdminChart && !readOnlyChart ? (
                     <section className="space-y-3 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Clinic preferences</p>
@@ -1014,6 +1054,7 @@ export function PatientDetailModal({
                                 marital_status: detail.marital_status || "",
                                 online_chiro_intake_waived: detail.online_chiro_intake_waived === true,
                                 sms_consent: detail.sms_consent === true,
+                                ...communicationPrefsFromDetail(detail),
                               })
                             }
                             disabled={!intakeDirty || savingIntake}

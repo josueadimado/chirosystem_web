@@ -9,6 +9,11 @@ import {
 import { UsDateInput } from "@/components/us-date-input";
 import { useEffect, useMemo, useState } from "react";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
+import {
+  communicationPrefsFromDetail,
+  PatientCommunicationPrefsFields,
+  type PatientCommunicationPrefs,
+} from "@/components/patient-communication-prefs";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
@@ -31,6 +36,10 @@ export type PatientDemographicsSource = {
   city_state_zip: string;
   emergency_contact_name: string;
   emergency_contact_phone: string;
+  notify_booking?: string;
+  notify_reminders?: string;
+  notify_bills?: string;
+  sms_consent?: boolean;
 };
 
 type IntakeForm = {
@@ -93,6 +102,8 @@ type Props = {
   canEditDateEstablished?: boolean;
   /** Name, phone, and email (doctors with full chart access). */
   includeContactFields?: boolean;
+  /** Booking / reminder / bill channel preferences (doctor + admin). */
+  showCommunicationPrefs?: boolean;
 };
 
 /**
@@ -108,21 +119,42 @@ export function PatientDemographicsEditor({
   readOnlyMessage = "",
   canEditDateEstablished = false,
   includeContactFields = false,
+  showCommunicationPrefs = true,
 }: Props) {
   const [form, setForm] = useState<IntakeForm>(() =>
     detailToForm(patient, canEditDateEstablished, includeContactFields),
+  );
+  const [commPrefs, setCommPrefs] = useState<PatientCommunicationPrefs>(() =>
+    communicationPrefsFromDetail(patient),
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     setForm(detailToForm(patient, canEditDateEstablished, includeContactFields));
+    setCommPrefs(communicationPrefsFromDetail(patient));
   }, [patient, canEditDateEstablished, includeContactFields]);
 
-  const dirty = useMemo(
-    () => formDirty(form, patient, canEditDateEstablished, includeContactFields),
-    [form, patient, canEditDateEstablished, includeContactFields],
-  );
+  const baselineComm = useMemo(() => communicationPrefsFromDetail(patient), [patient]);
+
+  const dirty = useMemo(() => {
+    if (formDirty(form, patient, canEditDateEstablished, includeContactFields)) return true;
+    if (!showCommunicationPrefs || readOnly) return false;
+    return (
+      commPrefs.notify_booking !== baselineComm.notify_booking ||
+      commPrefs.notify_reminders !== baselineComm.notify_reminders ||
+      commPrefs.notify_bills !== baselineComm.notify_bills
+    );
+  }, [
+    form,
+    patient,
+    canEditDateEstablished,
+    includeContactFields,
+    showCommunicationPrefs,
+    readOnly,
+    commPrefs,
+    baselineComm,
+  ]);
 
   const save = async () => {
     if (includeContactFields) {
@@ -158,6 +190,13 @@ export function PatientDemographicsEditor({
         ...(canEditDateEstablished
           ? { date_established: form.date_established.trim() ? form.date_established : null }
           : {}),
+        ...(showCommunicationPrefs && !readOnly
+          ? {
+              notify_booking: commPrefs.notify_booking,
+              notify_reminders: commPrefs.notify_reminders,
+              notify_bills: commPrefs.notify_bills,
+            }
+          : {}),
       });
       const refreshed = await apiGetAuth<PatientDemographicsSource>(
         `${detailPath}/?patient_id=${patient.id}`,
@@ -175,6 +214,13 @@ export function PatientDemographicsEditor({
 
   return (
     <section className="space-y-4">
+      {showCommunicationPrefs && !readOnly ? (
+        <PatientCommunicationPrefsFields
+          prefs={commPrefs}
+          smsConsent={patient.sms_consent === true}
+          onChange={setCommPrefs}
+        />
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold tracking-tight text-slate-900">Patient information</h2>

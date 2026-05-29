@@ -1,8 +1,9 @@
 "use client";
 
 import { useAppFeedback } from "@/components/app-feedback";
+import type { BookNextDayAppointment } from "@/components/visit-panel/book-next-schedule-panel";
 import { fetchAvailabilitySlots } from "@/lib/availability-slots";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import type { BookingOptionsResponse } from "@/lib/booking-options-types";
 import { useCallback, useEffect, useState } from "react";
 
@@ -14,21 +15,36 @@ export type BookNextSource = {
   providerId?: number;
 };
 
+export type BookNextVisitContext = {
+  patient_name: string;
+  appointment_date: string;
+  start_time_display: string;
+  service_name: string;
+  provider_name: string;
+  provider_id: number;
+  handoff_notes: string;
+  clinical_notes: string;
+  diagnosis: string;
+  diagnoses: Array<{ id: number | null; code: string; description: string }>;
+};
+
 export function useBookNextVisit({
   todayMinIso,
   onBooked,
-  useDeskAvailability = false,
+  useDeskAvailability = true,
   preferredProviderId,
 }: {
   todayMinIso: string;
   onBooked: () => void | Promise<void>;
-  /** Admin schedule: extended desk hours when loading slots. */
+  /** Staff/doctor extended hours when loading slots and schedule. */
   useDeskAvailability?: boolean;
-  /** Doctor dashboard: default to logged-in provider when possible. */
   preferredProviderId?: number | null;
 }) {
   const { runWithFeedback } = useAppFeedback();
   const [source, setSource] = useState<BookNextSource | null>(null);
+  const [visitContext, setVisitContext] = useState<BookNextVisitContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [nextHandoffNotes, setNextHandoffNotes] = useState("");
   const [bookingOptions, setBookingOptions] = useState<BookingOptionsResponse | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,6 +55,8 @@ export function useBookNextVisit({
   const [slotTimes, setSlotTimes] = useState<string[]>([]);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [dayAppointments, setDayAppointments] = useState<BookNextDayAppointment[]>([]);
+  const [dayLoading, setDayLoading] = useState(false);
 
   const pickProviderForService = useCallback(
     (sid: number, src: BookNextSource) => {
@@ -57,20 +75,30 @@ export function useBookNextVisit({
   const close = useCallback(() => {
     setSource(null);
     setBookingOptions(null);
+    setVisitContext(null);
+    setNextHandoffNotes("");
+    setDayAppointments([]);
   }, []);
 
   const open = useCallback(
     (src: BookNextSource, opts?: { initialDate?: string }) => {
       void (async () => {
         setSource(src);
+        setContextLoading(true);
+        setVisitContext(null);
+        setNextHandoffNotes("");
         const initialDate =
           opts?.initialDate ??
           (src.appointmentDate >= todayMinIso ? src.appointmentDate : todayMinIso);
         setDate(initialDate);
         setOptionsLoading(true);
         try {
-          const optsRes = await apiGet<BookingOptionsResponse>("/booking-options/");
+          const [optsRes, ctx] = await Promise.all([
+            apiGet<BookingOptionsResponse>("/booking-options/"),
+            apiGetAuth<BookNextVisitContext>(`/appointments/${src.id}/book_next_context/`),
+          ]);
           setBookingOptions(optsRes);
+          setVisitContext(ctx);
           const sid =
             src.bookedServiceId != null && optsRes.services.some((s) => s.id === src.bookedServiceId)
               ? src.bookedServiceId
@@ -81,15 +109,19 @@ export function useBookNextVisit({
             pid = preferredProviderId;
           } else if (src.providerId != null && provs.some((p) => p.id === src.providerId)) {
             pid = src.providerId;
+          } else if (ctx.provider_id && provs.some((p) => p.id === ctx.provider_id)) {
+            pid = ctx.provider_id;
           }
           setServiceId(sid);
           setProviderId(pid);
         } catch {
           setBookingOptions(null);
+          setVisitContext(null);
           setServiceId(0);
           setProviderId(0);
         } finally {
           setOptionsLoading(false);
+          setContextLoading(false);
         }
       })();
     },
@@ -140,6 +172,61 @@ export function useBookNextVisit({
     };
   }, [source?.id, date, serviceId, providerId, useDeskAvailability]);
 
+  useEffect(() => {
+    if (!source || !date || !providerId) {
+      setDayAppointments([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setDayLoading(true);
+      try {
+        const params = new URLSearchParams({
+          appointment_date: date,
+          provider_id: String(providerId),
+        });
+        const list = await apiGetAuth<
+          Array<{
+            id: number;
+            patient_name: string;
+            start_time: string;
+            end_time: string;
+            status: string;
+          }>
+        >(`/appointments/?${params.toString()}`);
+        if (cancelled) return;
+        setDayAppointments(
+          list.map((a) => ({
+            id: a.id,
+            patient_name: a.patient_name,
+            start_time: a.start_time,
+            end_time: a.end_time,
+            status: a.status,
+          })),
+        );
+      } catch {
+        if (!cancelled) setDayAppointments([]);
+      } finally {
+        if (!cancelled) setDayLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [source?.id, date, providerId]);
+
+  const selectSlot = useCallback((time: string) => {
+    setSelectedSlot(time);
+  }, []);
+
+  const shiftDate = useCallback(
+    (iso: string) => {
+      if (iso < todayMinIso) return;
+      setDate(iso);
+    },
+    [todayMinIso],
+  );
+
   const submit = useCallback(async () => {
     if (!source || !serviceId || !providerId || !date || !selectedSlot) return;
     setSaving(true);
@@ -152,6 +239,7 @@ export function useBookNextVisit({
             provider_id: providerId,
             appointment_date: date,
             start_time: selectedSlot,
+            clinical_handoff_notes: nextHandoffNotes.trim(),
           });
           close();
           await onBooked();
@@ -165,11 +253,28 @@ export function useBookNextVisit({
     } finally {
       setSaving(false);
     }
-  }, [source, serviceId, providerId, date, selectedSlot, close, onBooked, runWithFeedback]);
+  }, [
+    source,
+    serviceId,
+    providerId,
+    date,
+    selectedSlot,
+    nextHandoffNotes,
+    close,
+    onBooked,
+    runWithFeedback,
+  ]);
+
+  const providerName =
+    bookingOptions?.providers_by_service[String(serviceId)]?.find((p) => p.id === providerId)
+      ?.provider_name ??
+    visitContext?.provider_name ??
+    "";
 
   const canSubmit =
     !saving &&
     !optionsLoading &&
+    !contextLoading &&
     !!serviceId &&
     !!providerId &&
     !!date &&
@@ -179,25 +284,33 @@ export function useBookNextVisit({
 
   return {
     isOpen: source !== null,
-    patientLabel: source?.patientLabel ?? "",
+    patientLabel: source?.patientLabel ?? visitContext?.patient_name ?? "",
     source,
+    visitContext,
+    contextLoading,
+    nextHandoffNotes,
+    setNextHandoffNotes,
     open,
     close,
     submit,
     saving,
     optionsLoading,
     slotsLoading,
+    dayLoading,
     bookingOptions,
     serviceId,
     providerId,
     setProviderId,
     onServiceChange,
     date,
-    setDate,
+    setDate: shiftDate,
     slotLabels,
     slotTimes,
     selectedSlot,
-    setSelectedSlot,
+    setSelectedSlot: selectSlot,
+    dayAppointments,
+    providerName,
+    useDeskAvailability,
     canSubmit,
     todayMinIso,
   };
