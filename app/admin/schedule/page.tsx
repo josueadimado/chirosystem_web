@@ -205,6 +205,7 @@ function AdminSchedulePageContent() {
   /** Invoice id for preview — matches snapshot when present; otherwise loaded from visit_billing_for_edit. */
   const [billingInvoiceIdHint, setBillingInvoiceIdHint] = useState<number | null>(null);
   const [billingHintLoading, setBillingHintLoading] = useState(false);
+  const [recordingCash, setRecordingCash] = useState(false);
 
   const { contact: patientContact, loading: patientContactLoading } = usePatientQuickContact(
     selected?.patient ?? null,
@@ -736,6 +737,36 @@ function AdminSchedulePageContent() {
   };
 
   const billInvoiceId = visitSnapshot?.invoice?.id ?? billingInvoiceIdHint ?? null;
+  const billTotalAmount = visitSnapshot?.invoice?.total_amount ?? null;
+
+  const recordCashPayment = async () => {
+    if (!billInvoiceId) return;
+    const amount = billTotalAmount ? parseFloat(billTotalAmount) : null;
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      toast.error("Invoice amount not available. Open the billing page to record this payment.");
+      return;
+    }
+    if (!window.confirm(`Record cash payment of $${billTotalAmount} and mark this invoice paid?`)) return;
+    setRecordingCash(true);
+    await runWithFeedback(
+      async () => {
+        await apiPost(`/invoices/${billInvoiceId}/pay/`, {
+          amount: billTotalAmount,
+          payment_method: "cash",
+          payment_reference: "",
+        });
+        const snap = await apiGetAuth<VisitSnapshot>(`/admin/visit_snapshot/?appointment_id=${selected!.id}`);
+        setVisitSnapshot(snap);
+        await loadAppointments();
+      },
+      {
+        loadingMessage: "Recording cash payment…",
+        successMessage: "Cash payment recorded — invoice marked paid.",
+        errorFallback: "Could not record payment. Try again.",
+      },
+    );
+    setRecordingCash(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -977,13 +1008,17 @@ function AdminSchedulePageContent() {
                     (appointmentUiStatus(selected) === "no_show" && selected.invoice_kind === "no_show_fee")
                       ? {
                           invoiceId: billInvoiceId,
+                          invoiceTotalAmount: billTotalAmount,
                           hintLoading: billingHintLoading,
                           snapshotLoading: visitSnapshotLoading,
                           previewing: previewingBill,
+                          recordingCash,
                           onPreview: () => {
                             if (billInvoiceId != null) void openPatientBillPreview(billInvoiceId);
                           },
                           onEditBilling: () => setBillingEditForAppointment(selected),
+                          onRecordCashPayment:
+                            selected.status === "awaiting_payment" ? () => void recordCashPayment() : undefined,
                         }
                       : undefined
                   }

@@ -181,6 +181,7 @@ export default function DoctorDashboardPage() {
   const [paymentFollowUp, setPaymentFollowUp] = useState<PaymentFollowUp | null>(null);
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [applyingCredit, setApplyingCredit] = useState(false);
+  const [recordingCashPayment, setRecordingCashPayment] = useState(false);
   /** Square Terminal API checkout id — we poll until the physical device completes payment. */
   const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
   /** Avoid duplicate refresh when Terminal poller and invoice poll both see PAID. */
@@ -478,7 +479,7 @@ export default function DoctorDashboardPage() {
       const query = appointmentsQueryForDashboardView(scheduleView, scheduleFocusIso, todayStr);
       const appts = await apiGetAuth<Appointment[]>(`/doctor/appointments/?${query}`);
       setAppointments(appts);
-      const pickActive = () => {
+      const pickActive = (current: Appointment | null) => {
         const fid = opts?.focusAppointmentId;
         if (fid != null) {
           const focused = appts.find((a) => a.id === fid && a.status === "in_consultation");
@@ -489,10 +490,18 @@ export default function DoctorDashboardPage() {
           const rev = appts.find((a) => a.id === revisingId && a.status === "awaiting_payment");
           if (rev) return rev;
         }
+        // During a silent background refresh, keep the workspace open if the doctor
+        // is actively in a consultation — closing it would discard unsaved SOAP notes.
+        if (opts?.silent && current != null) {
+          const stillActive = appts.find(
+            (a) => a.id === current.id && a.status === "in_consultation",
+          );
+          if (stillActive) return stillActive;
+        }
         // Do not auto-pop consultation on dashboard return; doctor chooses when to resume.
         return null;
       };
-      setActiveAppt(pickActive());
+      setActiveAppt((current) => pickActive(current));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load.");
       setAppointments([]);
@@ -1049,6 +1058,36 @@ export default function DoctorDashboardPage() {
       },
     );
     setApplyingCredit(false);
+  };
+
+  const recordCashPayment = async () => {
+    if (!paymentFollowUp) return;
+    const amount = paymentFollowUp.total_amount;
+    if (!amount || parseFloat(amount) <= 0) {
+      toast.error("Invoice amount not available. Use the Admin → Billing page to record this payment.");
+      return;
+    }
+    if (!window.confirm(`Record cash payment of $${amount} and mark this invoice paid?`)) return;
+    setRecordingCashPayment(true);
+    await runWithFeedback(
+      async () => {
+        await apiPost(`/invoices/${paymentFollowUp.invoice_id}/pay/`, {
+          amount,
+          payment_method: "cash",
+          payment_reference: "",
+        });
+        setPaymentFollowUp((prev) =>
+          prev ? { ...prev, payment: { ...prev.payment, charged: true, status: "paid_cash" } } : prev,
+        );
+        await load();
+      },
+      {
+        loadingMessage: "Recording cash payment…",
+        successMessage: "Cash payment recorded — invoice marked paid.",
+        errorFallback: "Could not record payment. Try again.",
+      },
+    );
+    setRecordingCashPayment(false);
   };
 
   const sortedBillServices = useMemo(
@@ -1764,6 +1803,18 @@ export default function DoctorDashboardPage() {
                     className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
                   >
                     {applyingCredit ? "Applying…" : "Apply patient credit"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void recordCashPayment()}
+                    disabled={recordingCashPayment}
+                    className="rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {recordingCashPayment
+                      ? "Recording…"
+                      : paymentFollowUp.total_amount
+                        ? `Received cash ($${paymentFollowUp.total_amount})`
+                        : "Received cash"}
                   </button>
                   <button
                     type="button"

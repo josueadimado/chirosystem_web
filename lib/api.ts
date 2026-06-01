@@ -248,3 +248,30 @@ export async function apiDelete<T = void>(path: string): Promise<T> {
   const res = await fetchWithAuth(`${getApiBase()}${path}`, { method: "DELETE" });
   return handleResponse<T>(res);
 }
+
+/**
+ * Authenticated multipart file upload (POST).
+ * Pass a `FormData` object — do NOT set Content-Type manually; the browser adds the boundary.
+ */
+export async function apiUploadAuth<T>(path: string, form: FormData): Promise<T> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("chiroflow_access_token") : null;
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${getApiBase()}${path}`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  if (res.status === 401) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      const newToken = localStorage.getItem("chiroflow_access_token");
+      const retryHeaders: Record<string, string> = {};
+      if (newToken) retryHeaders["Authorization"] = `Bearer ${newToken}`;
+      const retry = await fetch(`${getApiBase()}${path}`, { method: "POST", headers: retryHeaders, body: form });
+      return handleResponse<T>(retry);
+    }
+    clearAuthAndRedirect();
+  }
+  return handleResponse<T>(res);
+}

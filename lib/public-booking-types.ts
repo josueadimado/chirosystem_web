@@ -52,7 +52,7 @@ export type RescheduleAppointmentRow = {
   patient_name?: string;
 };
 
-export type BookingFlowMode = "new" | "reschedule";
+export type BookingFlowMode = "new" | "reschedule" | "view";
 
 export type SlotGridEntry = { label: string; bookable: boolean };
 

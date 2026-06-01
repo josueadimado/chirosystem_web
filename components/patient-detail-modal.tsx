@@ -25,6 +25,7 @@ import {
   PatientCommunicationPrefsFields,
   type NotifyChannel,
 } from "@/components/patient-communication-prefs";
+import { PatientDocumentsPanel } from "@/components/patient-documents-panel";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
@@ -105,7 +106,7 @@ type PatientDetail = {
   appointments: AppointmentHistoryRow[];
 };
 
-type Tab = "overview" | "intake" | "history";
+type Tab = "overview" | "intake" | "history" | "documents";
 
 export function PatientDetailModal({
   patientId,
@@ -422,6 +423,7 @@ export function PatientDetailModal({
     ? [
         { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary & contacts" },
         { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Name, phone, address, DOB" },
+        { id: "documents", label: "Documents", shortLabel: "Docs", hint: "Insurance cards, X-rays & uploaded files" },
       ]
     : [
         { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary (read-only)" },
@@ -432,6 +434,7 @@ export function PatientDetailModal({
           hint: "Name, phone, address, DOB, preferences",
         },
         { id: "history", label: "Visit history", shortLabel: "Visits", hint: "Notes & billing by visit" },
+        { id: "documents", label: "Documents", shortLabel: "Docs", hint: "Insurance cards, X-rays & uploaded files" },
       ];
 
   const displayInitial = (d: PatientDetail) =>
@@ -1291,6 +1294,12 @@ export function PatientDetailModal({
                     </div>
                   )}
                 </div>
+              )}
+              {tab === "documents" && (
+                <PatientDocumentsPanel
+                  patientId={detail.id}
+                  basePath={isAdminChart ? "/admin" : "/doctor"}
+                />
               )}
             </>
           ) : null}

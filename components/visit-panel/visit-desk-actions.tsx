@@ -42,11 +42,14 @@ type AdjustDurationState = {
 
 type BillingActionsState = {
   invoiceId: number | null;
+  invoiceTotalAmount?: string | null;
   hintLoading: boolean;
   snapshotLoading: boolean;
   previewing: boolean;
+  recordingCash?: boolean;
   onPreview: () => void;
   onEditBilling: () => void;
+  onRecordCashPayment?: () => void;
 };
 
 /** Front-desk actions for an appointment side panel (admin schedule). */
@@ -222,6 +225,25 @@ export function VisitDeskActions({
               Preview needs an invoice. If the doctor hasn&apos;t finished the visit yet, complete it first or use{" "}
               <span className="font-medium text-slate-700">Invoices &amp; Billing</span> in the sidebar.
             </p>
+          ) : null}
+          {billing.invoiceId != null && billing.onRecordCashPayment ? (
+            <div className="mt-3 border-t border-[#16a349]/15 pt-3">
+              <button
+                type="button"
+                disabled={billing.recordingCash}
+                onClick={billing.onRecordCashPayment}
+                className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100 disabled:opacity-50"
+              >
+                {billing.recordingCash
+                  ? "Recording…"
+                  : billing.invoiceTotalAmount
+                    ? `Paid — Cash ($${billing.invoiceTotalAmount})`
+                    : "Paid — Cash"}
+              </button>
+              <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+                Records a cash payment and marks this invoice paid immediately.
+              </p>
+            </div>
           ) : null}
         </div>
       ) : null}

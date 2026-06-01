@@ -829,6 +829,31 @@ export default function BookingPage() {
     scrollToBookingSession();
   };
 
+  const activateViewFlow = () => {
+    setBookingFlow("view");
+    setCart([]);
+    setSelectedCategory(null);
+    setAddingAnother(false);
+    setBookingResults([]);
+    setBookingMessage("");
+    setReschedulePick(null);
+    setRescheduleList([]);
+    setRescheduleListError("");
+    setRescheduleSharedPhone(false);
+    setSmsConsent(false);
+    setStep(1);
+    setAvailableSlots(null);
+    setScheduleSlotGrid(null);
+    setCartSlotPicksByLineId({});
+    setCartCalendarMonthByLineId({});
+    setCartSlotsByLineId({});
+    setCartSlotGridByLineId({});
+    setCartSlotsLoadingByLineId({});
+    setBookingSubmitErrorByLineId({});
+    setStep3FocusLineId(null);
+    scrollToBookingSession();
+  };
+
   const loadMyAppointments = useCallback(async () => {
     if (!phone || !isValidPhoneNumber(phone)) {
       toast.error("Enter a valid cell number first.");
@@ -896,7 +921,7 @@ export default function BookingPage() {
   };
 
   const goToPreviousStep = () => {
-    if (step === 1 && bookingFlow === "reschedule") {
+    if (step === 1 && (bookingFlow === "reschedule" || bookingFlow === "view")) {
       activateNewBookingFlow();
       return;
     }
@@ -1238,6 +1263,8 @@ export default function BookingPage() {
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
               {bookingFlow === "reschedule" ? (
                 "Change or cancel a visit you already booked—we'll verify your cell number. You can pick a new time or cancel online."
+              ) : bookingFlow === "view" ? (
+                "Enter your cell number to see all your upcoming scheduled visits at a glance."
               ) : (
                 <>
                   Choose a service, pick your time, and you&apos;re done. Prefer to call?{" "}
@@ -1271,6 +1298,18 @@ export default function BookingPage() {
                 )}
               >
                 Reschedule or cancel a visit
+              </button>
+              <button
+                type="button"
+                onClick={() => activateViewFlow()}
+                className={cn(
+                  "min-h-11 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-all sm:min-h-0 sm:w-auto sm:flex-1 sm:max-w-xs",
+                  bookingFlow === "view"
+                    ? "border border-transparent bg-[#16a349] text-white shadow-sm shadow-[#16a349]/20"
+                    : "border border-border/80 bg-card text-foreground hover:border-primary/30",
+                )}
+              >
+                View upcoming appointments
               </button>
             </div>
             <p className="mt-4 max-w-lg text-center text-xs text-muted-foreground sm:text-left">
@@ -1377,6 +1416,17 @@ export default function BookingPage() {
                       Change or cancel an existing visit instead
                     </button>
                   </>
+                ) : bookingFlow === "view" ? (
+                  <>
+                    You&apos;re viewing your <strong className="text-slate-900">upcoming appointments</strong>.{" "}
+                    <button
+                      type="button"
+                      onClick={() => activateNewBookingFlow()}
+                      className="font-semibold text-[#0d5c2e] underline-offset-4 hover:underline"
+                    >
+                      Book a new visit instead
+                    </button>
+                  </>
                 ) : (
                   <>
                     You&apos;re changing or cancelling an <strong className="text-slate-900">existing visit</strong>.{" "}
@@ -1479,6 +1529,106 @@ export default function BookingPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ─── VIEW FLOW: read-only upcoming appointments ─── */}
+              {bookingFlow === "view" && (
+                <div className="space-y-4 rounded-xl border border-[#166534]/25 bg-[#f0fdf4]/60 p-4">
+                  <h2 className="text-lg font-semibold text-[#0d5c2e]">Your upcoming appointments</h2>
+                  <p className="text-sm leading-relaxed text-slate-600">
+                    Enter the <strong className="text-slate-800">cell number</strong> you used when you booked and we&apos;ll show your
+                    scheduled visits.
+                  </p>
+                  <div className={`rounded-lg border bg-white p-2 ${rescheduleListError && !rescheduleListLoading ? "border-amber-300" : "border-slate-200"}`}>
+                    <PhoneInput
+                      international
+                      defaultCountry="US"
+                      countryCallingCodeEditable={false}
+                      value={phone}
+                      onChange={(value) => {
+                        setPhone(value);
+                        setRescheduleList([]);
+                        setRescheduleListError("");
+                        setRescheduleSharedPhone(false);
+                      }}
+                      placeholder="Cell number on your booking"
+                      className="phone-field text-sm"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => loadMyAppointments()}
+                    disabled={rescheduleListLoading}
+                    className="h-auto rounded-xl bg-[#0d5c2e] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4d26]"
+                  >
+                    {rescheduleListLoading ? "Looking up…" : "Show my upcoming visits"}
+                  </Button>
+                  {rescheduleListError && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-amber-900">{rescheduleListError}</p>
+                      <PublicBookingClinicHelp />
+                    </div>
+                  )}
+                  {rescheduleSharedPhone && rescheduleList.length > 0 && (
+                    <p className="text-sm leading-relaxed text-[#14532d]">
+                      This number is linked to more than one patient profile — showing all upcoming visits for this line.
+                    </p>
+                  )}
+                  {rescheduleList.length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Scheduled visits
+                      </p>
+                      {rescheduleList.map((row) => (
+                        <div
+                          key={row.id}
+                          className="flex flex-col gap-2 rounded-xl border border-border/90 bg-card p-4 sm:flex-row sm:items-center"
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <p className="font-semibold text-slate-900">{row.service_name}</p>
+                            {row.patient_name ? (
+                              <p className="text-xs font-medium text-slate-500">Patient: {row.patient_name}</p>
+                            ) : null}
+                            <p className="text-sm text-slate-600">
+                              {row.provider_name} ·{" "}
+                              {formatWeekdayMonthDayYear(row.appointment_date)} at {row.start_time}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 gap-2 sm:flex-col sm:w-[11.5rem]">
+                            <Button
+                              type="button"
+                              className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a4d26]"
+                              onClick={() => {
+                                setReschedulePick(row);
+                                setSlotWarning("");
+                                setBookingFlow("reschedule");
+                                setStep(2);
+                              }}
+                            >
+                              Reschedule
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-auto w-full rounded-xl border-rose-200 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50"
+                              onClick={() => void cancelPublicAppointment(row)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-1 h-auto w-full rounded-xl border-[#166534]/30 px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] hover:bg-[#f0fdf4]"
+                        onClick={() => activateNewBookingFlow()}
+                      >
+                        + Book a new visit
+                      </Button>
                     </div>
                   )}
                 </div>
