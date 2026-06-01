@@ -247,7 +247,7 @@ body {
 }
 
 .admin-panel {
-  @apply rounded-2xl border border-border bg-card p-6 text-[14px] leading-normal text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
+  @apply overflow-hidden rounded-2xl border border-border bg-card p-6 text-[14px] leading-normal text-card-foreground shadow-sm shadow-black/[0.04] ring-1 ring-foreground/[0.06] transition-shadow duration-200 hover:shadow-md;
 }
 
 .admin-input {
