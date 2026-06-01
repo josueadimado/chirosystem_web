@@ -23,12 +23,19 @@ export function useRescheduleVisitSlots({
   providerId,
   defaultDateIso,
   onRescheduled,
+  confirmBeforeSubmit,
 }: {
   todayMinIso: string;
   providerId: number | null;
   /** Calendar day shown on the dashboard when opening without a visit date. */
   defaultDateIso: string;
   onRescheduled: () => void | Promise<void>;
+  /** Staff must confirm before the reschedule API runs. */
+  confirmBeforeSubmit?: (ctx: {
+    patientLabel: string;
+    dateIso: string;
+    timeLabel: string;
+  }) => Promise<boolean>;
 }) {
   const { runWithFeedback } = useAppFeedback();
   const [source, setSource] = useState<RescheduleVisitSource | null>(null);
@@ -93,6 +100,21 @@ export function useRescheduleVisitSlots({
 
   const submit = useCallback(async () => {
     if (!source || !date || !selectedSlot) return;
+    const slotIdx = slotTimes.findIndex((t) => t === selectedSlot);
+    const timeLabel =
+      slotIdx >= 0 && slotLabels[slotIdx]
+        ? slotLabels[slotIdx]
+        : selectedSlot.length >= 5
+          ? selectedSlot.slice(0, 5)
+          : selectedSlot;
+    if (confirmBeforeSubmit) {
+      const ok = await confirmBeforeSubmit({
+        patientLabel: source.patientLabel,
+        dateIso: date,
+        timeLabel,
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       await runWithFeedback(
@@ -113,7 +135,17 @@ export function useRescheduleVisitSlots({
     } finally {
       setSaving(false);
     }
-  }, [source, date, selectedSlot, close, onRescheduled, runWithFeedback]);
+  }, [
+    source,
+    date,
+    selectedSlot,
+    slotLabels,
+    slotTimes,
+    confirmBeforeSubmit,
+    close,
+    onRescheduled,
+    runWithFeedback,
+  ]);
 
   const canSubmit =
     !saving &&

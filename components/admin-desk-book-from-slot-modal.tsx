@@ -88,6 +88,7 @@ export function AdminDeskBookFromSlotModal({
   lockProvider,
   todayMinIso,
   onBooked,
+  confirmBeforeSubmit,
 }: {
   open: boolean;
   onClose: () => void;
@@ -96,6 +97,14 @@ export function AdminDeskBookFromSlotModal({
   lockProvider?: boolean;
   todayMinIso: string;
   onBooked: () => void | Promise<void>;
+  /** Staff must agree before the booking API runs (after picking patient and slot). */
+  confirmBeforeSubmit?: (ctx: {
+    patientName: string;
+    serviceName: string;
+    dateIso: string;
+    timeLabel: string;
+    providerName: string;
+  }) => Promise<boolean>;
 }) {
   const { runWithFeedback } = useAppFeedback();
   const [options, setOptions] = useState<BookingOptionsResponse | null>(null);
@@ -351,7 +360,32 @@ export function AdminDeskBookFromSlotModal({
     !selectedStartIsPast;
 
   const submit = async () => {
-    if (!seed || !canSubmit) return;
+    if (!seed || !canSubmit || !patientId) return;
+    const patient = patientHits.find((p) => p.id === patientId);
+    const patientName = patient
+      ? `${patient.first_name} ${patient.last_name}`.trim()
+      : "Patient";
+    const svcName = selectedService?.name ?? "visit";
+    const provName =
+      (options?.providers_by_service[String(serviceId)] ?? []).find((p) => p.id === providerId)
+        ?.provider_name ?? seed.providerName;
+    const slotIdx = slotTimes.findIndex((t) => t === selectedSlot);
+    const timeLabel =
+      slotIdx >= 0 && slotLabels[slotIdx]
+        ? slotLabels[slotIdx]
+        : selectedStartMinutes != null
+          ? minutesToLabel(selectedStartMinutes)
+          : seedLabel;
+    if (confirmBeforeSubmit) {
+      const ok = await confirmBeforeSubmit({
+        patientName,
+        serviceName: svcName,
+        dateIso,
+        timeLabel,
+        providerName: provName,
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       await runWithFeedback(

@@ -8,8 +8,19 @@ import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-mod
 import { RescheduleVisitSlotsModal } from "@/components/visit-panel/reschedule-visit-slots-modal";
 import { VisitBillingForm } from "@/components/visit-panel/visit-billing-form";
 import type { DiagnosisPriorVisitHint } from "@/components/visit-panel/visit-diagnosis-picker";
+import { useAppointmentActionConfirm } from "@/hooks/use-appointment-action-confirm";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
+import {
+  confirmBookNextVisit,
+  confirmCancelVisit,
+  confirmCheckIn,
+  confirmNoShow,
+  confirmOpenBookNextPicker,
+  confirmOpenReschedulePicker,
+  confirmRescheduleBySlots,
+  confirmStartVisit,
+} from "@/lib/appointment-action-confirm-messages";
 import {
   computeBillingEstimates,
   sortBillableServices,
@@ -137,6 +148,7 @@ type PaymentFollowUp = {
 
 export default function DoctorDashboardPage() {
   const { runWithFeedback, toast } = useAppFeedback();
+  const { requestConfirm, ConfirmDialog } = useAppointmentActionConfirm();
   const todayStr = clinicTodayIso();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [services, setServices] = useState<ServiceOpt[]>([]);
@@ -185,12 +197,26 @@ export default function DoctorDashboardPage() {
     preferredProviderId: myProviderId,
     useDeskAvailability: true,
     onBooked: () => load(),
+    confirmBeforeSubmit: async (ctx) =>
+      requestConfirm(
+        confirmBookNextVisit(
+          ctx.patientLabel,
+          ctx.serviceName,
+          ctx.dateIso,
+          ctx.timeLabel,
+          ctx.providerName,
+        ),
+      ),
   });
   const rescheduleVisit = useRescheduleVisitSlots({
     todayMinIso: todayStr,
     providerId: myProviderId,
     defaultDateIso: scheduleView === "day" ? todayStr : scheduleFocusIso,
     onRescheduled: () => load(),
+    confirmBeforeSubmit: async (ctx) =>
+      requestConfirm(
+        confirmRescheduleBySlots(ctx.patientLabel, ctx.dateIso, ctx.timeLabel),
+      ),
   });
   const [savingDesk, setSavingDesk] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
@@ -631,6 +657,8 @@ export default function DoctorDashboardPage() {
   };
 
   const startVisit = async (appt: Appointment) => {
+    const ok = await requestConfirm(confirmStartVisit(appt.patient));
+    if (!ok) return;
     setRevisingBillingForAppointmentId(null);
     setBillingEditJustSaved(false);
     billingEditSavedFingerprintRef.current = null;
@@ -875,6 +903,8 @@ export default function DoctorDashboardPage() {
   };
 
   const checkInPatient = async (appt: Appointment) => {
+    const ok = await requestConfirm(confirmCheckIn(appt.patient));
+    if (!ok) return;
     setIsCheckingIn(true);
     await runWithFeedback(
       async () => {
@@ -1160,7 +1190,9 @@ export default function DoctorDashboardPage() {
   /** Before the visit starts, doctors can mark no-show/cancel or reschedule (front desk rules apply for trickier cases). */
   const canDoctorPreVisitDesk = (s: string) => s === "booked" || s === "checked_in";
 
-  const openReschedule = (appt: Appointment) => {
+  const openReschedule = async (appt: Appointment) => {
+    const ok = await requestConfirm(confirmOpenReschedulePicker(appt.patient));
+    if (!ok) return;
     rescheduleVisit.open({
       id: appt.id,
       patientLabel: appt.patient,
@@ -1173,7 +1205,9 @@ export default function DoctorDashboardPage() {
     });
   };
 
-  const openBookNext = (appt: Appointment) => {
+  const openBookNext = async (appt: Appointment) => {
+    const ok = await requestConfirm(confirmOpenBookNextPicker(appt.patient));
+    if (!ok) return;
     bookNext.open(
       {
         id: appt.id,
@@ -2195,8 +2229,10 @@ export default function DoctorDashboardPage() {
                       type="button"
                       disabled={savingDesk}
                       onClick={() => {
-                        if (!confirm("Mark as no-show? This visit will no longer count as an active booking.")) return;
-                        void runWithFeedback(
+                        void (async () => {
+                          const ok = await requestConfirm(confirmNoShow(appt.patient));
+                          if (!ok) return;
+                          await runWithFeedback(
                           async () => {
                             await apiPatch(`/appointments/${appt.id}/`, { status: "no_show" });
                             await load();
@@ -2207,6 +2243,7 @@ export default function DoctorDashboardPage() {
                             errorFallback: "Could not update this visit.",
                           },
                         );
+                        })();
                       }}
                       className="min-h-11 w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-amber-950 hover:bg-amber-100 disabled:opacity-50"
                     >
@@ -2216,13 +2253,17 @@ export default function DoctorDashboardPage() {
                       type="button"
                       disabled={savingDesk}
                       onClick={() => {
-                        const lateM =
-                          appt.service_type === "massage" && doctorApptWithin24Hours(appt);
-                        const msg = lateM
-                          ? "This massage is inside the 24-hour window: the patient will be charged the full massage price. To waive the fee when you rescheduled them same-day by phone, cancel from Admin → Schedule with “Waive late-cancellation fee” checked. Continue to cancel from here?"
-                          : "Cancel this appointment? The time slot will be freed.";
-                        if (!confirm(msg)) return;
-                        void runWithFeedback(
+                        void (async () => {
+                          const ok = await requestConfirm(
+                            confirmCancelVisit(
+                              appt.patient,
+                              appt.service_type,
+                              appt.appointment_date,
+                              appt.start_time_iso ?? appt.start_time,
+                            ),
+                          );
+                          if (!ok) return;
+                          await runWithFeedback(
                           async () => {
                             await apiPatch(`/appointments/${appt.id}/`, { status: "cancelled" });
                             await load();
@@ -2233,6 +2274,7 @@ export default function DoctorDashboardPage() {
                             errorFallback: "Could not cancel.",
                           },
                         );
+                        })();
                       }}
                       className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                     >
@@ -2241,7 +2283,7 @@ export default function DoctorDashboardPage() {
                     <button
                       type="button"
                       disabled={savingDesk}
-                      onClick={() => openReschedule(appt)}
+                      onClick={() => void openReschedule(appt)}
                       className="min-h-11 w-full rounded-lg border border-[#16a349]/30 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
                     >
                       Reschedule
@@ -2255,7 +2297,7 @@ export default function DoctorDashboardPage() {
                       disabled={bookNext.saving || bookNext.optionsLoading}
                       onClick={(e) => {
                         e.stopPropagation();
-                        openBookNext(appt);
+                        void openBookNext(appt);
                       }}
                       className="min-h-11 w-full rounded-lg border border-[#16a349]/30 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
                     >
@@ -2466,6 +2508,7 @@ export default function DoctorDashboardPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog />
       <RescheduleVisitSlotsModal reschedule={rescheduleVisit} titleId="doctor-dashboard-reschedule-title" />
       <BookNextVisitModal bookNext={bookNext} titleId="doctor-dashboard-book-next-title" zIndexClass="z-50" />
       <PatientBillPortalModal

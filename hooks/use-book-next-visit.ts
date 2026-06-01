@@ -34,12 +34,21 @@ export function useBookNextVisit({
   onBooked,
   useDeskAvailability = true,
   preferredProviderId,
+  confirmBeforeSubmit,
 }: {
   todayMinIso: string;
   onBooked: () => void | Promise<void>;
   /** Staff/doctor extended hours when loading slots and schedule. */
   useDeskAvailability?: boolean;
   preferredProviderId?: number | null;
+  /** Staff must confirm before the book-next API runs. */
+  confirmBeforeSubmit?: (ctx: {
+    patientLabel: string;
+    serviceName: string;
+    dateIso: string;
+    timeLabel: string;
+    providerName: string;
+  }) => Promise<boolean>;
 }) {
   const { runWithFeedback } = useAppFeedback();
   const [source, setSource] = useState<BookNextSource | null>(null);
@@ -287,6 +296,32 @@ export function useBookNextVisit({
 
   const submit = useCallback(async () => {
     if (!source || !serviceId || !providerId || !date || !selectedSlot) return;
+    const svcName =
+      bookingOptions?.services.find((s) => s.id === serviceId)?.name ??
+      visitContext?.service_name ??
+      "visit";
+    const slotIdx = slotTimes.findIndex((t) => t === selectedSlot);
+    const timeLabel =
+      slotIdx >= 0 && slotLabels[slotIdx]
+        ? slotLabels[slotIdx]
+        : selectedSlot.length >= 5
+          ? selectedSlot.slice(0, 5)
+          : selectedSlot;
+    const provName =
+      bookingOptions?.providers_by_service[String(serviceId)]?.find((p) => p.id === providerId)
+        ?.provider_name ??
+      visitContext?.provider_name ??
+      "";
+    if (confirmBeforeSubmit) {
+      const ok = await confirmBeforeSubmit({
+        patientLabel: source.patientLabel ?? visitContext?.patient_name ?? "Patient",
+        serviceName: svcName,
+        dateIso: date,
+        timeLabel,
+        providerName: provName,
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       await runWithFeedback(
@@ -317,7 +352,12 @@ export function useBookNextVisit({
     providerId,
     date,
     selectedSlot,
+    slotLabels,
+    slotTimes,
+    bookingOptions,
+    visitContext,
     nextHandoffNotes,
+    confirmBeforeSubmit,
     close,
     onBooked,
     runWithFeedback,

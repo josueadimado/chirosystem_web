@@ -32,11 +32,18 @@ import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-r
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { VisitAppointmentStaffNotes } from "@/components/visit-panel/visit-appointment-staff-notes";
 import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
+import { useAppointmentActionConfirm } from "@/hooks/use-appointment-action-confirm";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
-import { cancelAppointmentConfirmMessage } from "@/lib/appointment-previsit";
+import {
+  confirmBookNextVisit,
+  confirmCancelVisit,
+  confirmDeskBook,
+  confirmDragReschedule,
+  confirmRescheduleBySlots,
+} from "@/lib/appointment-action-confirm-messages";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -133,6 +140,7 @@ function blockListRange(view: ScheduleViewMode, focusDate: Date): { from: string
 
 function DoctorSchedulePageInner() {
   const { runWithFeedback, toast } = useAppFeedback();
+  const { requestConfirm, ConfirmDialog } = useAppointmentActionConfirm();
   const searchParams = useSearchParams();
   const [providerId, setProviderId] = useState<number | null>(null);
   const [providerName, setProviderName] = useState("");
@@ -167,12 +175,26 @@ function DoctorSchedulePageInner() {
     todayMinIso: todayStr,
     preferredProviderId: providerId,
     onBooked: () => loadAppointments(),
+    confirmBeforeSubmit: async (ctx) =>
+      requestConfirm(
+        confirmBookNextVisit(
+          ctx.patientLabel,
+          ctx.serviceName,
+          ctx.dateIso,
+          ctx.timeLabel,
+          ctx.providerName,
+        ),
+      ),
   });
   const rescheduleVisit = useRescheduleVisitSlots({
     todayMinIso: todayStr,
     providerId,
     defaultDateIso: toIsoDate(focusDate),
     onRescheduled: () => loadAppointments(),
+    confirmBeforeSubmit: async (ctx) =>
+      requestConfirm(
+        confirmRescheduleBySlots(ctx.patientLabel, ctx.dateIso, ctx.timeLabel),
+      ),
   });
   const { contact: patientContact, loading: patientContactLoading } = usePatientQuickContact(
     selected?.patient ?? null,
@@ -437,17 +459,10 @@ function DoctorSchedulePageInner() {
   };
 
   const handleNoShow = (appt: AppointmentRow) => {
-    if (!confirm("Mark as no-show? This visit will no longer count as an active booking.")) return;
     void patchAppointmentStatus(appt.id, "no_show");
   };
 
   const handleCancel = (appt: AppointmentRow) => {
-    const msg = cancelAppointmentConfirmMessage(
-      appt.service_type,
-      appt.appointment_date,
-      appt.start_time,
-    );
-    if (!confirm(msg)) return;
     void patchAppointmentStatus(appt.id, "cancelled");
   };
 
@@ -457,10 +472,11 @@ function DoctorSchedulePageInner() {
   const handleRescheduleFromGrid = async (pick: {
     appointment: ScheduleAppointment;
     providerId: number;
+    providerName: string;
     dateIso: string;
     startMinute: number;
   }) => {
-    const { appointment, providerId, dateIso, startMinute } = pick;
+    const { appointment, providerId, providerName: pickProviderName, dateIso, startMinute } = pick;
     const uiStatus = appointmentUiStatus(appointment);
     if (!canRescheduleOnCalendar(uiStatus)) {
       toast.error("This visit cannot be moved from the calendar.");
@@ -473,6 +489,15 @@ function DoctorSchedulePageInner() {
     if (providerId !== appointment.provider) {
       body.provider = providerId;
     }
+    const ok = await requestConfirm(
+      confirmDragReschedule(
+        appointment.patient_name,
+        dateIso,
+        startMinute,
+        pickProviderName || providerName || `Provider ${providerId}`,
+      ),
+    );
+    if (!ok) return;
     setAppointmentSaving(true);
     try {
       await runWithFeedback(
@@ -812,6 +837,8 @@ function DoctorSchedulePageInner() {
                 className="mb-4"
               />
               <VisitDoctorScheduleActions
+                patientName={selected.patient_name}
+                requestConfirm={requestConfirm}
                 status={selected.status}
                 displayStatus={selected.display_status}
                 invoiceKind={selected.invoice_kind}
@@ -860,7 +887,20 @@ function DoctorSchedulePageInner() {
         lockProvider
         todayMinIso={todayStr}
         onBooked={() => loadAppointments()}
+        confirmBeforeSubmit={async (ctx) =>
+          requestConfirm(
+            confirmDeskBook(
+              ctx.patientName,
+              ctx.serviceName,
+              ctx.dateIso,
+              ctx.timeLabel,
+              ctx.providerName,
+            ),
+          )
+        }
       />
+
+      <ConfirmDialog />
 
       <RescheduleVisitSlotsModal reschedule={rescheduleVisit} titleId="doctor-schedule-reschedule-title" />
       <BookNextVisitModal

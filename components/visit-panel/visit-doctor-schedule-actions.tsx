@@ -1,9 +1,19 @@
 "use client";
 
+import type { AppointmentConfirmOptions } from "@/hooks/use-appointment-action-confirm";
+import {
+  confirmCancelVisit,
+  confirmCheckIn,
+  confirmNoShow,
+  confirmOpenBookNextPicker,
+  confirmOpenReschedulePicker,
+} from "@/lib/appointment-action-confirm-messages";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 
-/** Doctor schedule side panel: check-in, reschedule, cancel, no-show, and book-next. */
+/** Doctor schedule side panel: check-in, reschedule, cancel, no-show, and book-next (with confirm before each action). */
 export function VisitDoctorScheduleActions({
+  patientName,
+  requestConfirm,
   status,
   displayStatus,
   invoiceKind,
@@ -18,6 +28,9 @@ export function VisitDoctorScheduleActions({
   onNoShow,
   onCancel,
 }: {
+  patientName: string;
+  /** When set, staff must confirm before each appointment action runs. */
+  requestConfirm: (options: AppointmentConfirmOptions) => Promise<boolean>;
   status: string;
   displayStatus?: string;
   invoiceKind?: string | null;
@@ -35,6 +48,11 @@ export function VisitDoctorScheduleActions({
   const uiStatus = displayStatus ?? effectiveAppointmentStatus(status, invoiceKind);
   const canPreVisit = uiStatus === "booked" || uiStatus === "checked_in" || uiStatus === "scheduled";
   const busy = checkingIn || saving;
+
+  const runConfirmed = async (options: AppointmentConfirmOptions, action: () => void) => {
+    const ok = await requestConfirm(options);
+    if (ok) action();
+  };
 
   if (appointmentBlocksDeskActions(status, invoiceKind)) {
     const isNoShow = uiStatus === "no_show";
@@ -60,7 +78,7 @@ export function VisitDoctorScheduleActions({
         </div>
         <button
           type="button"
-          onClick={onBookNext}
+          onClick={() => void runConfirmed(confirmOpenBookNextPicker(patientName), onBookNext)}
           className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
         >
           Book next visit
@@ -73,7 +91,7 @@ export function VisitDoctorScheduleActions({
     return (
       <button
         type="button"
-        onClick={onBookNext}
+        onClick={() => void runConfirmed(confirmOpenBookNextPicker(patientName), onBookNext)}
         className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
       >
         Book next visit
@@ -90,7 +108,7 @@ export function VisitDoctorScheduleActions({
       {(uiStatus === "booked" || uiStatus === "scheduled") && (
         <button
           type="button"
-          onClick={onCheckIn}
+          onClick={() => void runConfirmed(confirmCheckIn(patientName), onCheckIn)}
           disabled={busy}
           className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
         >
@@ -99,7 +117,7 @@ export function VisitDoctorScheduleActions({
       )}
       <button
         type="button"
-        onClick={onReschedule}
+        onClick={() => void runConfirmed(confirmOpenReschedulePicker(patientName), onReschedule)}
         disabled={busy}
         className="w-full rounded-xl border border-[#16a349]/30 bg-white px-4 py-3 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
       >
@@ -109,7 +127,9 @@ export function VisitDoctorScheduleActions({
         <button
           type="button"
           disabled={busy}
-          onClick={onNoShow}
+          onClick={() =>
+            void runConfirmed(confirmNoShow(patientName), onNoShow)
+          }
           className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
         >
           No-show
@@ -119,7 +139,17 @@ export function VisitDoctorScheduleActions({
         <button
           type="button"
           disabled={busy}
-          onClick={onCancel}
+          onClick={() =>
+            void runConfirmed(
+              confirmCancelVisit(
+                patientName,
+                serviceType,
+                appointmentDate ?? "",
+                startTime ?? "",
+              ),
+              onCancel,
+            )
+          }
           className="w-full rounded-xl border-2 border-rose-300 bg-white px-4 py-3 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
         >
           Cancel visit

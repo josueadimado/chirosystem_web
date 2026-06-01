@@ -19,8 +19,21 @@ import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
+import { useAppointmentActionConfirm } from "@/hooks/use-appointment-action-confirm";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { usePatientQuickContact } from "@/hooks/use-patient-quick-contact";
+import {
+  confirmBookNextVisit,
+  confirmCancelVisit,
+  confirmCheckIn,
+  confirmDeskBook,
+  confirmDragReschedule,
+  confirmExtendDuration,
+  confirmFormReschedule,
+  confirmMarkCompleted,
+  confirmNoShow,
+  confirmUndoDrag,
+} from "@/lib/appointment-action-confirm-messages";
 import { useAppFeedback } from "@/components/app-feedback";
 import { Loader } from "@/components/loader";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
@@ -159,6 +172,7 @@ function formatAppointmentDuration(start: string, end: string): string {
 
 function AdminSchedulePageContent() {
   const { runWithFeedback, toast } = useAppFeedback();
+  const { requestConfirm, ConfirmDialog } = useAppointmentActionConfirm();
   const searchParams = useSearchParams();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -217,10 +231,23 @@ function AdminSchedulePageContent() {
 
   const todayStr = clinicTodayIso();
 
+  const providerNameForId = (id: number) =>
+    providers.find((p) => p.id === id)?.provider_name ?? `Provider ${id}`;
+
   const bookNext = useBookNextVisit({
     todayMinIso: todayStr,
     useDeskAvailability: true,
     onBooked: () => loadAppointments(),
+    confirmBeforeSubmit: async (ctx) =>
+      requestConfirm(
+        confirmBookNextVisit(
+          ctx.patientLabel,
+          ctx.serviceName,
+          ctx.dateIso,
+          ctx.timeLabel,
+          ctx.providerName,
+        ),
+      ),
   });
 
   const calendarAppointments = useMemo(
@@ -449,6 +476,8 @@ function AdminSchedulePageContent() {
 
   const handleCheckIn = async () => {
     if (!selected || appointmentBlocksDeskActions(selected.status, selected.invoice_kind)) return;
+    const ok = await requestConfirm(confirmCheckIn(selected.patient_name));
+    if (!ok) return;
     setCheckingIn(true);
     setError("");
     await runWithFeedback(
@@ -509,6 +538,16 @@ function AdminSchedulePageContent() {
   const submitReschedule = async () => {
     if (!selected || !canRescheduleStaff(appointmentUiStatus(selected))) return;
     const pid = Number.parseInt(resProviderId, 10);
+    const provName = !Number.isNaN(pid) ? providerNameForId(pid) : undefined;
+    const ok = await requestConfirm(
+      confirmFormReschedule(
+        selected.patient_name,
+        resDate,
+        formatTime(resTime.length === 5 ? `${resTime}:00` : resTime),
+        provName,
+      ),
+    );
+    if (!ok) return;
     const body: Record<string, unknown> = {
       appointment_date: resDate,
       start_time: resTime.length === 5 ? `${resTime}:00` : resTime,
@@ -542,6 +581,13 @@ function AdminSchedulePageContent() {
 
   const submitAdjustDuration = async () => {
     if (!selected || !adjustEndTime || !canRescheduleStaff(appointmentUiStatus(selected))) return;
+    const ok = await requestConfirm(
+      confirmExtendDuration(
+        selected.patient_name,
+        formatTime(adjustEndTime.length === 5 ? `${adjustEndTime}:00` : adjustEndTime),
+      ),
+    );
+    if (!ok) return;
     const endApi = adjustEndTime.length === 5 ? `${adjustEndTime}:00` : adjustEndTime;
     let saved = false;
     await runWithFeedback(
@@ -561,10 +607,11 @@ function AdminSchedulePageContent() {
   const handleRescheduleFromGrid = async (pick: {
     appointment: ScheduleAppointment;
     providerId: number;
+    providerName: string;
     dateIso: string;
     startMinute: number;
   }) => {
-    const { appointment, providerId, dateIso, startMinute } = pick;
+    const { appointment, providerId, providerName: pickProviderName, dateIso, startMinute } = pick;
     if (!canRescheduleStaff(appointment.display_status ?? appointment.status)) {
       toast.error("This visit cannot be moved from the calendar.");
       return;
@@ -579,6 +626,15 @@ function AdminSchedulePageContent() {
     if (providerId !== appointment.provider) {
       body.provider = providerId;
     }
+    const ok = await requestConfirm(
+      confirmDragReschedule(
+        appointment.patient_name,
+        dateIso,
+        startMinute,
+        pickProviderName || providerNameForId(providerId),
+      ),
+    );
+    if (!ok) return;
     let moved = false;
     await runWithFeedback(
       async () => {
@@ -604,6 +660,8 @@ function AdminSchedulePageContent() {
 
   const undoDragMove = async () => {
     if (!dragUndo) return;
+    const ok = await requestConfirm(confirmUndoDrag(dragUndo.label));
+    if (!ok) return;
     const snap = dragUndo;
     setDragUndo(null);
     let restored = false;
@@ -906,8 +964,10 @@ function AdminSchedulePageContent() {
                   onCheckIn={handleCheckIn}
                   onBookNext={() => openBookNext(selected)}
                   onNoShow={() => {
-                    if (!confirm("Mark this visit as no-show? It will no longer count as an active booking.")) return;
-                    void runWithFeedback(
+                    void (async () => {
+                      const ok = await requestConfirm(confirmNoShow(selected.patient_name));
+                      if (!ok) return;
+                      await runWithFeedback(
                       async () => {
                         await patchAppointment(selected.id, { status: "no_show" });
                       },
@@ -917,16 +977,21 @@ function AdminSchedulePageContent() {
                         errorFallback: "Could not update status.",
                       },
                     );
+                    })();
                   }}
                   onCancel={() => {
-                    const lateMassage =
-                      selected.service_type === "massage" &&
-                      within24HoursBeforeStart(selected.appointment_date, selected.start_time);
-                    const msg = lateMassage
-                      ? "This massage is inside the 24-hour window: the patient will be charged the full massage price unless you checked “Waive late-cancellation fee.” Continue?"
-                      : "Cancel this appointment? It will free the slot.";
-                    if (!confirm(msg)) return;
-                    void runWithFeedback(
+                    void (async () => {
+                      const ok = await requestConfirm(
+                        confirmCancelVisit(
+                          selected.patient_name,
+                          selected.service_type,
+                          selected.appointment_date,
+                          selected.start_time,
+                          waiveLateCancelFee,
+                        ),
+                      );
+                      if (!ok) return;
+                      await runWithFeedback(
                       async () => {
                         await patchAppointment(selected.id, {
                           status: "cancelled",
@@ -939,15 +1004,13 @@ function AdminSchedulePageContent() {
                         errorFallback: "Could not cancel.",
                       },
                     );
+                    })();
                   }}
                   onMarkCompleted={() => {
-                    if (
-                      !confirm(
-                        "Mark this visit completed without going through checkout here? Use when payment was handled elsewhere.",
-                      )
-                    )
-                      return;
-                    void runWithFeedback(
+                    void (async () => {
+                      const ok = await requestConfirm(confirmMarkCompleted(selected.patient_name));
+                      if (!ok) return;
+                      await runWithFeedback(
                       async () => {
                         await patchAppointment(selected.id, { status: "completed" });
                       },
@@ -957,6 +1020,7 @@ function AdminSchedulePageContent() {
                         errorFallback: "Could not complete.",
                       },
                     );
+                    })();
                   }}
                 />
               </div>
@@ -981,11 +1045,24 @@ function AdminSchedulePageContent() {
         onClose={() => setDeskBookSeed(null)}
         todayMinIso={todayStr}
         onBooked={() => loadAppointments()}
+        confirmBeforeSubmit={async (ctx) =>
+          requestConfirm(
+            confirmDeskBook(
+              ctx.patientName,
+              ctx.serviceName,
+              ctx.dateIso,
+              ctx.timeLabel,
+              ctx.providerName,
+            ),
+          )
+        }
       />
 
       <BookNextVisitModal bookNext={bookNext} titleId="admin-book-next-title" />
 
       <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
+      <ConfirmDialog />
+
       {billingEditForAppointment && (
         <AdminVisitBillingModal
           open
