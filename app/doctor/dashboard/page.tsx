@@ -36,7 +36,9 @@ import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
-import { AppointmentStatusBadge } from "@/components/status-chip";
+import { AppointmentStatusBadge, appointmentStatusStripeClass } from "@/components/status-chip";
+import { resolveAppointmentUiStatus } from "@/lib/appointment-ui-status";
+import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
 import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
@@ -82,6 +84,9 @@ type Appointment = {
   start_time: string;
   end_time: string;
   status: string;
+  display_status?: string;
+  invoice_kind?: string | null;
+  auto_no_show_processed_at?: string | null;
   reason_for_visit: string;
   visit_id?: number | null;
   /** Persistent note on this appointment; visible to other providers on the patient chart. */
@@ -439,6 +444,12 @@ export default function DoctorDashboardPage() {
         value: list.filter((a) => ["completed", "awaiting_payment"].includes(a.status)).length,
         help: "Visit is wrapped up or waiting on payment. Awaiting payment still counts as needing checkout at the desk.",
       },
+      {
+        label: "No-shows",
+        value: list.filter((a) => resolveAppointmentUiStatus(a) === "no_show").length,
+        tone: "accent" as const,
+        help: "Patient did not attend (including automatic no-shows after the grace period). No-show fee may be on file.",
+      },
     ];
   }, [appointments, scheduleView]);
 
@@ -454,9 +465,15 @@ export default function DoctorDashboardPage() {
     return inConsult[0];
   }, [appointments, lastClosedConsultAppointmentId]);
 
-  const load = async (opts?: { focusAppointmentId?: number; skipReconnectBillingEdit?: boolean }) => {
-    setLoading(true);
-    setError("");
+  const load = async (opts?: {
+    focusAppointmentId?: number;
+    skipReconnectBillingEdit?: boolean;
+    silent?: boolean;
+  }) => {
+    if (!opts?.silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const query = appointmentsQueryForDashboardView(scheduleView, scheduleFocusIso, todayStr);
       const appts = await apiGetAuth<Appointment[]>(`/doctor/appointments/?${query}`);
@@ -480,9 +497,30 @@ export default function DoctorDashboardPage() {
       setError(e instanceof ApiError ? e.message : "Failed to load.");
       setAppointments([]);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   };
+
+  const dashboardShowsToday = useMemo(() => {
+    if (scheduleView === "day") return scheduleFocusIso === todayStr;
+    if (scheduleView === "week") {
+      const d = new Date(`${scheduleFocusIso}T12:00:00`);
+      const mon = new Date(d);
+      mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      const fri = new Date(mon);
+      fri.setDate(mon.getDate() + 4);
+      const t = new Date(`${todayStr}T12:00:00`);
+      return t >= mon && t <= fri;
+    }
+    const t = new Date(`${todayStr}T12:00:00`);
+    const f = new Date(`${scheduleFocusIso}T12:00:00`);
+    return t.getFullYear() === f.getFullYear() && t.getMonth() === f.getMonth();
+  }, [scheduleView, scheduleFocusIso, todayStr]);
+
+  useScheduleAutoRefresh({
+    enabled: dashboardShowsToday,
+    refresh: () => load({ silent: true }),
+  });
 
   /** Return from Square POS app after tap-to-pay on reader (query square_pos=…). */
   useEffect(() => {
@@ -2071,14 +2109,18 @@ export default function DoctorDashboardPage() {
                 );
               }
               const appt = item.appointment;
+              const uiStatus = resolveAppointmentUiStatus(appt);
+              const isNoShow = uiStatus === "no_show";
               return (
               <div
                 key={appt.id}
                 className={`overflow-hidden rounded-xl border transition hover:shadow-sm ${
-                  activeAppt?.id === appt.id
-                    ? "border-[#16a349]/45 bg-gradient-to-r from-[#16a349]/12 to-emerald-50/50 shadow-sm"
-                    : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80"
-                }`}
+                  isNoShow
+                    ? "border-red-400/90 bg-red-50/90 shadow-sm ring-1 ring-red-300/60"
+                    : activeAppt?.id === appt.id
+                      ? "border-[#16a349]/45 bg-gradient-to-r from-[#16a349]/12 to-emerald-50/50 shadow-sm"
+                      : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80"
+                } ${appointmentStatusStripeClass(uiStatus)}`}
               >
                 <div
                   role="button"
@@ -2103,12 +2145,17 @@ export default function DoctorDashboardPage() {
                     </div>
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
                       <AppointmentStatusBadge
-                        status={statusDisplay(appt.status)}
+                        status={statusDisplay(uiStatus)}
                         size="md"
                         className="w-fit shrink-0 normal-case"
                       />
+                      {isNoShow && appt.auto_no_show_processed_at ? (
+                        <span className="w-full text-[11px] font-medium text-red-900/90 sm:w-auto sm:text-right">
+                          Marked automatically
+                        </span>
+                      ) : null}
                       <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-                    {appt.status === "booked" && (
+                    {uiStatus === "booked" && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2121,7 +2168,7 @@ export default function DoctorDashboardPage() {
                         {isCheckingIn ? "Completing check-in…" : "Check-in"}
                       </button>
                     )}
-                    {appt.status === "checked_in" && (
+                    {uiStatus === "checked_in" && (
                       <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                         <button
                           type="button"
@@ -2140,7 +2187,7 @@ export default function DoctorDashboardPage() {
                         </HelpTip>
                       </div>
                     )}
-                    {appt.status === "in_consultation" && (
+                    {uiStatus === "in_consultation" && (
                       <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                         <button
                           type="button"
@@ -2159,7 +2206,7 @@ export default function DoctorDashboardPage() {
                         </HelpTip>
                       </div>
                     )}
-                    {appt.status === "awaiting_payment" && (
+                    {uiStatus === "awaiting_payment" && (
                       <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-end">
                         <button
                           type="button"
@@ -2217,13 +2264,13 @@ export default function DoctorDashboardPage() {
                     </div>
                   </div>
                 </div>
-                {appt.status === "awaiting_payment" && appt.invoice_total != null && (
+                {uiStatus === "awaiting_payment" && appt.invoice_total != null && (
                   <p className="border-t border-emerald-100/80 bg-[#f0fdf4]/90 px-4 py-2 text-center text-[13px] font-medium leading-normal text-[#0d5c2e]">
                     Amount due (invoice): ${appt.invoice_total}
                     {appt.invoice_number ? ` · ${appt.invoice_number}` : ""}
                   </p>
                 )}
-                {canDoctorPreVisitDesk(appt.status) && (
+                {canDoctorPreVisitDesk(uiStatus) && (
                   <div className="grid grid-cols-1 gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-3 sm:grid-cols-3">
                     <button
                       type="button"

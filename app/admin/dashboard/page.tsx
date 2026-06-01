@@ -3,7 +3,8 @@
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
-import { StatusChipView } from "@/components/status-chip";
+import { AppointmentStatusBadge } from "@/components/status-chip";
+import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import { apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -21,6 +22,7 @@ type DashboardSummary = {
   appointments_today: number;
   checked_in: number;
   completed: number;
+  no_shows_today?: number;
   daily_revenue: string;
   unpaid_invoices: number;
   today_schedule: Array<{
@@ -29,6 +31,7 @@ type DashboardSummary = {
     provider_name?: string;
     start_time: string;
     status: string;
+    auto_no_show?: boolean;
   }>;
   recent_activity: RecentActivityItem[] | string[];
   /** e.g. "Monday, May 11, 2026" — clinic-local calendar day */
@@ -67,19 +70,28 @@ export default function AdminDashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const summary = await apiGetAuth<DashboardSummary>("/admin/dashboard_summary/");
       setData(summary);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to load dashboard";
-      setError(msg);
+      if (!opts?.silent) {
+        const msg = e instanceof Error ? e.message : "Failed to load dashboard";
+        setError(msg);
+      }
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
+
+  useScheduleAutoRefresh({
+    enabled: true,
+    refresh: () => load({ silent: true }),
+  });
 
   useEffect(() => {
     void load();
@@ -195,14 +207,14 @@ export default function AdminDashboardPage() {
         </button>
       </nav>
 
-      <div className="stagger-children grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="stagger-children grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <Link
           href="/admin/schedule"
           className="admin-panel group border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 ring-slate-200/60 transition hover:border-[#16a349]/35 hover:shadow-md"
         >
           <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
             Today · appointments
-            <HelpTip label="Appointments today">Visits scheduled for today (all providers), excluding cancelled and no-show.</HelpTip>
+            <HelpTip label="Appointments today">Active visits today (booked through finished), excluding cancelled and no-show.</HelpTip>
           </p>
           <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-slate-900 group-hover:text-[#0d5c2e]">
             {data.appointments_today}
@@ -230,6 +242,19 @@ export default function AdminDashboardPage() {
           </p>
           <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-sky-800">{data.completed}</p>
           <p className="mt-2 text-xs font-medium text-sky-700 opacity-0 transition group-hover:opacity-100">Open schedule →</p>
+        </Link>
+        <Link
+          href="/admin/schedule"
+          className="admin-panel group border-red-200/80 bg-gradient-to-br from-red-50/80 to-white ring-red-100/80 transition hover:border-red-400 hover:shadow-md"
+        >
+          <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-red-950/90">
+            Today · no-shows
+            <HelpTip label="No-shows today">Missed visits today, including automatic no-shows after the grace period.</HelpTip>
+          </p>
+          <p className="mt-3 text-4xl font-bold tabular-nums leading-none tracking-tight text-red-700">
+            {data.no_shows_today ?? 0}
+          </p>
+          <p className="mt-2 text-xs font-medium text-red-800 opacity-0 transition group-hover:opacity-100">Open schedule →</p>
         </Link>
         <Link
           href="/admin/billing"
@@ -291,20 +316,31 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             ) : (
-              data.today_schedule.map((a) => (
+              data.today_schedule.map((a) => {
+                const isNoShow = a.status === "no_show";
+                return (
                 <Link
                   key={a.id}
                   href={`/admin/schedule?appointment=${a.id}`}
-                  className="grid min-h-[3.25rem] grid-cols-1 items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-left transition hover:border-[#16a349]/35 hover:bg-[#ecfdf5]/40 sm:grid-cols-[minmax(5.5rem,auto)_1fr_minmax(0,auto)_auto] sm:gap-y-0"
+                  className={cn(
+                    "grid min-h-[3.25rem] grid-cols-1 items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-3 text-left transition sm:grid-cols-[minmax(5.5rem,auto)_1fr_minmax(0,auto)_auto] sm:gap-y-0",
+                    isNoShow
+                      ? "border-red-400/90 bg-red-50/90 ring-1 ring-red-300/50 hover:border-red-500 hover:bg-red-50"
+                      : "border-slate-200/90 bg-slate-50/50 hover:border-[#16a349]/35 hover:bg-[#ecfdf5]/40",
+                  )}
                 >
                   <span className="shrink-0 font-mono text-[13px] font-semibold tabular-nums text-slate-800">{a.start_time}</span>
                   <span className="min-w-0 font-semibold text-slate-900">{a.patient_name}</span>
                   <span className="min-w-0 truncate text-[13px] text-slate-500 sm:text-right">{a.provider_name || "—"}</span>
-                  <span className="justify-self-start sm:justify-self-end">
-                    <StatusChipView status={a.status} />
+                  <span className="flex flex-col items-start gap-0.5 justify-self-start sm:items-end sm:justify-self-end">
+                    <AppointmentStatusBadge status={a.status} size="sm" className="normal-case" />
+                    {isNoShow && a.auto_no_show ? (
+                      <span className="text-[10px] font-medium text-red-900/85">Automatic</span>
+                    ) : null}
                   </span>
                 </Link>
-              ))
+              );
+              })
             )}
           </div>
         </section>

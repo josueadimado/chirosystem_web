@@ -2,6 +2,7 @@
 
 import { useAppFeedback } from "@/components/app-feedback";
 import { cn } from "@/lib/utils";
+import { effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 import {
   SCHEDULE_DAY_END_MIN,
   SCHEDULE_DAY_START_MIN,
@@ -59,7 +60,7 @@ export type ScheduleAppointment = {
 
 /** Status used for colors, labels, and desk rules on the schedule grid. */
 export function scheduleAppointmentUiStatus(a: ScheduleAppointment): string {
-  return a.display_status ?? a.status;
+  return a.display_status ?? effectiveAppointmentStatus(a.status, a.invoice_kind);
 }
 
 export type ProviderRow = { id: number; provider_name: string };
@@ -127,15 +128,34 @@ function blockBackground(status: string, baseColor: string): string {
   return baseColor;
 }
 
+function AppointmentStatusBanner({ status }: { status: string }) {
+  if (status === "no_show") {
+    return (
+      <div className="shrink-0 border-b border-red-800/30 bg-red-700 px-1.5 py-0.5 text-center text-[10px] font-black uppercase tracking-wide text-white">
+        No-show
+      </div>
+    );
+  }
+  if (status === "cancelled") {
+    return (
+      <div className="shrink-0 border-b border-rose-800/25 bg-rose-600 px-1.5 py-0.5 text-center text-[10px] font-black uppercase tracking-wide text-white">
+        Cancelled
+      </div>
+    );
+  }
+  return null;
+}
+
 function AppointmentBlockDecor({ status }: { status: string }) {
   if (status === "cancelled") return null;
   if (status === "no_show") {
     return (
       <span
-        className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-[1.1rem] items-center justify-center rounded bg-red-700 px-0.5 text-[8px] font-black leading-none text-white shadow-sm"
+        className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-[1.1rem] items-center justify-center rounded bg-red-900 px-0.5 text-[8px] font-black leading-none text-white shadow-sm ring-1 ring-white/40"
         title="No-show"
+        aria-hidden
       >
-        NS
+        !
       </span>
     );
   }
@@ -1301,6 +1321,7 @@ function DayProviderColumn({
                     reasonForVisit={a.reason_for_visit}
                   >
                     <div className="flex min-h-0 flex-1 flex-col">
+                      <AppointmentStatusBanner status={uiStatus} />
                       <div
                         className={cn(
                           "shrink-0 border-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
@@ -1980,6 +2001,7 @@ function WeekDayStack({
                 reasonForVisit={a.reason_for_visit}
               >
                 <div className="flex min-h-0 flex-1 flex-col">
+                  <AppointmentStatusBanner status={uiStatus} />
                   <div
                     className={cn(
                       "shrink-0 border-b px-1 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
@@ -2081,21 +2103,24 @@ function MonthGrid({
                 <>
                   <span className="mt-0.5 text-[10px] font-medium text-slate-600">{count} appt{count === 1 ? "" : "s"}</span>
                   <div className="mt-1 flex flex-wrap gap-0.5">
-                    {list.slice(0, 6).map((a) => (
+                    {list.slice(0, 6).map((a) => {
+                      const ui = scheduleAppointmentUiStatus(a);
+                      return (
                       <span
                         key={a.id}
                         className="h-1.5 max-w-[40%] flex-1 rounded-full"
                         style={{
                           backgroundColor:
-                            a.status === "cancelled"
+                            ui === "cancelled"
                               ? "#fecdd3"
-                              : a.status === "no_show"
+                              : ui === "no_show"
                                 ? "#ef4444"
                                 : providerColorForId(a.provider),
                         }}
-                        title={`${a.patient_name} · ${formatTimeShort(a.start_time)}`}
+                        title={`${a.patient_name} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
                       />
-                    ))}
+                    );
+                    })}
                   </div>
                   {list.length > 6 && (
                     <span className="mt-0.5 text-[9px] text-slate-500">+{list.length - 6} more</span>
