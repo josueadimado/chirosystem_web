@@ -5,6 +5,7 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
+import { Button } from "@/components/ui/button";
 import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import { emailPatientBillAdmin } from "@/lib/patient-bill-email";
@@ -24,7 +25,7 @@ import {
   formatMonthDayYear,
 } from "@/lib/format-date";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type BillingInvoiceRow = {
   id: number;
@@ -88,36 +89,25 @@ const KIND_FILTER_OPTIONS: { value: KindFilter; label: string }[] = [
   { value: "late_cancel_fee", label: "Late cancel fee" },
 ];
 
-function matchesListFilter(inv: BillingInvoiceRow, filter: ListFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "paid") return inv.status === "paid";
-  if (filter === "overdue") return inv.status === "overdue";
-  return inv.status === "issued" || inv.status === "overdue" || inv.status === "draft";
-}
+type BillingInvoicesResponse = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: BillingInvoiceRow[];
+  summary: {
+    total: number;
+    open: number;
+    overdue: number;
+    paid: number;
+  };
+};
+
+const BILLING_PAGE_SIZE = 25;
 
 function parseMoneyNum(amount: string | undefined): number {
   if (amount == null || String(amount).trim() === "") return 0;
   const n = parseFloat(amount);
   return Number.isFinite(n) ? n : 0;
-}
-
-function matchesBillingSearch(inv: BillingInvoiceRow, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  const hay = `${inv.patient_name} ${inv.invoice_number} ${inv.patient_id}`.toLowerCase();
-  return hay.includes(q);
-}
-
-function matchesVisitDateRange(
-  inv: BillingInvoiceRow,
-  from: string,
-  to: string,
-): boolean {
-  const d = inv.appointment_date;
-  if (!d) return !from && !to;
-  if (from && d < from) return false;
-  if (to && d > to) return false;
-  return true;
 }
 
 function hasActiveBillingFilters(args: {
@@ -141,9 +131,13 @@ function hasActiveBillingFilters(args: {
 export default function AdminBillingPage() {
   const { runWithFeedback, toast } = useAppFeedback();
   const [invoices, setInvoices] = useState<BillingInvoiceRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [summary, setSummary] = useState({ total: 0, open: 0, overdue: 0, paid: 0 });
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<BillingInvoiceRow | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState<"cash" | "card" | "online" | "manual">("cash");
   const [payRef, setPayRef] = useState("");
@@ -158,38 +152,28 @@ export default function AdminBillingPage() {
   const [billingEditAppointmentId, setBillingEditAppointmentId] = useState<number | null>(null);
   const [listFilter, setListFilter] = useState<ListFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [kindFilter, setKindFilter] = useState<KindFilter>("");
   const [visitDateFrom, setVisitDateFrom] = useState("");
   const [visitDateTo, setVisitDateTo] = useState("");
   const [insuranceOnly, setInsuranceOnly] = useState(false);
 
-  const filteredInvoices = useMemo(
-    () =>
-      invoices.filter((inv) => {
-        if (!matchesListFilter(inv, listFilter)) return false;
-        if (kindFilter && inv.kind !== kindFilter) return false;
-        if (insuranceOnly && parseMoneyNum(inv.insurance_remaining_total) <= 0.009) return false;
-        if (!matchesBillingSearch(inv, searchQuery)) return false;
-        if (!matchesVisitDateRange(inv, visitDateFrom, visitDateTo)) return false;
-        return true;
-      }),
-    [invoices, listFilter, kindFilter, insuranceOnly, searchQuery, visitDateFrom, visitDateTo],
-  );
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(searchQuery), 350);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
 
-  const openCount = useMemo(
-    () =>
-      invoices.filter(
-        (i) => i.status === "issued" || i.status === "overdue" || i.status === "draft",
-      ).length,
-    [invoices],
-  );
+  useEffect(() => {
+    setPage(1);
+  }, [listFilter, kindFilter, searchDebounced, visitDateFrom, visitDateTo, insuranceOnly]);
 
-  const overdueCount = useMemo(
-    () => invoices.filter((i) => i.status === "overdue").length,
-    [invoices],
-  );
+  const totalPages = Math.max(1, Math.ceil(totalCount / BILLING_PAGE_SIZE));
+  const rangeStart = totalCount === 0 ? 0 : (page - 1) * BILLING_PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * BILLING_PAGE_SIZE, totalCount);
 
-  const paidCount = useMemo(() => invoices.filter((i) => i.status === "paid").length, [invoices]);
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), totalPages));
+  }, [totalPages]);
 
   const filtersActive = hasActiveBillingFilters({
     search: searchQuery,
@@ -258,21 +242,44 @@ export default function AdminBillingPage() {
     setLoading(true);
     setError("");
     try {
-      const rows = await apiGetAuth<BillingInvoiceRow[]>("/admin/billing_invoices/");
-      setInvoices(Array.isArray(rows) ? rows : []);
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("page_size", String(BILLING_PAGE_SIZE));
+      params.set("list_filter", listFilter);
+      if (kindFilter) params.set("kind", kindFilter);
+      if (searchDebounced.trim()) params.set("search", searchDebounced.trim());
+      if (visitDateFrom) params.set("visit_date_from", visitDateFrom);
+      if (visitDateTo) params.set("visit_date_to", visitDateTo);
+      if (insuranceOnly) params.set("insurance_only", "1");
+
+      const data = await apiGetAuth<BillingInvoicesResponse>(`/admin/billing_invoices/?${params}`);
+      setInvoices(Array.isArray(data.results) ? data.results : []);
+      setTotalCount(data.count ?? 0);
+      setSummary(
+        data.summary ?? { total: data.count ?? 0, open: 0, overdue: 0, paid: 0 },
+      );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load invoices.");
       setInvoices([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, listFilter, kindFilter, searchDebounced, visitDateFrom, visitDateTo, insuranceOnly]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
-  const selected = selectedId != null ? invoices.find((i) => i.id === selectedId) : null;
+  const openInvoice = (inv: BillingInvoiceRow) => {
+    setSelectedSnapshot(inv);
+    setSelectedId(inv.id);
+  };
+
+  const selected =
+    selectedId != null
+      ? invoices.find((i) => i.id === selectedId) ?? selectedSnapshot
+      : null;
 
   useEffect(() => {
     if (selected) {
@@ -393,7 +400,8 @@ export default function AdminBillingPage() {
 
   const billingEditRow =
     billingEditAppointmentId != null
-      ? invoices.find((i) => i.appointment_id === billingEditAppointmentId) ?? null
+      ? invoices.find((i) => i.appointment_id === billingEditAppointmentId) ??
+        (selectedSnapshot?.appointment_id === billingEditAppointmentId ? selectedSnapshot : null)
       : null;
 
   return (
@@ -435,10 +443,10 @@ export default function AdminBillingPage() {
                 <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 text-sm">
                   {(
                     [
-                      ["all", `All (${invoices.length})`],
-                      ["open", `Open (${openCount})`],
-                      ["overdue", `Overdue (${overdueCount})`],
-                      ["paid", `Paid (${paidCount})`],
+                      ["all", `All (${summary.total})`],
+                      ["open", `Open (${summary.open})`],
+                      ["overdue", `Overdue (${summary.overdue})`],
+                      ["paid", `Paid (${summary.paid})`],
                     ] as const
                   ).map(([key, label]) => (
                     <button
@@ -515,10 +523,18 @@ export default function AdminBillingPage() {
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-3 text-sm">
               <p className="text-slate-600">
-                Showing{" "}
-                <span className="font-semibold text-slate-900">{filteredInvoices.length}</span> of{" "}
-                <span className="font-semibold text-slate-900">{invoices.length}</span> invoice
-                {invoices.length === 1 ? "" : "s"}
+                {totalCount === 0 ? (
+                  "No invoices match"
+                ) : (
+                  <>
+                    Showing{" "}
+                    <span className="font-semibold tabular-nums text-slate-900">
+                      {rangeStart}&ndash;{rangeEnd}
+                    </span>{" "}
+                    of <span className="font-semibold tabular-nums text-slate-900">{totalCount}</span>{" "}
+                    invoice{totalCount === 1 ? "" : "s"}
+                  </>
+                )}
               </p>
               {filtersActive ? (
                 <button
@@ -534,9 +550,9 @@ export default function AdminBillingPage() {
         </div>
         {loading ? (
           <Loader variant="page" label="Loading invoices" sublabel="Fetching billing data…" />
-        ) : invoices.length === 0 ? (
+        ) : summary.total === 0 && !filtersActive ? (
           <p className="py-8 text-center text-sm text-slate-500">No invoices yet. They appear when visits are completed.</p>
-        ) : filteredInvoices.length === 0 ? (
+        ) : totalCount === 0 ? (
           <div className="py-8 text-center text-sm text-slate-500">
             <p>No invoices match your filters.</p>
             {filtersActive ? (
@@ -550,10 +566,12 @@ export default function AdminBillingPage() {
             ) : null}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="space-y-3">
+            <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
+              <div className="max-h-[min(520px,65vh)] overflow-y-auto overscroll-contain">
             <table className="w-full min-w-[1020px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-slate-500">
+              <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
+                <tr className="text-left text-slate-500">
                   <th className="pb-2 pr-3 font-semibold">Issued</th>
                   <th className="pb-2 pr-3 font-semibold">Visit date</th>
                   <th className="pb-2 pr-3 font-semibold">Type</th>
@@ -583,11 +601,11 @@ export default function AdminBillingPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInvoices.map((inv) => (
+                {invoices.map((inv) => (
                   <tr
                     key={inv.id}
                     className="cursor-pointer border-t border-slate-100 transition hover:bg-slate-50/80"
-                    onClick={() => setSelectedId(inv.id)}
+                    onClick={() => openInvoice(inv)}
                   >
                     <td className="py-2.5 pr-3 whitespace-nowrap text-slate-700">
                       {formatInstantAsMonthDayYear(inv.issued_at)}
@@ -614,7 +632,7 @@ export default function AdminBillingPage() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedId(inv.id);
+                          openInvoice(inv);
                         }}
                         className="rounded-lg border border-[#16a349]/30 bg-[#ecfdf5] px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-[#d1fae5]"
                       >
@@ -625,11 +643,54 @@ export default function AdminBillingPage() {
                 ))}
               </tbody>
             </table>
+              </div>
+            </div>
+
+            {totalPages > 1 ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-500">
+                  Page <span className="font-semibold tabular-nums text-slate-700">{page}</span> of{" "}
+                  <span className="tabular-nums">{totalPages}</span>
+                  <span className="mx-2 text-slate-300">·</span>
+                  <span className="text-slate-400">{BILLING_PAGE_SIZE} per page</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    aria-label="Previous page"
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
+                    disabled={page >= totalPages || loading}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    aria-label="Next page"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </section>
 
-      <Dialog open={selectedId != null} onOpenChange={(open) => !open && setSelectedId(null)}>
+      <Dialog
+        open={selectedId != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedId(null);
+            setSelectedSnapshot(null);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-2xl sm:max-h-[min(calc(100dvh-2rem),52rem)]">
           {!selected ? null : (
             <>
