@@ -70,7 +70,6 @@ export function useBookNextVisit({
   const [rangeAppointments, setRangeAppointments] = useState<BookNextDayAppointment[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [scheduleView, setScheduleView] = useState<"day" | "week" | "month">("day");
-  const [scheduleExpanded, setScheduleExpanded] = useState(false);
 
   const pickProviderForService = useCallback(
     (sid: number, src: BookNextSource) => {
@@ -94,7 +93,6 @@ export function useBookNextVisit({
     setDayAppointments([]);
     setRangeAppointments([]);
     setScheduleView("day");
-    setScheduleExpanded(false);
   }, []);
 
   const open = useCallback(
@@ -411,8 +409,6 @@ export function useBookNextVisit({
     rangeLoading,
     scheduleView,
     setScheduleView,
-    scheduleExpanded,
-    setScheduleExpanded,
     providerName,
     useDeskAvailability,
     canSubmit,
