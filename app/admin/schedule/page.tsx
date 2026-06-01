@@ -50,14 +50,16 @@ import {
   parseTimeToMinutes,
   providerColorForId,
   SCHEDULE_DESK_DAY_END_MIN,
+  scheduleRangeIncludesToday,
   startOfMonth,
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
+import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { estimatedPriceFromSnapshot, type VisitSnapshot } from "@/lib/visit-panel-types";
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
@@ -79,6 +81,7 @@ type Appointment = {
   status: string;
   display_status?: string;
   invoice_kind?: string | null;
+  auto_no_show_processed_at?: string | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
 };
@@ -322,7 +325,13 @@ function AdminSchedulePageContent() {
   };
 
   useEffect(() => {
-    if (!selected || selected.status !== "awaiting_payment") {
+    const ui = selected
+      ? selected.display_status ?? effectiveAppointmentStatus(selected.status, selected.invoice_kind)
+      : "";
+    const needsBillingHint =
+      selected &&
+      (selected.status === "awaiting_payment" || (ui === "no_show" && selected.invoice_kind === "no_show_fee"));
+    if (!needsBillingHint) {
       setBillingInvoiceIdHint(null);
       setBillingHintLoading(false);
       return;
@@ -379,42 +388,59 @@ function AdminSchedulePageContent() {
     }
   };
 
-  const loadAppointments = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const params = buildAppointmentListParams(view, focusDate, providerFilter, statusFilter);
-      const { from, to } = blockListRange(view, focusDate);
-      const blockParams = new URLSearchParams({ date_from: from, date_to: to });
+  const loadAppointments = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) {
+        setLoading(true);
+        setError("");
+      }
+      try {
+        const params = buildAppointmentListParams(view, focusDate, providerFilter, statusFilter);
+        const { from, to } = blockListRange(view, focusDate);
+        const blockParams = new URLSearchParams({ date_from: from, date_to: to });
 
-      const [list, blockList] = await Promise.all([
-        apiGetAuth<Appointment[]>(`/appointments/?${params}`),
-        apiGetAuth<ProviderBlock[]>(`/provider-unavailability/?${blockParams}`).catch(() => [] as ProviderBlock[]),
-      ]);
+        const [list, blockList] = await Promise.all([
+          apiGetAuth<Appointment[]>(`/appointments/?${params}`),
+          apiGetAuth<ProviderBlock[]>(`/provider-unavailability/?${blockParams}`).catch(() => [] as ProviderBlock[]),
+        ]);
 
-      setAppointments(list);
-      setBlocks(blockList);
-      setSelected((prev) => {
-        if (!prev) return null;
-        const fresh = list.find((a) => a.id === prev.id);
-        return fresh ?? null;
-      });
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to load schedule.");
-      setAppointments([]);
-      setBlocks([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+        setAppointments(list);
+        setBlocks(blockList);
+        setSelected((prev) => {
+          if (!prev) return null;
+          const fresh = list.find((a) => a.id === prev.id);
+          return fresh ?? null;
+        });
+      } catch (e) {
+        if (!opts?.silent) {
+          setError(e instanceof ApiError ? e.message : "Failed to load schedule.");
+          setAppointments([]);
+          setBlocks([]);
+        }
+      } finally {
+        if (!opts?.silent) setLoading(false);
+      }
+    },
+    [view, focusDate, providerFilter, statusFilter],
+  );
+
+  const scheduleRangeHasToday = useMemo(() => {
+    const { from, to } = blockListRange(view, focusDate);
+    return scheduleRangeIncludesToday(from, to);
+  }, [view, focusDate]);
+
+  useScheduleAutoRefresh({
+    enabled: scheduleRangeHasToday,
+    refresh: () => loadAppointments({ silent: true }),
+  });
 
   useEffect(() => {
     loadProviders();
   }, []);
 
   useEffect(() => {
-    loadAppointments();
-  }, [view, focusDate, providerFilter, statusFilter]);
+    void loadAppointments();
+  }, [loadAppointments]);
 
   useEffect(() => {
     const raw = searchParams.get("appointment");

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartNoteReader } from "@/components/chart-note-document";
+import { ChartNoteReaderPanel, type ChartNoteMeta } from "@/components/chart-note-document";
 import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
 import { BookNextSchedulePanel } from "@/components/visit-panel/book-next-schedule-panel";
 import type { BookNextVisitController } from "@/hooks/use-book-next-visit";
@@ -31,6 +31,13 @@ export function BookNextVisitModal({
 
   const ctx = bookNext.visitContext;
   const loading = bookNext.optionsLoading || bookNext.contextLoading;
+  const soapMeta: ChartNoteMeta | undefined = ctx
+    ? {
+        dateLabel: `${formatWeekdayMonthDayYear(ctx.appointment_date)} at ${ctx.start_time_display}`,
+        provider: ctx.provider_name,
+        service: ctx.service_name,
+      }
+    : undefined;
 
   return createPortal(
     <div
@@ -50,8 +57,8 @@ export function BookNextVisitModal({
           <p className="mt-1.5 text-sm leading-relaxed text-slate-600 sm:text-base">
             Schedule a follow-up for{" "}
             <span className="font-semibold text-slate-900">{bookNext.patientLabel}</span>. Use the same day view as
-            your main schedule — gray blocks are booked visits; green blocks show how long the new visit will take.
-            Tap a green block to pick that start time.
+            your main schedule. <strong>Day</strong> shows one day in detail; <strong>Week</strong> shows the whole week
+            like the main calendar (gray = booked, green = open). Tap to pick a start time.
             {showDeskHoursHint ? (
               <> Hours run 7:00 AM–9:00 PM (front desk schedule).</>
             ) : null}
@@ -124,9 +131,14 @@ export function BookNextVisitModal({
                         </div>
                       ) : null}
                       {ctx.clinical_notes?.trim() ? (
-                        <div className="mt-3 max-h-36 overflow-y-auto rounded-lg border border-violet-200/60 bg-white/80 p-3">
+                        <div className="mt-3 rounded-lg border border-violet-200/60 bg-white/90 p-3">
                           <p className="text-xs font-bold uppercase text-slate-500">SOAP notes</p>
-                          <ChartNoteReader text={ctx.clinical_notes} className="mt-1 text-sm" />
+                          <ChartNoteReaderPanel
+                            text={ctx.clinical_notes}
+                            meta={soapMeta}
+                            title="SOAP notes — last visit"
+                            className="mt-2 max-h-40 overflow-y-auto text-sm"
+                          />
                         </div>
                       ) : null}
                     </div>
@@ -176,6 +188,7 @@ export function BookNextVisitModal({
                 calendarSpanMin={bookNext.calendarSpanMin}
                 serviceName={bookNext.serviceName}
                 serviceType={bookNext.serviceType}
+                onPickDayAndStartMinute={bookNext.pickDayAndStartMinute}
               />
             </div>
           )}

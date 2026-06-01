@@ -77,6 +77,8 @@ export default function BookingPage() {
   const [bookingSubmitErrorByLineId, setBookingSubmitErrorByLineId] = useState<Record<string, string>>({});
   /** After “Edit” from Step 4, scroll this cart line into view on Step 3. */
   const [step3FocusLineId, setStep3FocusLineId] = useState<string | null>(null);
+  /** Main booking steps card (below hero on mobile). */
+  const bookingSessionRef = useRef<HTMLElement>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -765,6 +767,18 @@ export default function BookingPage() {
     }
   };
 
+  /** On phones, jump to the step card so patients don't hunt below the hero image. */
+  const scrollToBookingSession = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    const run = () => {
+      bookingSessionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(run);
+    });
+  }, []);
+
   const activateNewBookingFlow = () => {
     setBookingFlow("new");
     setReschedulePick(null);
@@ -781,6 +795,7 @@ export default function BookingPage() {
     setCartSlotsLoadingByLineId({});
     setBookingSubmitErrorByLineId({});
     setStep3FocusLineId(null);
+    scrollToBookingSession();
   };
 
   const { findNextOpenDay, findingNextOpenDay } = useFindNextOpenBookingDay({
@@ -811,6 +826,7 @@ export default function BookingPage() {
     setCartSlotsLoadingByLineId({});
     setBookingSubmitErrorByLineId({});
     setStep3FocusLineId(null);
+    scrollToBookingSession();
   };
 
   const loadMyAppointments = useCallback(async () => {
@@ -1284,7 +1300,12 @@ export default function BookingPage() {
           !hideBookingSidebar && "lg:grid-cols-[2fr_1fr]",
         )}
       >
-        <section className="order-1 min-w-0 rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80 md:p-6 space-y-5">
+        <section
+          ref={bookingSessionRef}
+          id="booking-session"
+          aria-label="Online booking steps"
+          className="order-1 min-w-0 scroll-mt-3 rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80 md:p-6 space-y-5"
+        >
           <div className="grid grid-cols-4 gap-1 sm:gap-2">
             {([1, 2, 3, 4] as Step[]).map((item) => (
               <button

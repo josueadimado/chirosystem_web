@@ -21,9 +21,11 @@ import {
   minutesToApiTime,
   mondayOfWeekContaining,
   parseTimeToMinutes,
+  scheduleRangeIncludesToday,
   startOfMonth,
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
+import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-modal";
 import { RescheduleVisitSlotsModal } from "@/components/visit-panel/reschedule-visit-slots-modal";
 import { VisitDoctorScheduleActions } from "@/components/visit-panel/visit-doctor-schedule-actions";
@@ -73,6 +75,7 @@ type AppointmentRow = {
   status: string;
   display_status?: string;
   invoice_kind?: string | null;
+  auto_no_show_processed_at?: string | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
 };
@@ -238,26 +241,43 @@ function DoctorSchedulePageInner() {
     }
   }, []);
 
-  const loadAppointments = useCallback(async () => {
-    if (providerId == null) return;
-    setLoading(true);
-    setError("");
-    try {
-      const params = buildAppointmentListParams(view, focusDate, providerId);
-      const list = await apiGetAuth<AppointmentRow[]>(`/appointments/?${params}`);
-      setAppointments(list);
-      setSelected((prev) => {
-        if (!prev) return null;
-        const fresh = list.find((a) => a.id === prev.id);
-        return fresh ?? null;
-      });
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to load schedule.");
-      setAppointments([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [providerId, view, focusDate]);
+  const loadAppointments = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (providerId == null) return;
+      if (!opts?.silent) {
+        setLoading(true);
+        setError("");
+      }
+      try {
+        const params = buildAppointmentListParams(view, focusDate, providerId);
+        const list = await apiGetAuth<AppointmentRow[]>(`/appointments/?${params}`);
+        setAppointments(list);
+        setSelected((prev) => {
+          if (!prev) return null;
+          const fresh = list.find((a) => a.id === prev.id);
+          return fresh ?? null;
+        });
+      } catch (e) {
+        if (!opts?.silent) {
+          setError(e instanceof ApiError ? e.message : "Failed to load schedule.");
+          setAppointments([]);
+        }
+      } finally {
+        if (!opts?.silent) setLoading(false);
+      }
+    },
+    [providerId, view, focusDate],
+  );
+
+  const scheduleRangeHasToday = useMemo(() => {
+    const { from, to } = blockListRange(view, focusDate);
+    return scheduleRangeIncludesToday(from, to);
+  }, [view, focusDate]);
+
+  useScheduleAutoRefresh({
+    enabled: scheduleRangeHasToday && providerId != null,
+    refresh: () => loadAppointments({ silent: true }),
+  });
 
   const loadBlocks = useCallback(async () => {
     if (providerId == null) return;
@@ -842,6 +862,7 @@ function DoctorSchedulePageInner() {
                 status={selected.status}
                 displayStatus={selected.display_status}
                 invoiceKind={selected.invoice_kind}
+                autoNoShowProcessedAt={selected.auto_no_show_processed_at}
                 checkingIn={checkingIn}
                 saving={appointmentSaving}
                 serviceType={selected.service_type}

@@ -6,7 +6,7 @@ import { addDaysIso, monthGridRange, weekRangeContaining } from "@/lib/book-next
 import { fetchAvailabilitySlots } from "@/lib/availability-slots";
 import { apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import type { BookingOptionsResponse } from "@/lib/booking-options-types";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type BookNextSource = {
   id: number;
@@ -70,6 +70,7 @@ export function useBookNextVisit({
   const [rangeAppointments, setRangeAppointments] = useState<BookNextDayAppointment[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [scheduleView, setScheduleView] = useState<"day" | "week" | "month">("day");
+  const pendingSlotRef = useRef<string | null>(null);
 
   const pickProviderForService = useCallback(
     (sid: number, src: BookNextSource) => {
@@ -171,7 +172,16 @@ export function useBookNextVisit({
         if (cancelled) return;
         setSlotLabels(labels);
         setSlotTimes(times);
-        setSelectedSlot(times[0] || "");
+        const pending = pendingSlotRef.current;
+        if (pending) {
+          const idx = times.findIndex(
+            (t) => t === pending || t.startsWith(pending.slice(0, 5)),
+          );
+          setSelectedSlot(idx >= 0 ? times[idx] : times[0] || "");
+          pendingSlotRef.current = null;
+        } else {
+          setSelectedSlot(times[0] || "");
+        }
       } catch {
         if (!cancelled) {
           setSlotLabels([]);
@@ -292,6 +302,17 @@ export function useBookNextVisit({
     [todayMinIso],
   );
 
+  const pickDayAndStartMinute = useCallback(
+    (iso: string, startMinute: number) => {
+      if (iso < todayMinIso) return;
+      const h24 = Math.floor(startMinute / 60) % 24;
+      const m = startMinute % 60;
+      pendingSlotRef.current = `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+      shiftDate(iso);
+    },
+    [todayMinIso, shiftDate],
+  );
+
   const submit = useCallback(async () => {
     if (!source || !serviceId || !providerId || !date || !selectedSlot) return;
     const svcName =
@@ -407,6 +428,7 @@ export function useBookNextVisit({
     onServiceChange,
     date,
     setDate: shiftDate,
+    pickDayAndStartMinute,
     slotLabels,
     slotTimes,
     selectedSlot,

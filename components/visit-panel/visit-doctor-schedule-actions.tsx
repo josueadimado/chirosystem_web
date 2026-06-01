@@ -17,6 +17,7 @@ export function VisitDoctorScheduleActions({
   status,
   displayStatus,
   invoiceKind,
+  autoNoShowProcessedAt,
   checkingIn,
   saving,
   serviceType,
@@ -34,6 +35,7 @@ export function VisitDoctorScheduleActions({
   status: string;
   displayStatus?: string;
   invoiceKind?: string | null;
+  autoNoShowProcessedAt?: string | null;
   checkingIn?: boolean;
   saving?: boolean;
   serviceType?: string;
@@ -56,6 +58,8 @@ export function VisitDoctorScheduleActions({
 
   if (appointmentBlocksDeskActions(status, invoiceKind)) {
     const isNoShow = uiStatus === "no_show";
+    const autoNoShow = Boolean(autoNoShowProcessedAt);
+    const hasNoShowFee = invoiceKind === "no_show_fee";
     return (
       <div className="space-y-3">
         <div
@@ -67,9 +71,13 @@ export function VisitDoctorScheduleActions({
         >
           {isNoShow ? (
             <>
-              <p className="font-semibold">No-show</p>
+              <p className="font-semibold">{autoNoShow ? "No-show (automatic)" : "No-show"}</p>
               <p className="mt-1 text-xs leading-relaxed text-red-900/90">
-                The patient did not attend. Check-in and reschedule are not available for this visit.
+                {autoNoShow
+                  ? "Marked automatically after the visit start time passed the clinic grace period. "
+                  : "The patient did not attend. "}
+                Check-in, reschedule, and No-show are not available.
+                {hasNoShowFee ? " A no-show fee is on file for this visit." : ""}
               </p>
             </>
           ) : (

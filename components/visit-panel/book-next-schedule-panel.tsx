@@ -4,13 +4,18 @@ import {
   SCHEDULE_DAY_START_MIN,
   appointmentBlocksScheduleGrid,
   appointmentDurationMinutes,
+  computeOpenGaps,
+  minuteAtGridY,
   minutesToLabel,
+  openGapAtMinute,
   parseTimeToMinutes,
   scheduleDayEndMinute,
   scheduleGridPixelHeight,
   scheduleTotalMinutes,
   slotStartIsInPastForClinic,
+  snapMinuteInsideOpenGap,
   timePositionPercent,
+  type TimeInterval,
 } from "@/lib/admin-schedule-utils";
 import {
   addDaysIso,
@@ -270,6 +275,194 @@ function BookNextDayTimeline({
   );
 }
 
+/** Seven-day column grid — same layout as the main schedule week view. */
+function BookNextWeekGrid({
+  anchorDateIso,
+  todayMinIso,
+  selectedDateIso,
+  dayEndMin,
+  gridPx,
+  rangeAppointments,
+  slotLabels,
+  slotTimes,
+  selectedSlot,
+  onSelectSlot,
+  onPickDayAndStartMinute,
+  onSelectDate,
+  visitDurationMin,
+  calendarSpanMin,
+  slotsLoading,
+}: {
+  anchorDateIso: string;
+  todayMinIso: string;
+  selectedDateIso: string;
+  dayEndMin: number;
+  gridPx: number;
+  rangeAppointments: BookNextDayAppointment[];
+  slotLabels: string[];
+  slotTimes: string[];
+  selectedSlot: string;
+  onSelectSlot: (time: string, label: string) => void;
+  onPickDayAndStartMinute: (dateIso: string, startMinute: number) => void;
+  onSelectDate: (iso: string) => void;
+  visitDurationMin: number;
+  calendarSpanMin: number;
+  slotsLoading: boolean;
+}) {
+  const hours = scheduleGridHours(dayEndMin);
+  const week = weekRangeContaining(anchorDateIso);
+  const todayIso = todayMinIso;
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
+      <div className="flex min-w-[980px]">
+        <TimeLabelsColumn dayEndMin={dayEndMin} gridPx={gridPx} />
+        <div
+          className="grid flex-1"
+          style={{ gridTemplateColumns: `repeat(${week.days.length}, minmax(120px, 1fr))` }}
+        >
+          {week.days.map((dayIso) => {
+            const isSelected = dayIso === selectedDateIso;
+            const isPast = dayIso < todayIso;
+            const isToday = dayIso === todayIso;
+            const dayBlocking = rangeAppointments
+              .filter((a) => a.appointment_date === dayIso)
+              .filter((a) => appointmentBlocksScheduleGrid(a.status));
+            const busy: TimeInterval[] = dayBlocking.map((a) => ({
+              startMin: parseTimeToMinutes(a.start_time),
+              endMin: parseTimeToMinutes(a.end_time),
+            }));
+            const openGaps = computeOpenGaps(busy, SCHEDULE_DAY_START_MIN, dayEndMin).filter(
+              (g) => g.endMin - g.startMin >= calendarSpanMin,
+            );
+
+            return (
+              <div
+                key={dayIso}
+                className={cn(
+                  "relative border-l border-slate-100",
+                  isSelected && "bg-emerald-50/50 ring-2 ring-inset ring-[#16a349]/30",
+                  isToday && !isSelected && "bg-sky-50/30",
+                )}
+              >
+                <button
+                  type="button"
+                  disabled={isPast}
+                  onClick={() => onSelectDate(dayIso)}
+                  className={cn(
+                    "flex w-full shrink-0 flex-col items-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-1 py-2.5 text-center transition",
+                    isPast && "cursor-not-allowed opacity-50",
+                    !isPast && "hover:bg-white",
+                  )}
+                  style={{ minHeight: SCHEDULE_HEADER_PX }}
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    {shortWeekday(dayIso)}
+                  </p>
+                  <p className="text-[15px] font-bold leading-none text-slate-900">{dayOfMonth(dayIso)}</p>
+                </button>
+                <div
+                  className="relative bg-white"
+                  style={{ height: gridPx, minHeight: gridPx }}
+                  onClick={(e) => {
+                    if (isPast) return;
+                    const target = e.target as HTMLElement;
+                    if (target.closest("[data-book-next-slot]") || target.closest("[data-book-next-booked]")) {
+                      return;
+                    }
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const minute = minuteAtGridY(e.clientY, rect, dayEndMin);
+                    const gap = openGapAtMinute(openGaps, minute);
+                    if (!gap) return;
+                    const startMin = snapMinuteInsideOpenGap(e.clientY, rect, gap.startMin, gap.endMin);
+                    if (startMin + calendarSpanMin > gap.endMin) return;
+                    if (!slotStartIsInPastForClinic(dayIso, startMin, todayMinIso)) {
+                      onPickDayAndStartMinute(dayIso, startMin);
+                    }
+                  }}
+                >
+                  <ScheduleGridBackground hours={hours} />
+                  {openGaps.map((gap) => {
+                    const { topPct, heightPct } = timePositionPercent(
+                      gap.startMin,
+                      gap.endMin - gap.startMin,
+                      dayEndMin,
+                    );
+                    return (
+                      <div
+                        key={`gap-${dayIso}-${gap.startMin}`}
+                        className="pointer-events-none absolute left-0.5 right-0.5 z-[1] rounded-md border border-emerald-200/70 bg-emerald-50/75"
+                        style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 8 }}
+                        title={`Open ${minutesToLabel(gap.startMin)} – ${minutesToLabel(gap.endMin)}`}
+                      />
+                    );
+                  })}
+                  {dayBlocking.map((a) => {
+                    const st = parseTimeToMinutes(a.start_time);
+                    const dur = appointmentDurationMinutes(a.start_time, a.end_time);
+                    const { topPct, heightPct } = timePositionPercent(st, dur, dayEndMin);
+                    return (
+                      <div
+                        key={a.id}
+                        data-book-next-booked
+                        className="pointer-events-none absolute left-0.5 right-0.5 z-[2] overflow-hidden rounded-md border border-slate-300 bg-slate-200/95 px-1 py-0.5 text-[10px] font-semibold text-slate-800"
+                        style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 14 }}
+                        title={a.patient_name}
+                      >
+                        <span className="block truncate">{a.patient_name}</span>
+                      </div>
+                    );
+                  })}
+                  {isSelected &&
+                    slotTimes.map((timeVal, i) => {
+                      const label = slotLabels[i] || timeVal;
+                      const st = parseTimeToMinutes(timeVal || label);
+                      const past = slotStartIsInPastForClinic(dayIso, st, todayMinIso);
+                      const selected = selectedSlot === timeVal;
+                      const { topPct, heightPct } = timePositionPercent(st, calendarSpanMin, dayEndMin);
+                      return (
+                        <button
+                          key={`slot-${timeVal}-${i}`}
+                          type="button"
+                          data-book-next-slot
+                          disabled={past}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectSlot(timeVal, label);
+                          }}
+                          className={cn(
+                            "absolute left-0.5 right-0.5 z-[3] flex flex-col overflow-hidden rounded-md border-2 px-1 py-0.5 text-left text-[10px] font-bold leading-tight",
+                            past && "opacity-40",
+                            selected
+                              ? "border-[#16a349] bg-[#16a349] text-white"
+                              : "border-emerald-500 bg-emerald-100 text-emerald-950 hover:bg-emerald-200",
+                          )}
+                          style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 20 }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  {isSelected && slotsLoading ? (
+                    <div className="absolute inset-0 z-[4] flex items-center justify-center bg-white/60 text-xs font-medium text-slate-600">
+                      Loading times…
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p className="border-t border-slate-100 px-4 py-3 text-sm leading-relaxed text-slate-600">
+        <strong className="text-slate-800">Gray</strong> = booked. <strong className="text-emerald-800">Light green</strong> = open
+        time (fits a {visitDurationMin}-minute visit). Click an open area to select that day and start time. The highlighted column
+        shows exact bookable slots for the selected day.
+      </p>
+    </div>
+  );
+}
+
 type Props = {
   dateIso: string;
   todayMinIso: string;
@@ -291,6 +484,7 @@ type Props = {
   calendarSpanMin: number;
   serviceName: string;
   serviceType?: string;
+  onPickDayAndStartMinute: (dateIso: string, startMinute: number) => void;
 };
 
 export function BookNextSchedulePanel({
@@ -314,12 +508,16 @@ export function BookNextSchedulePanel({
   calendarSpanMin,
   serviceName,
   serviceType,
+  onPickDayAndStartMinute,
 }: Props) {
   const dayEndMin = scheduleDayEndMinute(deskHours);
   const gridPx = scheduleGridPixelHeight(dayEndMin);
   const blocking = dayAppointments.filter((a) => appointmentBlocksScheduleGrid(a.status));
   const byDate = groupByDate(rangeAppointments);
-  const timelineLoading = dayLoading || slotsLoading;
+  const timelineLoading =
+    viewMode === "week"
+      ? rangeLoading
+      : dayLoading || slotsLoading;
 
   const shiftDate = (delta: number) => {
     const next = addDaysIso(dateIso, delta);
@@ -412,37 +610,24 @@ export function BookNextSchedulePanel({
       </div>
 
       <div className="space-y-4 p-4 sm:p-5">
-        {viewMode === "week" ? (
-          <div className="grid grid-cols-7 gap-2 sm:gap-3">
-            {weekRangeContaining(dateIso).days.map((dayIso) => {
-              const isSelected = dayIso === dateIso;
-              const isPast = dayIso < todayMinIso;
-              const dayBlocks = (byDate.get(dayIso) ?? []).filter((a) =>
-                appointmentBlocksScheduleGrid(a.status),
-              );
-              return (
-                <button
-                  key={dayIso}
-                  type="button"
-                  disabled={isPast}
-                  onClick={() => pickDay(dayIso)}
-                  className={cn(
-                    "flex min-h-[5.5rem] flex-col rounded-xl border-2 px-2 py-2.5 text-left transition sm:min-h-[6.5rem]",
-                    isPast && "cursor-not-allowed opacity-50",
-                    isSelected
-                      ? "border-[#16a349] bg-emerald-50 ring-2 ring-[#16a349]/25"
-                      : "border-slate-200 bg-white hover:border-slate-300",
-                  )}
-                >
-                  <span className="text-[10px] font-bold uppercase text-slate-500">{shortWeekday(dayIso)}</span>
-                  <span className="text-lg font-bold tabular-nums text-slate-900">{dayOfMonth(dayIso)}</span>
-                  <span className="mt-1 line-clamp-2 text-xs leading-snug text-slate-600">
-                    {dayBlocks.length === 0 ? "Open" : `${dayBlocks.length} booked`}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        {viewMode === "week" && !timelineLoading ? (
+          <BookNextWeekGrid
+            anchorDateIso={dateIso}
+            todayMinIso={todayMinIso}
+            selectedDateIso={dateIso}
+            dayEndMin={dayEndMin}
+            gridPx={gridPx}
+            rangeAppointments={rangeAppointments}
+            slotLabels={slotLabels}
+            slotTimes={slotTimes}
+            selectedSlot={selectedSlot}
+            onSelectSlot={onSelectSlot}
+            onPickDayAndStartMinute={onPickDayAndStartMinute}
+            onSelectDate={pickDay}
+            visitDurationMin={visitDurationMin}
+            calendarSpanMin={calendarSpanMin}
+            slotsLoading={slotsLoading}
+          />
         ) : null}
 
         {viewMode === "month" ? (
@@ -500,7 +685,7 @@ export function BookNextSchedulePanel({
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
             Loading schedule…
           </div>
-        ) : (
+        ) : viewMode === "week" ? null : (
           <BookNextDayTimeline
             dateIso={dateIso}
             todayMinIso={todayMinIso}

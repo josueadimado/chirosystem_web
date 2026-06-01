@@ -2,6 +2,15 @@
 
 import { CLINIC_TIMEZONE, clinicTodayIso } from "@/lib/format-date";
 
+/** True when the schedule list date range includes today (clinic local). */
+export function scheduleRangeIncludesToday(
+  dateFrom: string,
+  dateTo: string,
+  todayIso: string = clinicTodayIso(),
+): boolean {
+  return todayIso >= dateFrom && todayIso <= dateTo;
+}
+
 /** Clinic-local minutes from midnight (matches API ``slot_start_is_in_past``). */
 export function clinicNowMinutesFromMidnight(timeZone: string = CLINIC_TIMEZONE): number {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -156,6 +165,37 @@ export function computeOpenGaps(busy: TimeInterval[], dayStart = SCHEDULE_DAY_ST
     gaps.push({ startMin: cursor, endMin: dayEnd });
   }
   return gaps;
+}
+
+/** Which open gap contains this minute (for click-to-book on the schedule grid). */
+export function openGapAtMinute(gaps: TimeInterval[], minute: number): TimeInterval | undefined {
+  return gaps.find((g) => minute >= g.startMin && minute < g.endMin);
+}
+
+/** Map a Y position on the day grid to a snapped 15-minute minute-of-day. */
+export function minuteAtGridY(clientY: number, gridRect: DOMRect, dayEndMin: number): number {
+  const totalMin = scheduleTotalMinutes(dayEndMin);
+  const y = clientY - gridRect.top;
+  const frac = Math.max(0, Math.min(1, y / Math.max(gridRect.height, 1)));
+  const continuous = SCHEDULE_DAY_START_MIN + frac * totalMin;
+  const snapped = Math.round(continuous / 15) * 15;
+  return Math.max(SCHEDULE_DAY_START_MIN, Math.min(dayEndMin - 15, snapped));
+}
+
+/** Snap click inside a gap strip to a valid 15-minute start. */
+export function snapMinuteInsideOpenGap(
+  clientY: number,
+  gapRect: DOMRect,
+  gapStartMin: number,
+  gapEndMin: number,
+): number {
+  const step = 15;
+  const h = Math.max(gapRect.height, 1);
+  const frac = Math.max(0, Math.min(1, (clientY - gapRect.top) / h));
+  const continuous = gapStartMin + frac * (gapEndMin - gapStartMin);
+  let snapped = Math.round(continuous / step) * step;
+  const maxStart = Math.max(gapStartMin, gapEndMin - step);
+  return Math.max(gapStartMin, Math.min(snapped, maxStart));
 }
 
 /** Merge overlapping or adjacent intervals (used for week-view bookable strips). */

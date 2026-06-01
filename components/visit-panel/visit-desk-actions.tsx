@@ -8,6 +8,8 @@ export type DeskAppointmentActions = {
   status: string;
   display_status?: string;
   invoice_kind?: string | null;
+  /** Set when the system auto-marked no-show after the grace period (e.g. 60 min). */
+  auto_no_show_processed_at?: string | null;
   service_type?: string;
   appointment_date: string;
   start_time: string;
@@ -93,8 +95,9 @@ export function VisitDeskActions({
 
   if (appointmentBlocksDeskActions(appointment.status, appointment.invoice_kind)) {
     const isNoShow = uiStatus === "no_show";
-    const showNoShowBilling =
-      isNoShow && appointment.status === "awaiting_payment" && billing?.invoiceId != null;
+    const autoNoShow = Boolean(appointment.auto_no_show_processed_at);
+    const hasNoShowFee = appointment.invoice_kind === "no_show_fee";
+    const showNoShowBilling = isNoShow && hasNoShowFee && billing?.invoiceId != null;
     return (
       <div className="space-y-3">
         <div
@@ -106,11 +109,13 @@ export function VisitDeskActions({
         >
           {isNoShow ? (
             <>
-              <p className="font-semibold">Marked as no-show</p>
+              <p className="font-semibold">{autoNoShow ? "No-show (automatic)" : "Marked as no-show"}</p>
               <p className="mt-1 text-xs leading-relaxed text-red-900/90">
-                The patient did not attend this visit. Check-in, extend period, reschedule, and other visit actions are
-                not available. Use <span className="font-semibold">Book next visit</span> below to schedule a new
-                appointment.
+                {autoNoShow
+                  ? "This visit was marked no-show automatically after the scheduled start time plus the clinic grace period (usually 60 minutes). "
+                  : "The patient did not attend this visit. "}
+                Check-in, extend period, reschedule, and the No-show button are not available.
+                {hasNoShowFee ? " A no-show fee was applied — use billing below or Admin → Billing." : ""}
               </p>
             </>
           ) : (
