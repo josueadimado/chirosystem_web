@@ -49,10 +49,11 @@ export function BookNextVisitModal({
           </h2>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-600 sm:text-base">
             Schedule a follow-up for{" "}
-            <span className="font-semibold text-slate-900">{bookNext.patientLabel}</span>. Pick a{" "}
-            <strong>day</strong> (Week or Month if needed), then tap a <strong>large time button</strong> below.
+            <span className="font-semibold text-slate-900">{bookNext.patientLabel}</span>. Use the same day view as
+            your main schedule — gray blocks are booked visits; green blocks show how long the new visit will take.
+            Tap a green block to pick that start time.
             {showDeskHoursHint ? (
-              <> Times follow the front desk schedule (through 9:00 PM).</>
+              <> Hours run 7:00 AM–9:00 PM (front desk schedule).</>
             ) : null}
           </p>
         </div>
@@ -171,6 +172,10 @@ export function BookNextVisitModal({
                 onSelectSlot={(time) => bookNext.setSelectedSlot(time)}
                 slotsLoading={bookNext.slotsLoading}
                 deskHours={bookNext.useDeskAvailability}
+                visitDurationMin={bookNext.visitDurationMin}
+                calendarSpanMin={bookNext.calendarSpanMin}
+                serviceName={bookNext.serviceName}
+                serviceType={bookNext.serviceType}
               />
             </div>
           )}

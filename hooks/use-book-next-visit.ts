@@ -367,6 +367,13 @@ export function useBookNextVisit({
     visitContext?.provider_name ??
     "";
 
+  const selectedService = bookingOptions?.services.find((s) => s.id === serviceId);
+  const visitDurationMin = Math.max(5, Number(selectedService?.duration_minutes) || 30);
+  const serviceType = selectedService?.service_type;
+  const serviceName = selectedService?.name ?? visitContext?.service_name ?? "Visit";
+  const calendarSpanMin =
+    serviceType === "massage" ? visitDurationMin + 15 : visitDurationMin;
+
   const canSubmit =
     !saving &&
     !optionsLoading &&
@@ -410,6 +417,10 @@ export function useBookNextVisit({
     scheduleView,
     setScheduleView,
     providerName,
+    visitDurationMin,
+    calendarSpanMin,
+    serviceName,
+    serviceType,
     useDeskAvailability,
     canSubmit,
     todayMinIso,

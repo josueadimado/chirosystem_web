@@ -101,6 +101,14 @@ export function scheduleTotalMinutes(dayEndMin: number = SCHEDULE_DAY_END_MIN): 
   return dayEndMin - SCHEDULE_DAY_START_MIN;
 }
 
+/** Same vertical scale as the admin/doctor day schedule grid (~224px per hour). */
+export const SCHEDULE_GRID_PX_PER_HOUR = 2688 / 12;
+
+export function scheduleGridPixelHeight(dayEndMin: number = SCHEDULE_DAY_END_MIN): number {
+  const hours = (dayEndMin - SCHEDULE_DAY_START_MIN) / 60;
+  return Math.round(SCHEDULE_GRID_PX_PER_HOUR * Math.max(1, hours));
+}
+
 /** @deprecated Use scheduleTotalMinutes(dayEndMin) when desk overtime is enabled. */
 export const SCHEDULE_TOTAL_MIN = SCHEDULE_DAY_END_MIN - SCHEDULE_DAY_START_MIN;
 
