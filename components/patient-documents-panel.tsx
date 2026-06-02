@@ -11,6 +11,8 @@ type PatientDoc = {
   doc_type: string;
   doc_type_display: string;
   original_filename: string;
+  /** False when the DB row exists but the file bytes are missing on the server. */
+  file_available?: boolean;
   /** Preferred: authenticated API path under /api/v1 (e.g. /admin/patient_document_file/?doc_id=1). */
   file_path: string | null;
   /** Legacy direct media URL — do not use for preview/download in the browser. */
@@ -47,6 +49,7 @@ function docFilePath(basePath: string, docId: number, download = false): string 
 }
 
 function patientDocHasFile(doc: PatientDoc): boolean {
+  if (doc.file_available === false) return false;
   return Boolean(doc.file_path || doc.file_url);
 }
 
@@ -482,6 +485,11 @@ export function PatientDocumentsPanel({
                       {" · "}
                       {formatDate(doc.created_at)}
                     </p>
+                    {doc.file_available === false && (
+                      <p className="mt-1 text-xs font-medium text-rose-700">
+                        File missing on server — delete this entry and upload again.
+                      </p>
+                    )}
                   </div>
 
                   {/* Actions */}
