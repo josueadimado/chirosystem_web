@@ -14,11 +14,18 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig: NextConfig = {
+  // Django/DRF require trailing slashes. Next.js otherwise 308-strips them on /api/v1/* and
+  // fights proxy.ts → infinite redirect loop (booking page shows 404 / failed fetch).
+  skipTrailingSlashRedirect: true,
   async rewrites() {
     return [
       {
+        source: "/api/v1/:path*/",
+        destination: `${apiProxyTarget}/api/v1/:path*/`,
+      },
+      {
         source: "/api/v1/:path*",
-        destination: `${apiProxyTarget}/api/v1/:path*`,
+        destination: `${apiProxyTarget}/api/v1/:path*/`,
       },
     ];
   },

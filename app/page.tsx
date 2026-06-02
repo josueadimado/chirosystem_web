@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAppFeedback } from "@/components/app-feedback";
 import { IconCheck, IconChevronLeft, IconChevronRight } from "@/components/icons";
 import { BrandLogo } from "@/components/brand-logo";
@@ -11,6 +11,7 @@ import { BookingCardSetup } from "@/components/booking-card-setup";
 import { PublicBookingClinicHelp } from "@/components/public-booking-clinic-help";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SmsConsentCheckbox } from "@/components/sms-consent-checkbox";
 import { ApiError, apiGet, apiPostPublic } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
@@ -118,8 +119,10 @@ export default function BookingPage() {
     lastVisit: string | null;
     reason: "gap" | "first_chiro" | "new_patient" | null;
   } | null>(null);
-  /** SMS opt-in on the final submit step; must stay unchecked until the user agrees (TCPA-style consent). */
-  const [smsConsent, setSmsConsent] = useState(false);
+  /** SMS opt-in on the final submit step; checked by default; user can uncheck to opt out. */
+  const [smsConsent, setSmsConsent] = useState(true);
+  /** Set only when the patient explicitly unchecks SMS on step 4 (stops auto re-check). */
+  const smsUserDeclinedRef = useRef(false);
   const [reasonForVisit, setReasonForVisit] = useState("");
   /** Single-service cart only: repeat this visit weekly / every 2 weeks / monthly. */
   const [repeatEnabled, setRepeatEnabled] = useState(false);
@@ -547,6 +550,17 @@ export default function BookingPage() {
     });
   }, [bookingFlow, cart, cartSlotsByLineId]);
 
+  // Step 4: SMS consent stays on unless the patient explicitly turned it off.
+  useLayoutEffect(() => {
+    if (step !== 4) {
+      smsUserDeclinedRef.current = false;
+      return;
+    }
+    if (!smsUserDeclinedRef.current) {
+      setSmsConsent(true);
+    }
+  }, [step, patientLookup, phone, firstName, lastName]);
+
   useEffect(() => {
     // Phone-only lookup: run when reaching step 4 or when the cell number changes (do not send first/last name).
     if (step !== 4 || !phone || !isValidPhoneNumber(phone)) {
@@ -849,7 +863,7 @@ export default function BookingPage() {
     setReschedulePick(null);
     setRescheduleList([]);
     setRescheduleListError("");
-    setSmsConsent(false);
+    setSmsConsent(true);
     setStep(1);
     setAvailableSlots(null);
     setScheduleSlotGrid(null);
@@ -880,7 +894,7 @@ export default function BookingPage() {
     setRescheduleList([]);
     setRescheduleListError("");
     setRescheduleSharedPhone(false);
-    setSmsConsent(false);
+    setSmsConsent(true);
     setStep(1);
     setAvailableSlots(null);
     setScheduleSlotGrid(null);
@@ -1006,7 +1020,7 @@ export default function BookingPage() {
         setStep(2);
       }
     } else if (step === 4 && (bookingFlow === "reschedule" || (bookingFlow === "new" && cart.length > 0))) {
-      setSmsConsent(false);
+      setSmsConsent(true);
       setStep(3);
     } else if (step > 1) {
       setStep((step - 1) as Step);
@@ -2749,25 +2763,33 @@ export default function BookingPage() {
                   </div>
                 )}
               <div className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                <Checkbox
+                <SmsConsentCheckbox
                   id="sms-consent-reschedule"
                   checked={smsConsent}
-                  onCheckedChange={setSmsConsent}
+                  onCheckedChange={(value) => {
+                    smsUserDeclinedRef.current = !value;
+                    setSmsConsent(value);
+                  }}
                   className="mt-0.5"
                 />
-                <label htmlFor="sms-consent-reschedule" className="cursor-pointer text-sm leading-relaxed text-slate-700">
-                  By checking this box, I consent to receive SMS text message appointment reminders and updates from Relief
-                  Chiropractic at the phone number I provided. Message & data rates may apply. Reply STOP to opt out at any
-                  time. View our Terms of Service:{" "}
-                  <a
-                    href="https://www.reliefchiropractic.net/terms-of-service-3"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-[#16a349] underline decoration-[#16a349]/50 underline-offset-2 hover:text-[#13823d]"
-                  >
-                    https://www.reliefchiropractic.net/terms-of-service-3
-                  </a>
-                </label>
+                <div className="text-sm leading-relaxed text-slate-700">
+                  <label htmlFor="sms-consent-reschedule" className="cursor-pointer">
+                    By checking this box, I consent to receive SMS text message appointment reminders and updates from Relief
+                    Chiropractic at the phone number I provided. Message &amp; data rates may apply. Reply STOP to opt out at any
+                    time.
+                  </label>{" "}
+                  <span>
+                    View our Terms of Service:{" "}
+                    <a
+                      href="https://www.reliefchiropractic.net/terms-of-service-3"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-[#16a349] underline decoration-[#16a349]/50 underline-offset-2 hover:text-[#13823d]"
+                    >
+                      https://www.reliefchiropractic.net/terms-of-service-3
+                    </a>
+                  </span>
+                </div>
               </div>
               <Button
                 type="button"
@@ -2960,25 +2982,33 @@ export default function BookingPage() {
                 existingSavedCard={lookupSavedCard}
               />
               <div className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                <Checkbox
+                <SmsConsentCheckbox
                   id="sms-consent-new"
                   checked={smsConsent}
-                  onCheckedChange={setSmsConsent}
+                  onCheckedChange={(value) => {
+                    smsUserDeclinedRef.current = !value;
+                    setSmsConsent(value);
+                  }}
                   className="mt-0.5"
                 />
-                <label htmlFor="sms-consent-new" className="cursor-pointer text-sm leading-relaxed text-slate-700">
-                  By checking this box, I consent to receive SMS text message appointment reminders and updates from Relief
-                  Chiropractic at the phone number I provided. Message & data rates may apply. Reply STOP to opt out at any
-                  time. View our Terms of Service:{" "}
-                  <a
-                    href="https://www.reliefchiropractic.net/terms-of-service-3"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-[#16a349] underline decoration-[#16a349]/50 underline-offset-2 hover:text-[#13823d]"
-                  >
-                    https://www.reliefchiropractic.net/terms-of-service-3
-                  </a>
-                </label>
+                <div className="text-sm leading-relaxed text-slate-700">
+                  <label htmlFor="sms-consent-new" className="cursor-pointer">
+                    By checking this box, I consent to receive SMS text message appointment reminders and updates from Relief
+                    Chiropractic at the phone number I provided. Message &amp; data rates may apply. Reply STOP to opt out at any
+                    time.
+                  </label>{" "}
+                  <span>
+                    View our Terms of Service:{" "}
+                    <a
+                      href="https://www.reliefchiropractic.net/terms-of-service-3"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-[#16a349] underline decoration-[#16a349]/50 underline-offset-2 hover:text-[#13823d]"
+                    >
+                      https://www.reliefchiropractic.net/terms-of-service-3
+                    </a>
+                  </span>
+                </div>
               </div>
               <Button
                 type="button"
