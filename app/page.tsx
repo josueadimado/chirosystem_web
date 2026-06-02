@@ -29,6 +29,9 @@ import type {
   ServiceOption,
   SlotGridEntry,
   Step,
+  RecurrenceFrequency,
+  RecurringPreviewResponse,
+  RecurringBookResponse,
 } from "@/lib/public-booking-types";
 import {
   addCalendarMonths,
@@ -118,6 +121,12 @@ export default function BookingPage() {
   /** SMS opt-in on the final submit step; must stay unchecked until the user agrees (TCPA-style consent). */
   const [smsConsent, setSmsConsent] = useState(false);
   const [reasonForVisit, setReasonForVisit] = useState("");
+  /** Single-service cart only: repeat this visit weekly / every 2 weeks / monthly. */
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [recurrence, setRecurrence] = useState<RecurrenceFrequency>("weekly");
+  const [occurrenceCount, setOccurrenceCount] = useState(4);
+  const [recurringPreview, setRecurringPreview] = useState<RecurringPreviewResponse | null>(null);
+  const [recurringPreviewLoading, setRecurringPreviewLoading] = useState(false);
 
   /** Latest calendar day patients may book online (today + 6 months in local time). */
   const maxBookDateIso = useMemo(() => {
@@ -461,6 +470,54 @@ export default function BookingPage() {
         });
     }
   }, [bookingFlow, step, cart, cartSlotPicksByLineId]);
+
+  useEffect(() => {
+    if (cart.length !== 1) {
+      setRepeatEnabled(false);
+      setRecurringPreview(null);
+    }
+  }, [cart.length]);
+
+  /** Recurring preview (single-service cart, step 3). */
+  useEffect(() => {
+    if (bookingFlow !== "new" || step !== 3 || cart.length !== 1 || !repeatEnabled) {
+      setRecurringPreview(null);
+      setRecurringPreviewLoading(false);
+      return;
+    }
+    const item = cart[0];
+    const pick = cartSlotPicksByLineId[item.lineId];
+    const provider = item.provider;
+    if (!provider || !pick?.date || !pick.time) {
+      setRecurringPreview(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setRecurringPreviewLoading(true);
+      apiPostPublic<RecurringPreviewResponse>("/appointments/recurring-preview/", {
+        service_id: item.service.id,
+        provider_id: provider.id,
+        appointment_date: pick.date,
+        start_time: pick.time,
+        recurrence,
+        occurrence_count: occurrenceCount,
+        phone: phone ?? "",
+      })
+        .then((res) => setRecurringPreview(res))
+        .catch(() => setRecurringPreview({ ok: false, detail: "Could not load recurring preview." }))
+        .finally(() => setRecurringPreviewLoading(false));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [
+    bookingFlow,
+    step,
+    cart,
+    cartSlotPicksByLineId,
+    repeatEnabled,
+    recurrence,
+    occurrenceCount,
+    phone,
+  ]);
 
   /** When slots load for a line, move the pick to first open slot if the current time is not offered. */
   useEffect(() => {
@@ -964,6 +1021,11 @@ export default function BookingPage() {
     setCartSlotsLoadingByLineId({});
     setBookingSubmitErrorByLineId({});
     setStep3FocusLineId(null);
+    setRepeatEnabled(false);
+    setRecurrence("weekly");
+    setOccurrenceCount(4);
+    setRecurringPreview(null);
+    setRecurringPreviewLoading(false);
     activateNewBookingFlow();
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1048,12 +1110,78 @@ export default function BookingPage() {
       }
     }
 
+    if (cart.length === 1 && repeatEnabled) {
+      if (recurringPreviewLoading) {
+        setBookingMessageKind("error");
+        setBookingMessage("Still checking recurring visit dates — wait a moment.");
+        return;
+      }
+      if (!recurringPreview?.ok || !recurringPreview.all_available) {
+        setBookingMessageKind("error");
+        setBookingMessage(
+          recurringPreview?.detail ||
+            "One or more recurring visits are not available. Go back and adjust your schedule or turn off repeat visits.",
+        );
+        setStep(3);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     const succeeded: BookingResult[] = [];
     const failedItems: CartItem[] = [];
     const errByLine: Record<string, string> = {};
 
     try {
+      if (cart.length === 1 && repeatEnabled) {
+        const item = cart[0];
+        const pick = cartSlotPicksByLineId[item.lineId];
+        if (pick && item.provider) {
+          try {
+            const seriesResult = await apiPostPublic<RecurringBookResponse>("/appointments/book-recurring/", {
+              first_name: firstName,
+              last_name: lastName,
+              phone,
+              email,
+              sms_consent: smsConsent,
+              reason_for_visit: reasonForVisit.trim(),
+              service_id: item.service.id,
+              provider_id: item.provider.id,
+              provider_name: item.provider.provider_name ?? "",
+              service_name: item.service.name,
+              service_duration_minutes: item.service.duration_minutes,
+              service_price: item.service.price,
+              appointment_date: pick.date,
+              start_time: pick.time,
+              recurrence,
+              occurrence_count: occurrenceCount,
+            });
+            const rows = seriesResult.appointments ?? [];
+            if (rows.length > 0) {
+              setBookingResults((prev) => [...prev, ...rows]);
+              setCart([]);
+              setBookingMessageKind("success");
+              const ids = rows.map((r) => `#${r.appointment_id}`).join(", ");
+              setBookingMessage(
+                `Recurring visits booked successfully (${rows.length} visits). IDs: ${ids}`,
+              );
+              toast.success(
+                `Your ${rows.length} recurring visits are confirmed! One combined confirmation is on the way.`,
+              );
+            }
+          } catch (error) {
+            const msg =
+              error instanceof ApiError ? error.message : "Could not complete recurring booking. Please try again.";
+            setBookingMessageKind("error");
+            setBookingMessage(msg);
+            setBookingSubmitErrorByLineId({ [item.lineId]: msg });
+          } finally {
+            setIsSubmitting(false);
+          }
+          return;
+        }
+      }
+
       for (const item of cart) {
         const pick = cartSlotPicksByLineId[item.lineId];
         if (!pick || !item.provider) continue;
@@ -2547,6 +2675,128 @@ export default function BookingPage() {
                               </p>
                             )}
                         </div>
+
+                        {cart.length === 1 && (
+                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                            <label className="flex cursor-pointer items-start gap-3">
+                              <Checkbox
+                                checked={repeatEnabled}
+                                onCheckedChange={(v) => {
+                                  setRepeatEnabled(v === true);
+                                  setRecurringPreview(null);
+                                }}
+                                className="mt-0.5"
+                              />
+                              <span>
+                                <span className="block text-sm font-semibold text-slate-900">
+                                  Repeat this visit on a schedule
+                                </span>
+                                <span className="mt-1 block text-xs leading-relaxed text-slate-600">
+                                  Book several visits at once (same day of week and time). You&apos;ll get one
+                                  confirmation listing all dates; we still remind you before each visit. Payment is
+                                  due at each visit when you check out.
+                                </span>
+                              </span>
+                            </label>
+
+                            {repeatEnabled && (
+                              <div className="mt-4 space-y-4 border-t border-slate-200/80 pt-4">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    How often
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {(
+                                      [
+                                        ["weekly", "Every week"],
+                                        ["biweekly", "Every 2 weeks"],
+                                        ["monthly", "Every month"],
+                                      ] as const
+                                    ).map(([value, label]) => (
+                                      <button
+                                        key={value}
+                                        type="button"
+                                        onClick={() => setRecurrence(value)}
+                                        className={cn(
+                                          "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                                          recurrence === value
+                                            ? "border-[#16a349] bg-[#f0fdf4] text-[#14532d] ring-1 ring-[#16a349]/30"
+                                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                                        )}
+                                      >
+                                        {label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <label
+                                    htmlFor="occurrence-count"
+                                    className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                                  >
+                                    Number of visits
+                                  </label>
+                                  <select
+                                    id="occurrence-count"
+                                    value={occurrenceCount}
+                                    onChange={(e) => setOccurrenceCount(Number(e.target.value))}
+                                    className="mt-2 w-full max-w-[12rem] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm"
+                                  >
+                                    {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => (
+                                      <option key={n} value={n}>
+                                        {n} visits
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                {recurringPreviewLoading && (
+                                  <Loader variant="dots" label="Checking all visit dates…" className="py-2" />
+                                )}
+                                {!recurringPreviewLoading && recurringPreview?.occurrences?.length ? (
+                                  <div>
+                                    <p className="text-sm font-semibold text-slate-800">Planned visits</p>
+                                    <ul className="mt-2 space-y-1.5 text-sm">
+                                      {recurringPreview.occurrences.map((occ) => (
+                                        <li
+                                          key={occ.appointment_date}
+                                          className={cn(
+                                            "flex flex-wrap items-baseline justify-between gap-2 rounded-lg px-2 py-1.5",
+                                            occ.status === "available"
+                                              ? "bg-[#f0fdf4] text-[#14532d]"
+                                              : "bg-rose-50 text-rose-900",
+                                          )}
+                                        >
+                                          <span>
+                                            {formatWeekdayMonthDayYear(occ.appointment_date)} at{" "}
+                                            {occ.start_time_display}
+                                          </span>
+                                          {occ.status !== "available" && (
+                                            <span className="text-xs font-medium">
+                                              {occ.detail || "Not available"}
+                                            </span>
+                                          )}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                    {recurringPreview.all_available ? (
+                                      <p className="mt-2 text-xs text-[#166534]">
+                                        All {recurringPreview.occurrence_count} visits are open — you can continue.
+                                      </p>
+                                    ) : (
+                                      <p className="mt-2 text-xs font-medium text-rose-800">
+                                        Fix unavailable dates above, choose fewer visits, or pick another start date.
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : null}
+                                {!recurringPreviewLoading && recurringPreview && !recurringPreview.ok && (
+                                  <p className="text-sm text-rose-800">{recurringPreview.detail}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2978,6 +3228,19 @@ export default function BookingPage() {
                     }
                     if (!slots.includes(pick.time)) {
                       toast.error(`Pick an open time for ${item.service.name}.`);
+                      return;
+                    }
+                  }
+                  if (cart.length === 1 && repeatEnabled) {
+                    if (recurringPreviewLoading) {
+                      toast.error("Still checking recurring visit dates — wait a moment.");
+                      return;
+                    }
+                    if (!recurringPreview?.ok || !recurringPreview.all_available) {
+                      toast.error(
+                        recurringPreview?.detail ||
+                          "One or more recurring visits are not available. Adjust dates or turn off repeat visits.",
+                      );
                       return;
                     }
                   }

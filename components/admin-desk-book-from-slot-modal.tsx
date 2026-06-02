@@ -7,8 +7,12 @@ import {
   parseTimeToMinutes,
   slotStartIsInPastForClinic,
 } from "@/lib/admin-schedule-utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader } from "@/components/loader";
 import { ApiError, apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { cn } from "@/lib/utils";
+import type { RecurrenceFrequency, RecurringPreviewResponse } from "@/lib/public-booking-types";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -106,6 +110,8 @@ export function AdminDeskBookFromSlotModal({
     dateIso: string;
     timeLabel: string;
     providerName: string;
+    recurringVisitCount?: number;
+    recurrenceLabel?: string;
   }) => Promise<boolean>;
 }) {
   const { runWithFeedback } = useAppFeedback();
@@ -123,6 +129,17 @@ export function AdminDeskBookFromSlotModal({
   const [patientLoading, setPatientLoading] = useState(false);
   const [patientId, setPatientId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [recurrence, setRecurrence] = useState<RecurrenceFrequency>("weekly");
+  const [occurrenceCount, setOccurrenceCount] = useState(4);
+  const [recurringPreview, setRecurringPreview] = useState<RecurringPreviewResponse | null>(null);
+  const [recurringPreviewLoading, setRecurringPreviewLoading] = useState(false);
+
+  const recurrenceLabel = useMemo(() => {
+    if (recurrence === "weekly") return "every week";
+    if (recurrence === "biweekly") return "every 2 weeks";
+    return "every month";
+  }, [recurrence]);
 
   const seedLabel = useMemo(() => (seed ? minutesToLabel(seed.startMinute) : ""), [seed]);
   const gapStripLabel = useMemo(() => {
@@ -180,6 +197,11 @@ export function AdminDeskBookFromSlotModal({
     setPatientQuery("");
     setPatientHits([]);
     setPatientId(null);
+    setRepeatEnabled(false);
+    setRecurrence("weekly");
+    setOccurrenceCount(4);
+    setRecurringPreview(null);
+    setRecurringPreviewLoading(false);
     setSelectedSlot("");
     setSlotLabels([]);
     setSlotTimes([]);
@@ -348,6 +370,44 @@ export function AdminDeskBookFromSlotModal({
     };
   }, [open, patientQuery]);
 
+  useEffect(() => {
+    if (!open || !repeatEnabled || !patientId || !serviceId || !providerId || !dateIso || !selectedSlot) {
+      setRecurringPreview(null);
+      setRecurringPreviewLoading(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setRecurringPreviewLoading(true);
+      void apiPost<RecurringPreviewResponse>("/appointments/recurring-preview-desk/", {
+        patient_id: patientId,
+        service_id: serviceId,
+        provider_id: providerId,
+        appointment_date: dateIso,
+        start_time: selectedSlot,
+        recurrence,
+        occurrence_count: occurrenceCount,
+      })
+        .then((res) => setRecurringPreview(res))
+        .catch(() => setRecurringPreview({ ok: false, detail: "Could not load recurring preview." }))
+        .finally(() => setRecurringPreviewLoading(false));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [
+    open,
+    repeatEnabled,
+    patientId,
+    serviceId,
+    providerId,
+    dateIso,
+    selectedSlot,
+    recurrence,
+    occurrenceCount,
+  ]);
+
+  const recurringReady =
+    !repeatEnabled ||
+    (!recurringPreviewLoading && Boolean(recurringPreview?.ok) && Boolean(recurringPreview?.all_available));
+
   const canSubmit =
     !saving &&
     !optionsLoading &&
@@ -359,7 +419,8 @@ export function AdminDeskBookFromSlotModal({
     !slotsLoading &&
     slotLabels.length > 0 &&
     fitsInClickedStrip &&
-    !selectedStartIsPast;
+    !selectedStartIsPast &&
+    recurringReady;
 
   const submit = async () => {
     if (!seed || !canSubmit || !patientId) return;
@@ -385,6 +446,8 @@ export function AdminDeskBookFromSlotModal({
         dateIso,
         timeLabel,
         providerName: provName,
+        recurringVisitCount: repeatEnabled ? occurrenceCount : 1,
+        recurrenceLabel: repeatEnabled ? recurrenceLabel : undefined,
       });
       if (!ok) return;
     }
@@ -392,6 +455,24 @@ export function AdminDeskBookFromSlotModal({
     try {
       await runWithFeedback(
         async () => {
+          if (repeatEnabled) {
+            const res = await apiPost<{ occurrence_count?: number }>(
+              `/appointments/book-recurring-from-desk/`,
+              {
+                patient_id: patientId,
+                service_id: serviceId,
+                provider_id: providerId,
+                appointment_date: dateIso,
+                start_time: selectedSlot,
+                recurrence,
+                occurrence_count: occurrenceCount,
+              },
+            );
+            const n = res.occurrence_count ?? occurrenceCount;
+            onClose();
+            await onBooked();
+            return { count: n };
+          }
           await apiPost(`/appointments/book-from-desk/`, {
             patient_id: patientId,
             service_id: serviceId,
@@ -403,9 +484,14 @@ export function AdminDeskBookFromSlotModal({
           await onBooked();
         },
         {
-          loadingMessage: "Booking…",
-          successMessage: "Appointment booked",
-          errorFallback: "Could not book that slot (rules, intake, or conflict).",
+          loadingMessage: repeatEnabled ? "Booking recurring visits…" : "Booking…",
+          successMessage: repeatEnabled
+            ? (ctx) =>
+                `${(ctx as { count?: number })?.count ?? occurrenceCount} recurring visits booked`
+            : "Appointment booked",
+          errorFallback: repeatEnabled
+            ? "Could not book recurring visits (rules, intake, or conflict)."
+            : "Could not book that slot (rules, intake, or conflict).",
         },
       );
     } catch (e) {
@@ -617,6 +703,120 @@ export function AdminDeskBookFromSlotModal({
                 </select>
               )}
             </label>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+              <label className="flex cursor-pointer items-start gap-3">
+                <Checkbox
+                  checked={repeatEnabled}
+                  onCheckedChange={(v) => {
+                    setRepeatEnabled(v === true);
+                    setRecurringPreview(null);
+                  }}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-900">Repeat on a schedule</span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-600">
+                    Book several visits at once (same time each visit). Patient gets one combined confirmation;
+                    day-before reminders still go out per visit.
+                  </span>
+                </span>
+              </label>
+
+              {repeatEnabled && (
+                <div className="mt-4 space-y-4 border-t border-slate-200/80 pt-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">How often</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(
+                        [
+                          ["weekly", "Every week"],
+                          ["biweekly", "Every 2 weeks"],
+                          ["monthly", "Every month"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setRecurrence(value)}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                            recurrence === value
+                              ? "border-[#16a349] bg-[#f0fdf4] text-[#14532d] ring-1 ring-[#16a349]/30"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="desk-occurrence-count"
+                      className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    >
+                      Number of visits
+                    </label>
+                    <select
+                      id="desk-occurrence-count"
+                      value={occurrenceCount}
+                      onChange={(e) => setOccurrenceCount(Number(e.target.value))}
+                      className="mt-2 w-full max-w-[12rem] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm"
+                    >
+                      {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => (
+                        <option key={n} value={n}>
+                          {n} visits
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {!patientId ? (
+                    <p className="text-sm text-amber-900">Select a patient above to preview recurring dates.</p>
+                  ) : null}
+                  {patientId && recurringPreviewLoading ? (
+                    <Loader variant="dots" label="Checking all visit dates…" className="py-2" />
+                  ) : null}
+                  {patientId && !recurringPreviewLoading && recurringPreview?.occurrences?.length ? (
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Planned visits</p>
+                      <ul className="mt-2 max-h-40 space-y-1.5 overflow-y-auto text-sm">
+                        {recurringPreview.occurrences.map((occ) => (
+                          <li
+                            key={occ.appointment_date}
+                            className={cn(
+                              "flex flex-wrap items-baseline justify-between gap-2 rounded-lg px-2 py-1.5",
+                              occ.status === "available"
+                                ? "bg-[#f0fdf4] text-[#14532d]"
+                                : "bg-rose-50 text-rose-900",
+                            )}
+                          >
+                            <span>
+                              {formatWeekdayMonthDayYear(occ.appointment_date)} at {occ.start_time_display}
+                            </span>
+                            {occ.status !== "available" ? (
+                              <span className="text-xs font-medium">{occ.detail || "Not available"}</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                      {recurringPreview.all_available ? (
+                        <p className="mt-2 text-xs text-[#166534]">
+                          All {recurringPreview.occurrence_count} visits are open.
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-xs font-medium text-rose-800">
+                          Fix unavailable dates, choose fewer visits, or pick another start date.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                  {patientId && !recurringPreviewLoading && recurringPreview && !recurringPreview.ok ? (
+                    <p className="text-sm text-rose-800">{recurringPreview.detail}</p>
+                  ) : null}
+                </div>
+              )}
+            </div>
           </div>
         )}
         <div className="mt-8 flex flex-wrap justify-end gap-3">
@@ -634,7 +834,13 @@ export function AdminDeskBookFromSlotModal({
             onClick={() => void submit()}
             className="rounded-xl bg-[#16a349] px-5 py-3 text-base font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
           >
-            {saving ? "Booking…" : "Confirm booking"}
+            {saving
+              ? repeatEnabled
+                ? "Booking visits…"
+                : "Booking…"
+              : repeatEnabled
+                ? `Confirm ${occurrenceCount} visits`
+                : "Confirm booking"}
           </button>
         </div>
       </div>

@@ -1163,6 +1163,10 @@ function AdminSchedulePageContent() {
               ctx.dateIso,
               ctx.timeLabel,
               ctx.providerName,
+              {
+                visitCount: ctx.recurringVisitCount,
+                recurrenceLabel: ctx.recurrenceLabel,
+              },
             ),
           )
         }

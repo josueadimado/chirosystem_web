@@ -49,6 +49,22 @@ const RescheduleVisitSlotsModal = dynamic(
   { ssr: false },
 );
 
+const AdminScheduleCalendar = dynamic(
+  () =>
+    import("@/components/admin-schedule-calendar").then((m) => ({
+      default: m.AdminScheduleCalendar,
+    })),
+  { ssr: false },
+);
+
+const AdminDeskBookFromSlotModal = dynamic(
+  () =>
+    import("@/components/admin-desk-book-from-slot-modal").then((m) => ({
+      default: m.AdminDeskBookFromSlotModal,
+    })),
+  { ssr: false },
+);
+
 const VisitBillingForm = dynamic(
   () =>
     import("@/components/visit-panel/visit-billing-form").then((m) => ({
@@ -63,12 +79,23 @@ import {
   confirmBookNextVisit,
   confirmCancelVisit,
   confirmCheckIn,
+  confirmDeskBook,
   confirmNoShow,
   confirmOpenBookNextPicker,
   confirmOpenReschedulePicker,
   confirmRescheduleBySlots,
   confirmStartVisit,
 } from "@/lib/appointment-action-confirm-messages";
+import type { DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
+import type { ProviderBlock, ScheduleAppointment } from "@/components/admin-schedule-calendar";
+import {
+  addDays,
+  endOfMonth,
+  filterAppointmentsForScheduleGrid,
+  mondayOfWeekContaining,
+  startOfMonth,
+  toIsoDate,
+} from "@/lib/admin-schedule-utils";
 import {
   computeBillingEstimates,
   sortBillableServices,
@@ -270,6 +297,11 @@ export default function DoctorDashboardPage() {
   const [soapWideOpen, setSoapWideOpen] = useState(false);
   const [soapWideEditOpen, setSoapWideEditOpen] = useState(false);
   const [myProviderId, setMyProviderId] = useState<number | null>(null);
+  const [myProviderName, setMyProviderName] = useState("");
+  /** List of visits (default) or day/week/month grid to click open slots and book (including recurring). */
+  const [scheduleLayout, setScheduleLayout] = useState<"list" | "calendar">("list");
+  const [deskBookSeed, setDeskBookSeed] = useState<DeskBookSlotSeed | null>(null);
+  const [scheduleBlocks, setScheduleBlocks] = useState<ProviderBlock[]>([]);
   const bookNext = useBookNextVisit({
     todayMinIso: todayStr,
     preferredProviderId: myProviderId,
@@ -386,10 +418,88 @@ export default function DoctorDashboardPage() {
   }, []);
 
   useEffect(() => {
-    void apiGetAuth<{ provider_id: number }>("/doctor/me/")
-      .then((r) => setMyProviderId(r.provider_id))
-      .catch(() => setMyProviderId(null));
+    void apiGetAuth<{ provider_id: number; provider_name?: string }>("/doctor/me/")
+      .then((r) => {
+        setMyProviderId(r.provider_id);
+        setMyProviderName((r.provider_name || "").trim());
+      })
+      .catch(() => {
+        setMyProviderId(null);
+        setMyProviderName("");
+      });
   }, []);
+
+  const scheduleFocusDate = useMemo(
+    () => new Date(`${scheduleView === "day" ? todayStr : scheduleFocusIso}T12:00:00`),
+    [scheduleView, scheduleFocusIso, todayStr],
+  );
+
+  const loadScheduleBlocks = useCallback(async () => {
+    if (myProviderId == null) return;
+    const focus = scheduleFocusDate;
+    let from: string;
+    let to: string;
+    if (scheduleView === "day") {
+      from = toIsoDate(focus);
+      to = from;
+    } else if (scheduleView === "week") {
+      const mon = mondayOfWeekContaining(focus);
+      const fri = addDays(mon, 4);
+      from = toIsoDate(mon);
+      to = toIsoDate(fri);
+    } else {
+      from = toIsoDate(startOfMonth(focus));
+      to = toIsoDate(endOfMonth(focus));
+    }
+    const blockParams = new URLSearchParams({
+      date_from: from,
+      date_to: to,
+      provider_id: String(myProviderId),
+    });
+    try {
+      const blockList = await apiGetAuth<ProviderBlock[]>(`/provider-unavailability/?${blockParams}`);
+      setScheduleBlocks(blockList);
+    } catch {
+      setScheduleBlocks([]);
+    }
+  }, [myProviderId, scheduleView, scheduleFocusDate]);
+
+  useEffect(() => {
+    if (scheduleLayout !== "calendar") return;
+    void loadScheduleBlocks();
+  }, [scheduleLayout, loadScheduleBlocks]);
+
+  useEffect(() => {
+    if (scheduleLayout !== "calendar") setDeskBookSeed(null);
+  }, [scheduleLayout, scheduleView]);
+
+  const providersForCalendar = useMemo(() => {
+    if (myProviderId == null) return [];
+    return [{ id: myProviderId, provider_name: myProviderName || `Provider ${myProviderId}` }];
+  }, [myProviderId, myProviderName]);
+
+  const scheduleGridAppointments = useMemo((): ScheduleAppointment[] => {
+    if (myProviderId == null) return [];
+    return filterAppointmentsForScheduleGrid(
+      appointments.map((a) => ({
+        id: a.id,
+        patient_name: a.patient,
+        provider: myProviderId,
+        provider_name: myProviderName,
+        service_name: a.service || "Visit",
+        appointment_date: a.appointment_date,
+        start_time: a.start_time_iso,
+        end_time: a.end_time_iso || a.start_time_iso,
+        start_time_display: a.start_time,
+        end_time_display: a.end_time,
+        status: a.status,
+        display_status: a.display_status,
+        invoice_kind: a.invoice_kind,
+        reason_for_visit: a.reason_for_visit,
+        patient_payment_profile: a.patient_payment_profile,
+      })),
+    );
+  }, [appointments, myProviderId, myProviderName]);
 
   useEffect(() => {
     paymentHandledForInvoiceRef.current = null;
@@ -2189,16 +2299,73 @@ export default function DoctorDashboardPage() {
                 Refresh today
               </button>
             )}
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5">
+              {(
+                [
+                  { id: "list" as const, label: "List" },
+                  { id: "calendar" as const, label: "Calendar" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setScheduleLayout(t.id)}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                    scheduleLayout === t.id
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900",
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
             <HelpTip label="Schedule view" align="center" tone="emerald">
               Day = today’s visits only. Week = Mon–Fri for the week you pick. Month = full month. Use arrows in Week/Month to
-              move forward or back.
+              move forward or back. Calendar view: click an open time to book (including repeat visits).
             </HelpTip>
           </div>
         </div>
         {error && <p className="mb-3 rounded-xl bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>}
-        {loading ? (
+        {scheduleLayout === "calendar" && myProviderId != null ? (
+          <div className="doctor-panel mb-4 min-w-0 overflow-x-auto p-4">
+            {loading ? (
+              <Loader variant="page" label="Loading calendar" sublabel="Almost there…" />
+            ) : (
+              <AdminScheduleCalendar
+                view={scheduleView}
+                focusDate={scheduleFocusDate}
+                appointments={scheduleGridAppointments}
+                providers={providersForCalendar}
+                providerFilter={String(myProviderId)}
+                blocks={scheduleBlocks}
+                selectedId={activeAppt?.id ?? null}
+                onSelect={() => {
+                  /* Row actions stay on the list view */
+                }}
+                onPickDayInMonth={(d) => {
+                  setScheduleFocusIso(toIsoDate(d));
+                  setScheduleView("day");
+                  setScheduleLayout("list");
+                }}
+                onPickOpenSlot={
+                  scheduleView === "day" || scheduleView === "week"
+                    ? (pick) => setDeskBookSeed(pick)
+                    : undefined
+                }
+              />
+            )}
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
+              Click a white/open area on your column to book a patient. You can turn on{" "}
+              <strong className="font-medium text-slate-700">Repeat on a schedule</strong> in the booking window for
+              weekly, every-2-weeks, or monthly visits.
+            </p>
+          </div>
+        ) : null}
+        {scheduleLayout === "list" && loading ? (
           <Loader variant="page" label="Loading appointments" sublabel="Almost there…" />
-        ) : appointments.length === 0 ? (
+        ) : scheduleLayout === "list" && appointments.length === 0 ? (
           <DoctorEmptyWell
             title={
               scheduleView === "day"
@@ -2217,7 +2384,7 @@ export default function DoctorDashboardPage() {
               <IconStethoscope className="h-7 w-7" />
             </span>
           </DoctorEmptyWell>
-        ) : (
+        ) : scheduleLayout === "list" ? (
           <div className="stagger-children space-y-2.5">
             {scheduleListItems.map((item) => {
               if (item.kind === "day-header") {
@@ -2487,7 +2654,7 @@ export default function DoctorDashboardPage() {
             );
             })}
           </div>
-        )}
+        ) : null}
       </section>
       {activeAppt &&
         consultWorkspaceExpanded &&
@@ -2687,6 +2854,29 @@ export default function DoctorDashboardPage() {
         </div>
       )}
       <ConfirmDialog />
+      <AdminDeskBookFromSlotModal
+        open={deskBookSeed !== null}
+        seed={deskBookSeed}
+        onClose={() => setDeskBookSeed(null)}
+        lockProvider
+        todayMinIso={todayStr}
+        onBooked={() => load()}
+        confirmBeforeSubmit={async (ctx) =>
+          requestConfirm(
+            confirmDeskBook(
+              ctx.patientName,
+              ctx.serviceName,
+              ctx.dateIso,
+              ctx.timeLabel,
+              ctx.providerName,
+              {
+                visitCount: ctx.recurringVisitCount,
+                recurrenceLabel: ctx.recurrenceLabel,
+              },
+            ),
+          )
+        }
+      />
       <RescheduleVisitSlotsModal reschedule={rescheduleVisit} titleId="doctor-dashboard-reschedule-title" />
       <BookNextVisitModal bookNext={bookNext} titleId="doctor-dashboard-book-next-title" zIndexClass="z-50" />
       <PatientBillPortalModal

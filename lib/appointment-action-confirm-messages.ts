@@ -134,7 +134,17 @@ export function confirmDeskBook(
   dateIso: string,
   timeLabel: string,
   providerName: string,
+  options?: { visitCount?: number; recurrenceLabel?: string },
 ): AppointmentConfirmOptions {
+  const count = options?.visitCount ?? 1;
+  if (count > 1) {
+    const freq = options?.recurrenceLabel ?? "on a schedule";
+    return base(
+      `Book ${count} recurring visits?`,
+      `Book ${patientName} for ${count} ${serviceName} visits (${freq}), starting ${formatWeekdayMonthDayYear(dateIso)} at ${timeLabel} with ${providerName}. One combined confirmation goes out if their preferences allow.`,
+      "Book recurring visits",
+    );
+  }
   return base(
     "Book this appointment?",
     `Book ${patientName} for ${serviceName} on ${formatWeekdayMonthDayYear(dateIso)} at ${timeLabel} with ${providerName}. The patient will receive a confirmation if their preferences allow.`,

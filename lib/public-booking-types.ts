@@ -90,3 +90,30 @@ export type ServiceOption = PublicServiceOption;
 export type ProviderOption = PublicProviderOption;
 export type BookingOptions = PublicBookingOptions;
 export type FormErrors = BookingFormErrors;
+
+export type RecurrenceFrequency = "weekly" | "biweekly" | "monthly";
+
+export type RecurringOccurrencePreview = {
+  appointment_date: string;
+  start_time_display: string;
+  status: "available" | "unavailable" | "weekend" | "intake_required";
+  detail: string;
+};
+
+export type RecurringPreviewResponse = {
+  ok: boolean;
+  detail?: string;
+  recurrence?: RecurrenceFrequency;
+  occurrence_count?: number;
+  all_available?: boolean;
+  service_name?: string;
+  provider_name?: string;
+  start_time_display?: string;
+  occurrences?: RecurringOccurrencePreview[];
+};
+
+export type RecurringBookResponse = {
+  series_id: number | null;
+  occurrence_count: number;
+  appointments: BookingResult[];
+};
