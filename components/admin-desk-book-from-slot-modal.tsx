@@ -388,7 +388,15 @@ export function AdminDeskBookFromSlotModal({
         occurrence_count: occurrenceCount,
       })
         .then((res) => setRecurringPreview(res))
-        .catch(() => setRecurringPreview({ ok: false, detail: "Could not load recurring preview." }))
+        .catch((error) =>
+          setRecurringPreview({
+            ok: false,
+            detail:
+              error instanceof ApiError
+                ? error.message
+                : "Could not reach the server to preview recurring visits.",
+          }),
+        )
         .finally(() => setRecurringPreviewLoading(false));
     }, 400);
     return () => window.clearTimeout(t);
