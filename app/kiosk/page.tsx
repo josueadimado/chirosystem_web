@@ -97,6 +97,10 @@ type KioskLookupOk =
   | {
       result: "visit_completed_today";
       message: string;
+    }
+  | {
+      result: "invalid_phone";
+      message: string;
     };
 
 /** Lookup outcomes that show a notice card (not ready check-in or name picker). */
@@ -175,6 +179,14 @@ function lookupToNotice(data: KioskLookupNotice): Notice {
         icon: "✓",
         title: "Visit already finished",
         action: "If you need help or another visit, see the front desk.",
+        detail: data.message,
+      };
+    case "invalid_phone":
+      return {
+        tone: "rose",
+        icon: "📱",
+        title: "Invalid phone number",
+        action: "Enter a valid U.S. cell number, or see the front desk.",
         detail: data.message,
       };
   }
@@ -304,6 +316,12 @@ export default function KioskPage() {
   };
 
   const handleLookupResult = async (lookup: KioskLookupOk) => {
+    if (lookup.result === "invalid_phone") {
+      setPatientChoices(null);
+      setChooseMessage("");
+      setNotice(lookupToNotice(lookup));
+      return;
+    }
     if (lookup.result === "choose_patient") {
       setPatientChoices(lookup.choices);
       setChooseMessage(lookup.message);

@@ -116,6 +116,13 @@ function summarizeNonJsonError(body: string, status: number): string {
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
+  if (res.status >= 300 && res.status < 400) {
+    throw new ApiError(
+      "The server redirected this request (often a misconfigured API URL or HTTP/HTTPS mix-up). " +
+        "For local dev, use the booking site at http://localhost:3001 so /api/v1 proxies to Django, or set NEXT_PUBLIC_API_BASE_URL to a reachable HTTPS API.",
+      res.status,
+    );
+  }
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
