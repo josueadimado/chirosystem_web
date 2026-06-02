@@ -224,6 +224,30 @@ export async function apiGetAuth<T>(path: string, init?: Pick<RequestInit, "cach
   return handleResponse<T>(res);
 }
 
+/** Authenticated GET that returns a binary file (e.g. patient document preview/download). */
+export async function apiFetchBlobAuth(path: string): Promise<Blob> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("chiroflow_access_token") : null;
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetchWithAuth(`${getApiBase()}${path}`, { method: "GET", headers });
+  if (!res.ok) {
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = (await res.json()) as Record<string, unknown>;
+      const message =
+        typeof data.detail === "string"
+          ? data.detail
+          : Array.isArray(data.detail)
+            ? (data.detail as string[]).join(" ")
+            : "Could not load file.";
+      throw new ApiError(message, res.status);
+    }
+    const message = await res.text();
+    throw new ApiError(summarizeNonJsonError(message, res.status), res.status);
+  }
+  return res.blob();
+}
+
 export async function apiPost<T>(path: string, payload: object): Promise<T> {
   const res = await fetchWithAuth(`${getApiBase()}${path}`, {
     method: "POST",

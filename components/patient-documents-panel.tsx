@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, apiDelete, apiGetAuth, apiUploadAuth } from "@/lib/api";
+import { ApiError, apiDelete, apiFetchBlobAuth, apiGetAuth, apiUploadAuth } from "@/lib/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -11,7 +11,10 @@ type PatientDoc = {
   doc_type: string;
   doc_type_display: string;
   original_filename: string;
-  file_url: string | null;
+  /** Preferred: authenticated API path under /api/v1 (e.g. /admin/patient_document_file/?doc_id=1). */
+  file_path: string | null;
+  /** Legacy direct media URL — do not use for preview/download in the browser. */
+  file_url?: string | null;
   uploaded_by: string | null;
   created_at: string;
 };
@@ -37,6 +40,28 @@ function isPdfFile(filename: string): boolean {
   return /\.pdf$/i.test(filename);
 }
 
+function docFilePath(basePath: string, docId: number, download = false): string {
+  const q = new URLSearchParams({ doc_id: String(docId) });
+  if (download) q.set("download", "1");
+  return `${basePath}/patient_document_file/?${q.toString()}`;
+}
+
+function patientDocHasFile(doc: PatientDoc): boolean {
+  return Boolean(doc.file_path || doc.file_url);
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("en-US", {
@@ -51,7 +76,21 @@ function formatDate(iso: string): string {
 
 // ─── Preview Modal ────────────────────────────────────────────────────────────
 
-function PreviewModal({ doc, onClose }: { doc: PatientDoc; onClose: () => void }) {
+function PreviewModal({
+  doc,
+  basePath,
+  onClose,
+  onDownload,
+}: {
+  doc: PatientDoc;
+  basePath: string;
+  onClose: () => void;
+  onDownload: () => void;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -60,9 +99,40 @@ function PreviewModal({ doc, onClose }: { doc: PatientDoc; onClose: () => void }
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  useEffect(() => {
+    let revoked: string | null = null;
+    let cancelled = false;
+    if (!patientDocHasFile(doc)) {
+      setLoadError("File is not available.");
+      setLoading(false);
+      return;
+    }
+    const path = doc.file_path ?? docFilePath(basePath, doc.id);
+    setLoading(true);
+    setLoadError("");
+    void apiFetchBlobAuth(path)
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setBlobUrl(url);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setLoadError(e instanceof ApiError ? e.message : "Could not load file for preview.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [doc.id, doc.file_path, basePath]);
+
   const isImage = isImageFile(doc.original_filename);
   const isPdf = isPdfFile(doc.original_filename);
-  const url = doc.file_url;
 
   return (
     <div
@@ -73,22 +143,23 @@ function PreviewModal({ doc, onClose }: { doc: PatientDoc; onClose: () => void }
         className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-900">{doc.label}</p>
             <p className="truncate text-xs text-slate-500">{doc.original_filename}</p>
           </div>
           <div className="ml-4 flex shrink-0 items-center gap-2">
-            {url && (
-              <a
-                href={url}
-                download={doc.original_filename}
+            {patientDocHasFile(doc) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDownload();
+                }}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                onClick={(e) => e.stopPropagation()}
               >
                 Download
-              </a>
+              </button>
             )}
             <button
               type="button"
@@ -101,37 +172,40 @@ function PreviewModal({ doc, onClose }: { doc: PatientDoc; onClose: () => void }
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex flex-1 items-center justify-center overflow-auto bg-slate-50 p-4">
-          {!url ? (
-            <p className="text-sm text-slate-500">File URL not available.</p>
+          {loading ? (
+            <p className="text-sm text-slate-500">Loading preview…</p>
+          ) : loadError ? (
+            <p className="text-sm text-rose-700">{loadError}</p>
+          ) : !blobUrl ? (
+            <p className="text-sm text-slate-500">File not available.</p>
           ) : isImage ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={url}
+              src={blobUrl}
               alt={doc.label}
               className="max-h-[75vh] max-w-full rounded-lg object-contain shadow-md"
             />
           ) : isPdf ? (
             <iframe
-              src={url}
+              src={blobUrl}
               title={doc.label}
               className="h-[72vh] w-full rounded-lg border border-slate-200 bg-white"
             />
           ) : (
             <div className="flex flex-col items-center gap-4 py-10 text-center">
               <span className="text-5xl">📄</span>
-              <p className="text-sm text-slate-600">
-                Preview not available for this file type.
-              </p>
-              <a
-                href={url}
-                download={doc.original_filename}
+              <p className="text-sm text-slate-600">Preview not available for this file type.</p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDownload();
+                }}
                 className="rounded-xl bg-[#0d5c2e] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4d26]"
-                onClick={(e) => e.stopPropagation()}
               >
                 Download file
-              </a>
+              </button>
             </div>
           )}
         </div>
@@ -165,8 +239,25 @@ export function PatientDocumentsPanel({
   const [deleteError, setDeleteError] = useState("");
 
   const [previewDoc, setPreviewDoc] = useState<PatientDoc | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const downloadDocument = async (doc: PatientDoc) => {
+    if (!patientDocHasFile(doc)) return;
+    setDownloadingId(doc.id);
+    setDownloadError("");
+    try {
+      const path = doc.file_path ?? docFilePath(basePath, doc.id, true);
+      const blob = await apiFetchBlobAuth(path);
+      triggerBlobDownload(blob, doc.original_filename || "document");
+    } catch (e) {
+      setDownloadError(e instanceof ApiError ? e.message : "Could not download file.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const loadDocs = useCallback(async () => {
     setLoading(true);
@@ -361,6 +452,11 @@ export function PatientDocumentsPanel({
                 {deleteError}
               </p>
             )}
+            {downloadError && (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {downloadError}
+              </p>
+            )}
             {docs.map((doc) => {
               const isImg = isImageFile(doc.original_filename);
               const isPdf = isPdfFile(doc.original_filename);
@@ -390,7 +486,7 @@ export function PatientDocumentsPanel({
 
                   {/* Actions */}
                   <div className="flex shrink-0 items-center gap-2">
-                    {canPreview && doc.file_url && (
+                    {canPreview && patientDocHasFile(doc) && (
                       <button
                         type="button"
                         onClick={() => setPreviewDoc(doc)}
@@ -399,14 +495,15 @@ export function PatientDocumentsPanel({
                         Preview
                       </button>
                     )}
-                    {doc.file_url && (
-                      <a
-                        href={doc.file_url}
-                        download={doc.original_filename}
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    {patientDocHasFile(doc) && (
+                      <button
+                        type="button"
+                        onClick={() => void downloadDocument(doc)}
+                        disabled={downloadingId === doc.id}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                       >
-                        Download
-                      </a>
+                        {downloadingId === doc.id ? "Downloading…" : "Download"}
+                      </button>
                     )}
                     <button
                       type="button"
@@ -426,7 +523,12 @@ export function PatientDocumentsPanel({
 
       {/* Preview Modal */}
       {previewDoc && (
-        <PreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+        <PreviewModal
+          doc={previewDoc}
+          basePath={basePath}
+          onClose={() => setPreviewDoc(null)}
+          onDownload={() => void downloadDocument(previewDoc)}
+        />
       )}
     </div>
   );
