@@ -5,9 +5,12 @@ services:
       dockerfile: Dockerfile.prod
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.reliefchiropractic.net/api/v1}
+        # Prod API container listens on 8000 (see apps/api/docker-compose.prod.yml).
+        API_PROXY_TARGET: ${API_PROXY_TARGET:-http://api:8000}
     container_name: chiroflow-frontend
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.reliefchiropractic.net/api/v1}
+      API_PROXY_TARGET: ${API_PROXY_TARGET:-http://api:8000}
     restart: unless-stopped
     expose:
       - "3000"

@@ -19,12 +19,25 @@ function browserCanReachApiHost(urlStr: string): boolean {
   }
 }
 
+/** Baked-in production API when NEXT_PUBLIC is missing (avoids broken /api/v1 proxy on book.*). */
+const DEFAULT_PRODUCTION_API_BASE = "https://api.reliefchiropractic.net/api/v1";
+
+function isProductionAppHostname(hostname: string): boolean {
+  return (
+    hostname === "book.reliefchiropractic.net" ||
+    hostname.endsWith(".reliefchiropractic.net")
+  );
+}
+
 function getApiBase(): string {
   const explicit = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 
   if (typeof window !== "undefined") {
     if (explicit && browserCanReachApiHost(explicit)) {
       return explicit.replace(/\/$/, "");
+    }
+    if (isProductionAppHostname(window.location.hostname)) {
+      return DEFAULT_PRODUCTION_API_BASE.replace(/\/$/, "");
     }
     return "/api/v1";
   }
@@ -94,6 +107,18 @@ function clearAuthAndRedirect(): void {
 function summarizeNonJsonError(body: string, status: number): string {
   const t = body.trim();
   const looksHtml = t.startsWith("<!DOCTYPE") || t.startsWith("<html") || t.includes("ProgrammingError at");
+
+  if (
+    t === "Internal Server Error" ||
+    /^Server Error \(\d+\)$/i.test(t) ||
+    (looksHtml && t.includes("Server Error"))
+  ) {
+    return (
+      `The server returned an error (HTTP ${status}). ` +
+      `The booking site could not reach the API. Redeploy the web app with API_PROXY_TARGET=http://api:8000 ` +
+      `and NEXT_PUBLIC_API_BASE_URL=https://api.reliefchiropractic.net/api/v1, or call the API directly at that URL.`
+    );
+  }
 
   if (looksHtml) {
     const col = t.match(/column\s+([\w."]+)\s+does not exist/i);
