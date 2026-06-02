@@ -2,6 +2,8 @@
 
 import { getPatientBillDocumentHtml, patientBillContentSignature, type PatientBillPayload } from "@/lib/patient-bill-print";
 import { PatientNameWithProfile } from "@/components/patient-payment-profile";
+import { formatPatientBillEmailSentButtonLabel } from "@/lib/patient-bill-email";
+import { CheckCircle2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -11,13 +13,21 @@ type PatientBillPortalModalProps = {
   /** When set and bill is paid (not preview), shows Email bill button. */
   onEmailBill?: () => void | Promise<void>;
   emailingBill?: boolean;
+  /** Set after a successful send — shows a green confirmation bar and updates the button. */
+  emailSentTo?: string | null;
 };
 
 /**
  * Full-screen overlay + scrollable bill preview in an iframe (portal → document.body).
  * Print runs only when the user taps Print (not automatically after payment).
  */
-export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBill }: PatientBillPortalModalProps) {
+export function PatientBillPortalModal({
+  bill,
+  onClose,
+  onEmailBill,
+  emailingBill,
+  emailSentTo,
+}: PatientBillPortalModalProps) {
   const [portalReady, setPortalReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -92,11 +102,20 @@ export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBil
           {!bill.is_preview && bill.status === "paid" && onEmailBill ? (
             <button
               type="button"
-              disabled={emailingBill}
+              disabled={emailingBill || !!emailSentTo}
               onClick={() => void onEmailBill()}
-              className="rounded-xl border border-[#0f766e]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-emerald-50 disabled:opacity-50"
+              title={emailSentTo ? `Bill emailed to ${emailSentTo}` : undefined}
+              className={
+                emailSentTo
+                  ? "rounded-xl border border-emerald-400 bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm"
+                  : "rounded-xl border border-[#0f766e]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-emerald-50 disabled:opacity-50"
+              }
             >
-              {emailingBill ? "Sending…" : "Email bill"}
+              {emailingBill
+                ? "Sending…"
+                : emailSentTo
+                  ? formatPatientBillEmailSentButtonLabel(emailSentTo)
+                  : "Email bill"}
             </button>
           ) : null}
           <button
@@ -115,6 +134,20 @@ export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBil
           </button>
         </div>
       </div>
+      {emailSentTo ? (
+        <div
+          className="flex shrink-0 items-start gap-2.5 border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 sm:px-5"
+          role="status"
+          aria-live="polite"
+        >
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+          <p className="min-w-0 leading-snug">
+            <span className="font-bold">Email sent.</span> The patient bill was delivered to{" "}
+            <span className="font-semibold break-all">{emailSentTo}</span>. You can email again from billing if needed
+            after closing this preview.
+          </p>
+        </div>
+      ) : null}
       <div
         className="min-h-0 flex-1 overflow-hidden bg-slate-100 p-2 sm:p-4"
         onClick={onClose}

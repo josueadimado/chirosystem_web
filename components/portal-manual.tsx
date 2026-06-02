@@ -275,7 +275,8 @@ const SECTIONS: ManualSection[] = [
         heading: "How it works",
         bullets: [
           "Patient enters the phone number they used when booking.",
-          "System finds their appointment for today.",
+          "System finds their appointment(s) for today.",
+          "If they have massage and chiropractic the same day, one check-in covers both visits.",
           "Patient confirms and checks in.",
           "The schedule updates to show them as checked in.",
           "Their doctor sees them as ready.",
@@ -1180,7 +1181,8 @@ const SECTIONS: ManualSection[] = [
         heading: "How it works",
         bullets: [
           "Patient enters the phone number they used when booking.",
-          "System finds their appointment for today.",
+          "System finds their appointment(s) for today.",
+          "If they have massage and chiropractic the same day, one check-in covers both visits.",
           "Patient confirms and checks in.",
           "Your dashboard updates to show them as checked in.",
           "You can then click Start Visit.",

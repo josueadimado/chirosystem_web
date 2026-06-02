@@ -113,7 +113,9 @@ const PatientBillPortalModal = dynamic(
     })),
   { ssr: false },
 );
+import { EmailBillButton } from "@/components/email-bill-button";
 import { emailPatientBillDoctor } from "@/lib/patient-bill-email";
+import { usePatientBillEmail } from "@/hooks/use-patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import {
   doctorDashboardScheduleListItems,
@@ -1176,21 +1178,9 @@ export default function DoctorDashboardPage() {
   );
 
   const [printingBill, setPrintingBill] = useState(false);
-  const [emailingBill, setEmailingBill] = useState(false);
   const [previewingBill, setPreviewingBill] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
-
-  const emailPatientBill = async (invoiceId: number) => {
-    setEmailingBill(true);
-    try {
-      const out = await emailPatientBillDoctor(invoiceId);
-      toast.success(`Bill emailed to ${out.recipient}.`);
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not email patient bill.");
-    } finally {
-      setEmailingBill(false);
-    }
-  };
+  const billEmail = usePatientBillEmail(emailPatientBillDoctor);
 
   /** Preview bill layout while invoice is still unpaid (?preview=1 on the API). */
   const openPatientBillPreview = async (invoiceId: number) => {
@@ -1981,14 +1971,12 @@ export default function DoctorDashboardPage() {
               )}
               {paymentFollowUp.payment.charged ? (
                 <>
-                  <button
-                    type="button"
-                    disabled={emailingBill}
-                    onClick={() => void emailPatientBill(paymentFollowUp.invoice_id)}
-                    className="rounded-lg border border-[#0f766e]/40 bg-white px-4 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
-                  >
-                    {emailingBill ? "Sending…" : "Email bill"}
-                  </button>
+                  <EmailBillButton
+                    onClick={() => void billEmail.send(paymentFollowUp.invoice_id)}
+                    sending={billEmail.isSending(paymentFollowUp.invoice_id)}
+                    sentTo={billEmail.sentFor(paymentFollowUp.invoice_id)}
+                    className="rounded-lg py-2"
+                  />
                   <button
                     type="button"
                     disabled={printingBill}
@@ -2089,14 +2077,14 @@ export default function DoctorDashboardPage() {
                     </div>
                     {inv.status === "paid" && (
                       <div className="flex gap-2">
-                        <button
-                          type="button"
-                          disabled={emailingBill}
-                          onClick={() => void emailPatientBill(inv.invoice_id)}
-                          className="rounded-lg border border-[#0f766e]/40 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
-                        >
-                          {emailingBill ? "Sending…" : "Email"}
-                        </button>
+                        <EmailBillButton
+                          onClick={() => void billEmail.send(inv.invoice_id)}
+                          sending={billEmail.isSending(inv.invoice_id)}
+                          sentTo={billEmail.sentFor(inv.invoice_id)}
+                          label="Email"
+                          compact
+                          className="rounded-lg py-1.5"
+                        />
                         <button
                           type="button"
                           disabled={printingBill}
@@ -2703,11 +2691,19 @@ export default function DoctorDashboardPage() {
       <BookNextVisitModal bookNext={bookNext} titleId="doctor-dashboard-book-next-title" zIndexClass="z-50" />
       <PatientBillPortalModal
         bill={patientBillModal}
-        onClose={() => setPatientBillModal(null)}
-        emailingBill={emailingBill}
+        onClose={() => {
+          setPatientBillModal(null);
+          billEmail.clearSent();
+        }}
+        emailingBill={
+          patientBillModal?.invoice_id ? billEmail.isSending(patientBillModal.invoice_id) : false
+        }
+        emailSentTo={
+          patientBillModal?.invoice_id ? billEmail.sentFor(patientBillModal.invoice_id) : null
+        }
         onEmailBill={
           patientBillModal?.invoice_id
-            ? () => emailPatientBill(patientBillModal.invoice_id!)
+            ? () => void billEmail.send(patientBillModal.invoice_id!)
             : undefined
         }
       />

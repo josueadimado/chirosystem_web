@@ -8,7 +8,9 @@ import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-check
 import { Button } from "@/components/ui/button";
 import { StatusChipView } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import { EmailBillButton } from "@/components/email-bill-button";
 import { emailPatientBillAdmin } from "@/lib/patient-bill-email";
+import { usePatientBillEmail } from "@/hooks/use-patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
@@ -148,9 +150,9 @@ export default function AdminBillingPage() {
   const [creditTopUpAmount, setCreditTopUpAmount] = useState("0");
   const [creditTerminalCheckoutId, setCreditTerminalCheckoutId] = useState<string | null>(null);
   const [printBusy, setPrintBusy] = useState(false);
-  const [emailBusy, setEmailBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+  const billEmail = usePatientBillEmail(emailPatientBillAdmin);
   const [billingEditAppointmentId, setBillingEditAppointmentId] = useState<number | null>(null);
   const [listFilter, setListFilter] = useState<ListFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -209,18 +211,6 @@ export default function AdminBillingPage() {
       );
     } finally {
       setPrintBusy(false);
-    }
-  };
-
-  const emailBill = async (invoiceId: number) => {
-    setEmailBusy(true);
-    try {
-      const out = await emailPatientBillAdmin(invoiceId);
-      toast.success(`Bill emailed to ${out.recipient}.`);
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not email patient bill.");
-    } finally {
-      setEmailBusy(false);
     }
   };
 
@@ -910,14 +900,12 @@ export default function AdminBillingPage() {
 
               {selected.status === "paid" && (
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <button
-                    type="button"
-                    disabled={emailBusy}
-                    onClick={() => void emailBill(selected.id)}
-                    className="w-full rounded-xl border border-[#0f766e]/40 bg-white px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-emerald-50 disabled:opacity-50 sm:flex-1"
-                  >
-                    {emailBusy ? "Sending…" : "Email bill"}
-                  </button>
+                  <EmailBillButton
+                    onClick={() => void billEmail.send(selected.id)}
+                    sending={billEmail.isSending(selected.id)}
+                    sentTo={billEmail.sentFor(selected.id)}
+                    className="w-full sm:flex-1"
+                  />
                   <button
                     type="button"
                     disabled={printBusy}
@@ -990,10 +978,20 @@ export default function AdminBillingPage() {
 
       <PatientBillPortalModal
         bill={patientBillModal}
-        onClose={() => setPatientBillModal(null)}
-        emailingBill={emailBusy}
+        onClose={() => {
+          setPatientBillModal(null);
+          billEmail.clearSent();
+        }}
+        emailingBill={
+          patientBillModal?.invoice_id ? billEmail.isSending(patientBillModal.invoice_id) : false
+        }
+        emailSentTo={
+          patientBillModal?.invoice_id ? billEmail.sentFor(patientBillModal.invoice_id) : null
+        }
         onEmailBill={
-          patientBillModal?.invoice_id ? () => emailBill(patientBillModal.invoice_id!) : undefined
+          patientBillModal?.invoice_id
+            ? () => void billEmail.send(patientBillModal.invoice_id!)
+            : undefined
         }
       />
       {billingEditRow ? (

@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { Loader } from "@/components/loader";
+import { EmailBillButton } from "@/components/email-bill-button";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+import { usePatientBillEmail } from "@/hooks/use-patient-bill-email";
+import {
+  formatPatientBillEmailSentMessage,
+  isPatientBillEmailSuccessMessage,
+} from "@/lib/patient-bill-email";
 import { PatientNameWithProfile, patientFullName } from "@/components/patient-payment-profile";
 import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
@@ -239,6 +245,7 @@ function VisitBillPanel({
   onConfirmPaid,
   printing,
   emailing,
+  emailSentTo,
   syncing,
   confirming,
 }: {
@@ -249,6 +256,7 @@ function VisitBillPanel({
   onConfirmPaid?: (invoiceId: number, invoiceNumber: string) => void;
   printing: boolean;
   emailing?: boolean;
+  emailSentTo?: string | null;
   syncing?: boolean;
   confirming?: boolean;
 }) {
@@ -309,14 +317,11 @@ function VisitBillPanel({
             </button>
           ) : null}
           {inv.status === "paid" && onEmail ? (
-            <button
-              type="button"
-              disabled={emailing}
+            <EmailBillButton
               onClick={() => onEmail(inv.id)}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#0f766e]/40 bg-white px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-emerald-50 disabled:opacity-60"
-            >
-              {emailing ? "Sending…" : "Email bill"}
-            </button>
+              sending={emailing}
+              sentTo={emailSentTo}
+            />
           ) : null}
           <button
             type="button"
@@ -468,6 +473,7 @@ function VisitRecordCard({
   onConfirmPaid,
   printingBill,
   emailingBill,
+  emailSentTo,
   syncingBill,
   confirmingBill,
 }: {
@@ -483,6 +489,7 @@ function VisitRecordCard({
   onConfirmPaid?: (invoiceId: number, invoiceNumber: string) => void;
   printingBill: boolean;
   emailingBill?: boolean;
+  emailSentTo?: string | null;
   syncingBill?: boolean;
   confirmingBill?: boolean;
 }) {
@@ -621,6 +628,7 @@ function VisitRecordCard({
             onConfirmPaid={onConfirmPaid}
             printing={printingBill}
             emailing={emailingBill}
+            emailSentTo={emailSentTo}
             syncing={syncingBill}
             confirming={confirmingBill}
           />
@@ -669,7 +677,6 @@ export function PatientHistoryPage({
   const [handoffMsg, setHandoffMsg] = useState("");
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
   const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
-  const [emailingInvoiceId, setEmailingInvoiceId] = useState<number | null>(null);
   const [syncingInvoiceId, setSyncingInvoiceId] = useState<number | null>(null);
   const [confirmingInvoiceId, setConfirmingInvoiceId] = useState<number | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
@@ -699,22 +706,23 @@ export function PatientHistoryPage({
     void loadDetail();
   }, [patientId, detailPath]);
 
+  const billEmail = usePatientBillEmail(
+    useCallback(
+      (invoiceId: number) =>
+        apiPost<{ detail: string; recipient: string }>(`${invoiceEmailPath}/`, {
+          invoice_id: invoiceId,
+        }),
+      [invoiceEmailPath],
+    ),
+  );
+
   const emailBill = useCallback(
     async (invoiceId: number) => {
-      setEmailingInvoiceId(invoiceId);
       setHandoffMsg("");
-      try {
-        const out = await apiPost<{ detail: string; recipient: string }>(`${invoiceEmailPath}/`, {
-          invoice_id: invoiceId,
-        });
-        setHandoffMsg(`Bill emailed to ${out.recipient}.`);
-      } catch (e) {
-        setHandoffMsg(e instanceof ApiError ? e.message : "Could not email patient bill.");
-      } finally {
-        setEmailingInvoiceId(null);
-      }
+      const out = await billEmail.send(invoiceId, { quietToast: true });
+      if (out) setHandoffMsg(formatPatientBillEmailSentMessage(out.recipient));
     },
-    [invoiceEmailPath],
+    [billEmail],
   );
 
   const syncPayment = useCallback(
@@ -864,7 +872,8 @@ export function PatientHistoryPage({
             className={cn(
               "mt-2 rounded-lg px-3 py-2 text-xs font-medium",
               handoffMsg === "Reminders & handoff saved." ||
-              /marked paid|already marked paid|payment found/i.test(handoffMsg)
+              /marked paid|already marked paid|payment found/i.test(handoffMsg) ||
+              isPatientBillEmailSuccessMessage(handoffMsg)
                 ? "bg-emerald-50 text-emerald-900"
                 : "bg-amber-50 text-amber-950",
             )}
@@ -943,7 +952,14 @@ export function PatientHistoryPage({
                     : undefined
                 }
                 printingBill={printingInvoiceId === selectedVisit.invoice?.id}
-                emailingBill={emailingInvoiceId === selectedVisit.invoice?.id}
+                emailingBill={
+                  selectedVisit.invoice?.id != null && billEmail.isSending(selectedVisit.invoice.id)
+                }
+                emailSentTo={
+                  selectedVisit.invoice?.id != null
+                    ? billEmail.sentFor(selectedVisit.invoice.id)
+                    : null
+                }
                 syncingBill={syncingInvoiceId === selectedVisit.invoice?.id}
                 confirmingBill={confirmingInvoiceId === selectedVisit.invoice?.id}
               />
@@ -958,10 +974,22 @@ export function PatientHistoryPage({
 
       <PatientBillPortalModal
         bill={patientBillModal}
-        onClose={() => setPatientBillModal(null)}
-        emailingBill={emailingInvoiceId != null}
+        onClose={() => {
+          setPatientBillModal(null);
+          billEmail.clearSent();
+        }}
+        emailingBill={
+          patientBillModal?.invoice_id != null && billEmail.isSending(patientBillModal.invoice_id)
+        }
+        emailSentTo={
+          patientBillModal?.invoice_id != null
+            ? billEmail.sentFor(patientBillModal.invoice_id)
+            : null
+        }
         onEmailBill={
-          patientBillModal?.invoice_id ? () => emailBill(patientBillModal.invoice_id!) : undefined
+          patientBillModal?.invoice_id
+            ? () => void emailBill(patientBillModal.invoice_id!)
+            : undefined
         }
       />
     </div>
