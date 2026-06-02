@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import bundleAnalyzer from "@next/bundle-analyzer";
 
 /**
  * Server-side proxy target for `/api/v1/*` (not exposed to the browser).
@@ -6,6 +7,11 @@ import type { NextConfig } from "next";
  * - Local `npm run dev`: defaults to `http://127.0.0.1:8001`
  */
 const apiProxyTarget = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8001").replace(/\/$/, "");
+
+const withBundleAnalyzer = bundleAnalyzer({
+  // Run: ANALYZE=true npm run build  — opens treemap reports in your browser.
+  enabled: process.env.ANALYZE === "true",
+});
 
 const nextConfig: NextConfig = {
   async rewrites() {
@@ -30,4 +36,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);

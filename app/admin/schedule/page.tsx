@@ -8,9 +8,33 @@ import {
   type ProviderBlock,
   type ScheduleAppointment,
 } from "@/components/admin-schedule-calendar";
-import { AdminDeskBookFromSlotModal, type DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
-import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
-import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-modal";
+import type { DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
+import dynamic from "next/dynamic";
+
+// Modals are only needed when the user opens them — load them lazily.
+const AdminDeskBookFromSlotModal = dynamic(
+  () =>
+    import("@/components/admin-desk-book-from-slot-modal").then((m) => ({
+      default: m.AdminDeskBookFromSlotModal,
+    })),
+  { ssr: false },
+);
+
+const AdminVisitBillingModal = dynamic(
+  () =>
+    import("@/components/admin-visit-billing-modal").then((m) => ({
+      default: m.AdminVisitBillingModal,
+    })),
+  { ssr: false },
+);
+
+const BookNextVisitModal = dynamic(
+  () =>
+    import("@/components/visit-panel/book-next-visit-modal").then((m) => ({
+      default: m.BookNextVisitModal,
+    })),
+  { ssr: false },
+);
 import { VisitDeskActions } from "@/components/visit-panel/visit-desk-actions";
 import { VisitSnapshotDisplay } from "@/components/visit-panel/visit-snapshot-display";
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
@@ -36,7 +60,13 @@ import {
 } from "@/lib/appointment-action-confirm-messages";
 import { useAppFeedback } from "@/components/app-feedback";
 import { Loader } from "@/components/loader";
-import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+const PatientBillPortalModal = dynamic(
+  () =>
+    import("@/components/patient-bill-portal-modal").then((m) => ({
+      default: m.PatientBillPortalModal,
+    })),
+  { ssr: false },
+);
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import {

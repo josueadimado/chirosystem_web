@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "npm run generate:pwa-icons && next build",
+    "analyze": "ANALYZE=true npm run build",
     "start": "next start",
     "lint": "eslint",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs"
@@ -26,6 +27,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^16.2.7",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

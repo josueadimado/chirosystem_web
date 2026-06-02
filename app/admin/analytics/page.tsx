@@ -5,17 +5,25 @@ import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { AnalyticsTrendChart } from "@/components/analytics-trend-chart";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import type { RevenueByServiceItem } from "@/components/analytics-revenue-by-service-chart";
+
+// Recharts is large (~1 MB unminified). Both chart components are loaded only on
+// this route and are dynamically imported so they don't appear in the shared bundle.
+const AnalyticsTrendChart = dynamic(
+  () =>
+    import("@/components/analytics-trend-chart").then((m) => ({ default: m.AnalyticsTrendChart })),
+  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-slate-100" /> },
+);
+
+const AnalyticsRevenueByServiceChart = dynamic(
+  () =>
+    import("@/components/analytics-revenue-by-service-chart").then((m) => ({
+      default: m.AnalyticsRevenueByServiceChart,
+    })),
+  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-slate-100" /> },
+);
 
 type AnalyticsPayload = {
   kpis: {
@@ -349,40 +357,9 @@ export default function AdminAnalyticsPage() {
         <AdminSectionLabel help="Top five patient-chargeable services on invoices paid this month.">
           Revenue by service
         </AdminSectionLabel>
-        {data.revenue_by_service.length === 0 ? (
-          <p className="text-sm text-slate-500">No paid visit revenue recorded this month yet.</p>
-        ) : (
-          <>
-            <div className="h-[220px] w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  layout="vertical"
-                  data={data.revenue_by_service.map((s) => ({
-                    name: s.name.length > 28 ? `${s.name.slice(0, 26)}…` : s.name,
-                    revenue: parseFloat(s.revenue) || 0,
-                  }))}
-                  margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v) => `$${v}`} />
-                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11, fill: "#334155" }} />
-                  <Tooltip formatter={(v: number) => formatMoney(v)} />
-                  <Bar dataKey="revenue" name="Revenue" fill={CHART_TEAL} radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <ul className="mt-4 space-y-2 border-t border-slate-100 pt-4">
-              {data.revenue_by_service.map((s) => (
-                <li key={s.name} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                  <span className="font-medium text-slate-800">{s.name}</span>
-                  <span className="tabular-nums text-slate-600">
-                    {formatMoney(s.revenue)} · {s.percentage.toFixed(1)}%
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        <AnalyticsRevenueByServiceChart
+          data={data.revenue_by_service as RevenueByServiceItem[]}
+        />
       </section>
 
       {/* Section 6 — Client health */}

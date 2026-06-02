@@ -2,12 +2,60 @@
 
 import { useAppFeedback } from "@/components/app-feedback";
 import { DoctorEmptyWell, DoctorPageIntro, DoctorSectionLabel, DoctorStatsRow, doctorGreeting } from "@/components/doctor-shell";
-import { ChartNoteRichEditor } from "@/components/chart-note-rich-editor";
-import { ChartNoteOpenWideButton, ChartNoteWideViewModal } from "@/components/chart-note-wide-modal";
-import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-modal";
-import { RescheduleVisitSlotsModal } from "@/components/visit-panel/reschedule-visit-slots-modal";
-import { VisitBillingForm } from "@/components/visit-panel/visit-billing-form";
 import type { DiagnosisPriorVisitHint } from "@/components/visit-panel/visit-diagnosis-picker";
+import dynamic from "next/dynamic";
+
+// --- Dynamic imports ---
+// These are large components that are not needed on initial page load:
+//  • consultation editor + wide modal — only mounts when a patient is active
+//  • modals — only mount when the doctor opens them
+//  • Square poller — background process, not part of initial render
+
+const ChartNoteRichEditor = dynamic(
+  () =>
+    import("@/components/chart-note-rich-editor").then((m) => ({ default: m.ChartNoteRichEditor })),
+  { ssr: false },
+);
+
+const ChartNoteOpenWideButton = dynamic(
+  () =>
+    import("@/components/chart-note-wide-modal").then((m) => ({
+      default: m.ChartNoteOpenWideButton,
+    })),
+  { ssr: false },
+);
+
+const ChartNoteWideViewModal = dynamic(
+  () =>
+    import("@/components/chart-note-wide-modal").then((m) => ({
+      default: m.ChartNoteWideViewModal,
+    })),
+  { ssr: false },
+);
+
+const BookNextVisitModal = dynamic(
+  () =>
+    import("@/components/visit-panel/book-next-visit-modal").then((m) => ({
+      default: m.BookNextVisitModal,
+    })),
+  { ssr: false },
+);
+
+const RescheduleVisitSlotsModal = dynamic(
+  () =>
+    import("@/components/visit-panel/reschedule-visit-slots-modal").then((m) => ({
+      default: m.RescheduleVisitSlotsModal,
+    })),
+  { ssr: false },
+);
+
+const VisitBillingForm = dynamic(
+  () =>
+    import("@/components/visit-panel/visit-billing-form").then((m) => ({
+      default: m.VisitBillingForm,
+    })),
+  { ssr: false },
+);
 import { useAppointmentActionConfirm } from "@/hooks/use-appointment-action-confirm";
 import { useBookNextVisit } from "@/hooks/use-book-next-visit";
 import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
@@ -35,15 +83,31 @@ import {
 import { HelpTip } from "@/components/help-tip";
 import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
-import { PatientDetailModal } from "@/components/patient-detail-modal";
+const PatientDetailModal = dynamic(
+  () =>
+    import("@/components/patient-detail-modal").then((m) => ({ default: m.PatientDetailModal })),
+  { ssr: false },
+);
 import { AppointmentStatusBadge, appointmentStatusStripeClass } from "@/components/status-chip";
 import { resolveAppointmentUiStatus } from "@/lib/appointment-ui-status";
 import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
 import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
-import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
+const SquareTerminalCheckoutPoller = dynamic(
+  () =>
+    import("@/components/square-terminal-checkout").then((m) => ({
+      default: m.SquareTerminalCheckoutPoller,
+    })),
+  { ssr: false },
+);
 import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
-import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+const PatientBillPortalModal = dynamic(
+  () =>
+    import("@/components/patient-bill-portal-modal").then((m) => ({
+      default: m.PatientBillPortalModal,
+    })),
+  { ssr: false },
+);
 import { emailPatientBillDoctor } from "@/lib/patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import {

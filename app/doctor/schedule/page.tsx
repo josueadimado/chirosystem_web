@@ -7,7 +7,17 @@ import {
   type ProviderBlock,
   type ScheduleAppointment,
 } from "@/components/admin-schedule-calendar";
-import { AdminDeskBookFromSlotModal, type DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
+import type { DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
+import dynamic from "next/dynamic";
+
+// Modals are only needed when the user opens them — load them lazily.
+const AdminDeskBookFromSlotModal = dynamic(
+  () =>
+    import("@/components/admin-desk-book-from-slot-modal").then((m) => ({
+      default: m.AdminDeskBookFromSlotModal,
+    })),
+  { ssr: false },
+);
 import { DoctorPageIntro, DoctorSectionLabel } from "@/components/doctor-shell";
 import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
@@ -26,8 +36,21 @@ import {
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
 import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
-import { BookNextVisitModal } from "@/components/visit-panel/book-next-visit-modal";
-import { RescheduleVisitSlotsModal } from "@/components/visit-panel/reschedule-visit-slots-modal";
+const BookNextVisitModal = dynamic(
+  () =>
+    import("@/components/visit-panel/book-next-visit-modal").then((m) => ({
+      default: m.BookNextVisitModal,
+    })),
+  { ssr: false },
+);
+
+const RescheduleVisitSlotsModal = dynamic(
+  () =>
+    import("@/components/visit-panel/reschedule-visit-slots-modal").then((m) => ({
+      default: m.RescheduleVisitSlotsModal,
+    })),
+  { ssr: false },
+);
 import { VisitDoctorScheduleActions } from "@/components/visit-panel/visit-doctor-schedule-actions";
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";

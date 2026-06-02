@@ -4,7 +4,14 @@ import { DoctorPageIntro, DoctorSectionLabel, DoctorStatsRow } from "@/component
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { apiGetAuth } from "@/lib/api";
-import { AnalyticsTrendChart } from "@/components/analytics-trend-chart";
+import dynamic from "next/dynamic";
+
+// Recharts is large — load it only when the analytics page is actually visited.
+const AnalyticsTrendChart = dynamic(
+  () =>
+    import("@/components/analytics-trend-chart").then((m) => ({ default: m.AnalyticsTrendChart })),
+  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-slate-100" /> },
+);
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
