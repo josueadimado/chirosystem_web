@@ -196,7 +196,75 @@ type Appointment = {
   card_last4?: string;
   card_brand?: string;
   patient_payment_profile?: string;
+  /** Total unpaid across all open invoices (visit + penalties). */
+  patient_balance_due?: string;
 };
+
+type PendingPaymentContext = {
+  balance_total: string;
+  balance_penalties: string;
+  has_other_pending: boolean;
+  other_invoices: Array<{
+    id: number;
+    invoice_number: string;
+    kind: string;
+    kind_label: string;
+    total_amount: string;
+    appointment_date: string | null;
+  }>;
+  other_total: string;
+  current_amount: string;
+  combined_amount: string;
+};
+
+function parseMoneyAmount(amount: string | undefined): number {
+  const n = parseFloat(amount ?? "0");
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatMoneyUsd(amount: string | number): string {
+  const n = typeof amount === "number" ? amount : parseMoneyAmount(amount);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+}
+
+function DoctorPendingBalanceNotice({
+  pending,
+  compact = false,
+}: {
+  pending: PendingPaymentContext;
+  compact?: boolean;
+}) {
+  if (!pending.has_other_pending && parseMoneyAmount(pending.balance_penalties) <= 0.009) {
+    return null;
+  }
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-amber-300 bg-amber-50/95 text-amber-950",
+        compact ? "px-3 py-2 text-xs" : "px-3 py-2.5 text-sm",
+      )}
+    >
+      <p className="font-semibold">
+        Prior balance due: {formatMoneyUsd(pending.other_total || pending.balance_penalties)}
+      </p>
+      {!compact && pending.other_invoices.length > 0 ? (
+        <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-xs">
+          {pending.other_invoices.map((inv) => (
+            <li key={inv.id}>
+              {inv.kind_label} {inv.invoice_number}
+              {inv.appointment_date ? ` (${formatMonthDayYear(inv.appointment_date)})` : ""} —{" "}
+              {formatMoneyUsd(inv.total_amount)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className={cn("text-amber-900/90", compact ? "mt-1" : "mt-2 text-xs")}>
+        You can collect these with today&apos;s visit when paying (choose &quot;Today + prior fees&quot;) or separately in Admin
+        → Billing.
+      </p>
+    </div>
+  );
+}
 
 type ServiceOpt = {
   id: number;
@@ -248,7 +316,10 @@ type PaymentFollowUp = {
   /** Set when the server auto-sent the bill to the desk Terminal — UI polls until paid. */
   terminal_checkout_id?: string | null;
   payment: CompleteVisitPayment;
+  pending_payment?: PendingPaymentContext;
 };
+
+type PaymentCollectMode = "current" | "all";
 
 export default function DoctorDashboardPage() {
   const { runWithFeedback, toast } = useAppFeedback();
@@ -278,6 +349,9 @@ export default function DoctorDashboardPage() {
   /** After "Complete visit", doctor confirms amount with patient and picks payment path. */
   const [paymentConfirmOpen, setPaymentConfirmOpen] = useState(false);
   const [paymentFollowUp, setPaymentFollowUp] = useState<PaymentFollowUp | null>(null);
+  /** Pay only today's visit invoice, or visit + open no-show / late-cancel fees. */
+  const [paymentCollectMode, setPaymentCollectMode] = useState<PaymentCollectMode>("current");
+  const [consultPendingPayment, setConsultPendingPayment] = useState<PendingPaymentContext | null>(null);
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [applyingCredit, setApplyingCredit] = useState(false);
   const [recordingCashPayment, setRecordingCashPayment] = useState(false);
@@ -503,7 +577,31 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     paymentHandledForInvoiceRef.current = null;
+    setPaymentCollectMode("current");
   }, [paymentFollowUp?.invoice_id]);
+
+  useEffect(() => {
+    const pid = activeAppt?.patient_id;
+    if (!pid) {
+      setConsultPendingPayment(null);
+      return;
+    }
+    let cancelled = false;
+    const q = new URLSearchParams({ patient_id: String(pid) });
+    if (paymentFollowUp?.invoice_id) {
+      q.set("current_invoice_id", String(paymentFollowUp.invoice_id));
+    }
+    void apiGetAuth<PendingPaymentContext>(`/doctor/patient_pending_payment/?${q}`)
+      .then((ctx) => {
+        if (!cancelled) setConsultPendingPayment(ctx);
+      })
+      .catch(() => {
+        if (!cancelled) setConsultPendingPayment(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAppt?.patient_id, paymentFollowUp?.invoice_id]);
 
   useEffect(() => {
     if (!paymentFollowUp?.invoice_id) {
@@ -524,6 +622,18 @@ export default function DoctorDashboardPage() {
       cancelled = true;
     };
   }, [paymentFollowUp?.invoice_id]);
+
+  const activePendingPayment =
+    paymentFollowUp?.pending_payment ?? consultPendingPayment ?? null;
+
+  const paymentAmountDue = useMemo(() => {
+    if (!paymentFollowUp) return null;
+    const pending = paymentFollowUp.pending_payment;
+    if (paymentCollectMode === "all" && pending?.has_other_pending) {
+      return pending.combined_amount;
+    }
+    return paymentFollowUp.total_amount ?? pending?.current_amount ?? null;
+  }, [paymentFollowUp, paymentCollectMode]);
 
   const handlePaymentReceived = useCallback(
     async (invoiceId: number, message = "Payment received.") => {
@@ -558,6 +668,8 @@ export default function DoctorDashboardPage() {
   useEffect(() => {
     const invId = paymentFollowUp?.invoice_id;
     if (!invId || paymentFollowUp?.payment.charged) return;
+    const includePending =
+      paymentCollectMode === "all" && Boolean(paymentFollowUp.pending_payment?.has_other_pending);
     let cancelled = false;
     let attempts = 0;
     const maxAttempts = 180;
@@ -567,11 +679,18 @@ export default function DoctorDashboardPage() {
       attempts += 1;
       if (attempts > maxAttempts) return;
       try {
+        const statusQs = new URLSearchParams({ invoice_id: String(invId) });
+        if (includePending) statusQs.set("include_pending_fees", "1");
         const st = await apiGetAuth<{ paid: boolean }>(
-          `/doctor/invoice_payment_status/?invoice_id=${invId}`,
+          `/doctor/invoice_payment_status/?${statusQs}`,
         );
         if (st.paid) {
-          await handlePaymentReceived(invId, "Payment received — schedule updated.");
+          await handlePaymentReceived(
+            invId,
+            includePending
+              ? "Payment received (today + prior fees) — schedule updated."
+              : "Payment received — schedule updated.",
+          );
           return;
         }
       } catch {
@@ -584,7 +703,13 @@ export default function DoctorDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [paymentFollowUp?.invoice_id, paymentFollowUp?.payment?.charged, handlePaymentReceived]);
+  }, [
+    paymentFollowUp?.invoice_id,
+    paymentFollowUp?.payment?.charged,
+    paymentFollowUp?.pending_payment?.has_other_pending,
+    paymentCollectMode,
+    handlePaymentReceived,
+  ]);
 
   const firstName = displayName.trim().split(/\s+/)[0] || "there";
 
@@ -1009,6 +1134,7 @@ export default function DoctorDashboardPage() {
           patient_credit_balance?: string;
           terminal_checkout_id?: string | null;
           payment: CompleteVisitPayment;
+          pending_payment?: PendingPaymentContext;
         }>(endpoint, {
           doctor_notes: doctorNotes,
           diagnosis_ids: selectedDiagnosisIds,
@@ -1024,7 +1150,9 @@ export default function DoctorDashboardPage() {
           patient_credit_balance: result.patient_credit_balance,
           terminal_checkout_id: result.terminal_checkout_id,
           payment: result.payment,
+          pending_payment: result.pending_payment,
         });
+        setPaymentCollectMode("current");
         const terminalId = result.terminal_checkout_id ?? null;
         setSquareCheckoutId(terminalId);
 
@@ -1039,7 +1167,7 @@ export default function DoctorDashboardPage() {
           await load();
           if (options?.autoTerminal && !result.payment.charged && result.invoice_id && !terminalId) {
             try {
-              await createTerminalCheckout(result.invoice_id);
+              await createTerminalCheckout(result.invoice_id, false);
             } catch (err) {
               toast.error(
                 err instanceof ApiError
@@ -1067,7 +1195,7 @@ export default function DoctorDashboardPage() {
         await load({ skipReconnectBillingEdit: true });
         if (options?.autoTerminal && !result.payment.charged && result.invoice_id && !terminalId) {
           try {
-            await createTerminalCheckout(result.invoice_id);
+            await createTerminalCheckout(result.invoice_id, false);
           } catch (err) {
             toast.error(
               err instanceof ApiError
@@ -1171,9 +1299,10 @@ export default function DoctorDashboardPage() {
     }
   };
 
-  const createTerminalCheckout = async (invoiceId: number) => {
+  const createTerminalCheckout = async (invoiceId: number, includePendingFees: boolean) => {
     const out = await apiPost<{ checkout_id: string; status: string }>("/doctor/terminal_checkout/", {
       invoice_id: invoiceId,
+      include_pending_fees: includePendingFees,
     });
     setSquareCheckoutId(out.checkout_id);
     return out.checkout_id;
@@ -1181,15 +1310,19 @@ export default function DoctorDashboardPage() {
 
   const prepareTerminalPayment = async () => {
     if (!paymentFollowUp) return;
+    const includePending =
+      paymentCollectMode === "all" && Boolean(paymentFollowUp.pending_payment?.has_other_pending);
     setTerminalBusy(true);
     setError("");
     await runWithFeedback(
       async () => {
-        await createTerminalCheckout(paymentFollowUp.invoice_id);
+        await createTerminalCheckout(paymentFollowUp.invoice_id, includePending);
       },
       {
-        loadingMessage: "Preparing card reader…",
-        successMessage: "Reader ready — follow the prompts on the terminal.",
+        loadingMessage: includePending ? "Preparing reader (today + prior fees)…" : "Preparing card reader…",
+        successMessage: includePending
+          ? "Reader ready — total includes today’s visit and prior fees."
+          : "Reader ready — follow the prompts on the terminal.",
         errorFallback: "Could not start terminal payment.",
       },
     );
@@ -1245,20 +1378,39 @@ export default function DoctorDashboardPage() {
 
   const recordCashPayment = async () => {
     if (!paymentFollowUp) return;
-    const amount = paymentFollowUp.total_amount;
-    if (!amount || parseFloat(amount) <= 0) {
+    const pending = paymentFollowUp.pending_payment;
+    const payAll = paymentCollectMode === "all" && Boolean(pending?.has_other_pending);
+    const amount = payAll ? pending?.combined_amount : paymentFollowUp.total_amount;
+    if (!amount || parseMoneyAmount(amount) <= 0) {
       toast.error("Invoice amount not available. Use the Admin → Billing page to record this payment.");
       return;
     }
-    if (!window.confirm(`Record cash payment of $${amount} and mark this invoice paid?`)) return;
+    const confirmMsg = payAll
+      ? `Record cash payment of ${formatMoneyUsd(amount)} (today's visit + prior fees) and mark all related invoices paid?`
+      : `Record cash payment of ${formatMoneyUsd(amount)} and mark this invoice paid?`;
+    if (!window.confirm(confirmMsg)) return;
     setRecordingCashPayment(true);
     await runWithFeedback(
       async () => {
-        await apiPost(`/invoices/${paymentFollowUp.invoice_id}/pay/`, {
-          amount,
-          payment_method: "cash",
-          payment_reference: "",
-        });
+        const invoiceIds = payAll
+          ? [
+              paymentFollowUp.invoice_id,
+              ...(pending?.other_invoices.map((i) => i.id) ?? []),
+            ]
+          : [paymentFollowUp.invoice_id];
+        for (const invId of invoiceIds) {
+          const inv = payAll
+            ? invId === paymentFollowUp.invoice_id
+              ? { amount: paymentFollowUp.total_amount }
+              : pending?.other_invoices.find((i) => i.id === invId)
+            : { amount };
+          const lineAmount = inv && "total_amount" in inv ? inv.total_amount : amount;
+          await apiPost(`/invoices/${invId}/pay/`, {
+            amount: lineAmount,
+            payment_method: "cash",
+            payment_reference: payAll ? "doctor_cash_bundle" : "",
+          });
+        }
         setPaymentFollowUp((prev) =>
           prev ? { ...prev, payment: { ...prev.payment, charged: true, status: "paid_cash" } } : prev,
         );
@@ -1266,7 +1418,9 @@ export default function DoctorDashboardPage() {
       },
       {
         loadingMessage: "Recording cash payment…",
-        successMessage: "Cash payment recorded — invoice marked paid.",
+        successMessage: payAll
+          ? "Cash recorded — today’s visit and prior fees marked paid."
+          : "Cash payment recorded — invoice marked paid.",
         errorFallback: "Could not record payment. Try again.",
       },
     );
@@ -1372,6 +1526,7 @@ export default function DoctorDashboardPage() {
           patient_credit_balance?: string;
           already_paid?: boolean;
           payment: CompleteVisitPayment;
+          pending_payment?: PendingPaymentContext;
         }>("/doctor/prepare_invoice_payment/", {
           appointment_id: appt.id,
           try_saved_card: opts?.trySavedCard ?? false,
@@ -1386,7 +1541,9 @@ export default function DoctorDashboardPage() {
           total_amount: out.total_amount,
           patient_credit_balance: out.patient_credit_balance,
           payment: out.payment,
+          pending_payment: out.pending_payment,
         });
+        setPaymentCollectMode("current");
         setSquareCheckoutId(null);
         return out;
       },
@@ -1565,6 +1722,11 @@ export default function DoctorDashboardPage() {
             );
           }}
         />
+        {activePendingPayment ? (
+          <div className="mb-1">
+            <DoctorPendingBalanceNotice pending={activePendingPayment} />
+          </div>
+        ) : null}
         <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-wide text-[#166534]">Booked for this visit</p>
           <p className="mt-0.5 text-sm font-semibold text-slate-900">{activeAppt.service || "—"}</p>
@@ -1945,8 +2107,49 @@ export default function DoctorDashboardPage() {
               </div>
               <p className="text-sm text-slate-600">
                 Invoice {paymentFollowUp.invoice_number ?? paymentFollowUp.invoice_id}
-                {paymentFollowUp.total_amount != null && ` · $${paymentFollowUp.total_amount}`}
+                {paymentAmountDue != null && ` · ${formatMoneyUsd(paymentAmountDue)} due`}
+                {paymentCollectMode === "current" && paymentFollowUp.total_amount != null
+                  ? ` (today: ${formatMoneyUsd(paymentFollowUp.total_amount)})`
+                  : null}
               </p>
+              {paymentFollowUp.pending_payment?.has_other_pending && !paymentFollowUp.payment.charged ? (
+                <div className="mt-3 space-y-2">
+                  <DoctorPendingBalanceNotice pending={paymentFollowUp.pending_payment} compact />
+                  <fieldset className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2.5">
+                    <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      What to collect now
+                    </legend>
+                    <div className="mt-1 space-y-2">
+                      <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-800">
+                        <input
+                          type="radio"
+                          name="payment-collect-mode"
+                          checked={paymentCollectMode === "current"}
+                          onChange={() => setPaymentCollectMode("current")}
+                          className="mt-1"
+                        />
+                        <span>
+                          <strong>Today&apos;s visit only</strong> —{" "}
+                          {formatMoneyUsd(paymentFollowUp.total_amount ?? paymentFollowUp.pending_payment.current_amount)}
+                        </span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-800">
+                        <input
+                          type="radio"
+                          name="payment-collect-mode"
+                          checked={paymentCollectMode === "all"}
+                          onChange={() => setPaymentCollectMode("all")}
+                          className="mt-1"
+                        />
+                        <span>
+                          <strong>Today + prior fees</strong> —{" "}
+                          {formatMoneyUsd(paymentFollowUp.pending_payment.combined_amount)}
+                        </span>
+                      </label>
+                    </div>
+                  </fieldset>
+                </div>
+              ) : null}
               {paymentFollowUp.patient_credit_balance != null && (
                 <p className="mt-1 text-sm text-slate-600">
                   Patient credit available: <span className="font-semibold">${paymentFollowUp.patient_credit_balance}</span>
@@ -1996,8 +2199,8 @@ export default function DoctorDashboardPage() {
                   >
                     {recordingCashPayment
                       ? "Recording…"
-                      : paymentFollowUp.total_amount
-                        ? `Received cash ($${paymentFollowUp.total_amount})`
+                      : paymentAmountDue
+                        ? `Received cash (${formatMoneyUsd(paymentAmountDue)})`
                         : "Received cash"}
                   </button>
                   <button
@@ -2013,7 +2216,9 @@ export default function DoctorDashboardPage() {
                     }
                     className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {terminalBusy ? "Creating…" : "Square Terminal device (desk reader)"}
+                    {terminalBusy ? "Creating…" : paymentCollectMode === "all" && paymentFollowUp.pending_payment?.has_other_pending
+                      ? "Square Terminal (today + prior fees)"
+                      : "Square Terminal device (desk reader)"}
                   </button>
                 </div>
               )}
@@ -2430,6 +2635,14 @@ export default function DoctorDashboardPage() {
                       <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">
                         <PatientNameWithProfile name={appt.patient} profile={appt.patient_payment_profile} />
                       </p>
+                      {parseMoneyAmount(appt.patient_balance_due) > 0.009 ? (
+                        <p className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-950">
+                          <span aria-hidden className="text-amber-600">
+                            $
+                          </span>
+                          Owes {formatMoneyUsd(appt.patient_balance_due ?? "0")}
+                        </p>
+                      ) : null}
                       <p className="mt-1.5 text-[13px] leading-normal text-slate-500">
                         {scheduleView !== "day" ? (
                           <span className="font-medium text-slate-600">
