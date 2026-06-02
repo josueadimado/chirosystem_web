@@ -58,7 +58,7 @@ export type RescheduleAppointmentRow = {
   can_manage_online?: boolean;
 };
 
-export type BookingFlowMode = "new" | "reschedule" | "view";
+export type BookingFlowMode = "new" | "reschedule";
 
 export type SlotGridEntry = { label: string; bookable: boolean };
 
