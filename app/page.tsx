@@ -52,6 +52,7 @@ import {
   toLocalISODate,
   lastWeekdayOnOrBefore,
 } from "@/lib/public-booking-utils";
+import { downloadBookingIcsFile } from "@/lib/booking-calendar-ics";
 import { withMinimumDelay } from "@/lib/with-minimum-delay";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
@@ -1176,7 +1177,10 @@ export default function BookingPage() {
               recurrence,
               occurrence_count: occurrenceCount,
             });
-            const rows = seriesResult.appointments ?? [];
+            const rows = (seriesResult.appointments ?? []).map((row) => ({
+              ...row,
+              duration_minutes: item.service.duration_minutes,
+            }));
             if (rows.length > 0) {
               setBookingResults((prev) => [...prev, ...rows]);
               setCart([]);
@@ -1222,7 +1226,10 @@ export default function BookingPage() {
             appointment_date: pick.date,
             start_time: pick.time,
           });
-          succeeded.push(result);
+          succeeded.push({
+            ...result,
+            duration_minutes: item.service.duration_minutes,
+          });
         } catch (error) {
           failedItems.push(item);
           const msg =
@@ -1292,7 +1299,12 @@ export default function BookingPage() {
         start_time: selectedTime,
         sms_consent: smsConsent,
       });
-      setBookingResults([result]);
+      setBookingResults([
+        {
+          ...result,
+          duration_minutes: reschedulePick.duration_minutes,
+        },
+      ]);
       setBookingMessageKind("success");
       setBookingMessage(`Appointment rescheduled. Confirmation #${result.appointment_id}`);
       toast.success("Your visit has been moved to the new time.");
@@ -1316,32 +1328,21 @@ export default function BookingPage() {
   };
 
   const downloadCalendar = () => {
-    if (bookingResults.length === 0) return;
-    const events = bookingResults.map((r) => {
-      const dateParts = r.appointment_date.split("-");
-      const timeParts = r.start_time.match(/(\d+):(\d+)\s*(AM|PM)/i);
-      if (!dateParts || !timeParts) return "";
-      let h = parseInt(timeParts[1], 10);
-      const m = parseInt(timeParts[2], 10);
-      const ap = timeParts[3].toUpperCase();
-      if (ap === "PM" && h !== 12) h += 12;
-      if (ap === "AM" && h === 12) h = 0;
-      const start = `${dateParts[0]}${dateParts[1]}${dateParts[2]}T${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}00`;
-      const svc = cart.find((c) => c.service.name === r.service);
-      const dur = svc?.service.duration_minutes ?? 30;
-      const endH = h + Math.floor((m + dur) / 60);
-      const endM = (m + dur) % 60;
-      const end = `${dateParts[0]}${dateParts[1]}${dateParts[2]}T${String(endH).padStart(2, "0")}${String(endM).padStart(2, "0")}00`;
-      return `BEGIN:VEVENT\nDTSTART:${start}\nDTEND:${end}\nSUMMARY:${r.service} — Relief Chiropractic\nDESCRIPTION:Confirmation #${r.appointment_id}\\nProvider: ${r.provider}\nLOCATION:Relief Chiropractic\nEND:VEVENT`;
-    }).filter(Boolean);
-    const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Relief Chiropractic//Booking//EN\n${events.join("\n")}\nEND:VCALENDAR`;
-    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "relief-chiropractic-appointment.ics";
-    a.click();
-    URL.revokeObjectURL(url);
+    if (bookingResults.length === 0) {
+      toast.error("No appointment details to add to your calendar.");
+      return;
+    }
+    const firstDate = bookingResults[0]?.appointment_date ?? "appointment";
+    const filename =
+      bookingResults.length === 1
+        ? `relief-appointment-${firstDate}.ics`
+        : `relief-appointments-${firstDate}.ics`;
+    const ok = downloadBookingIcsFile(bookingResults, filename);
+    if (ok) {
+      toast.success("Calendar file downloaded — open it to add the visit to your calendar.");
+    } else {
+      toast.error("Could not build the calendar file. Please call the clinic if you need the details.");
+    }
   };
 
   // Sidebar / summary: reschedule = one slot; new booking = each cart line uses its own date & time (no chaining).
@@ -3094,22 +3095,28 @@ export default function BookingPage() {
                 )}
               </div>
 
-              <div className="mx-auto mt-8 flex max-w-md flex-wrap justify-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={downloadCalendar}
-                  className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold"
-                >
-                  Add to calendar
-                </Button>
-                <Button
-                  type="button"
-                  onClick={resetBookingFlow}
-                  className="h-auto rounded-xl bg-[#16a349] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
-                >
-                  Done
-                </Button>
+              <div className="mx-auto mt-8 max-w-md">
+                <div className="flex flex-wrap justify-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={downloadCalendar}
+                    className="h-auto rounded-xl border-border px-6 py-3 text-sm font-semibold"
+                  >
+                    Add to calendar
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={resetBookingFlow}
+                    className="h-auto rounded-xl bg-[#16a349] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+                  >
+                    Done
+                  </Button>
+                </div>
+                <p className="mt-3 text-center text-xs leading-relaxed text-slate-500">
+                  Downloads a small calendar file. Open it to add this visit to Apple Calendar, Google Calendar, Outlook, or
+                  another calendar app on your phone or computer.
+                </p>
               </div>
             </div>
           )}

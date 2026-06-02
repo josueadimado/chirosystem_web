@@ -11,6 +11,8 @@ export type BookingResult = {
   appointment_date: string;
   start_time: string;
   total_amount: string;
+  /** Visit length for calendar export (set from cart when booking completes). */
+  duration_minutes?: number;
 };
 
 export type BookingFormErrors = {
