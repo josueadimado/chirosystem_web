@@ -301,6 +301,41 @@ function appointmentTooltipStatus(status: string): string {
   return key.replace(/_/g, " ");
 }
 
+/** Time row on calendar blocks — badge stays visible even on short appointments. */
+function ScheduleAppointmentTimeRow({
+  startShown,
+  endShown,
+  paymentProfile,
+  uiStatus,
+  textClassName,
+}: {
+  startShown: string;
+  endShown: string;
+  paymentProfile?: string;
+  uiStatus: string;
+  textClassName?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "shrink-0 border-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
+        uiStatus === "cancelled" && "border-rose-800/20 text-rose-950",
+        uiStatus === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
+        uiStatus === "completed" && "border-slate-400/40 text-slate-900",
+        !["cancelled", "no_show", "completed"].includes(uiStatus) && "border-white/25 text-inherit",
+        uiStatus !== "cancelled" && textClassName,
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="min-w-0 truncate">
+          {startShown} – {endShown}
+        </span>
+        <PatientPaymentProfileBadge profile={paymentProfile} compact />
+      </span>
+    </div>
+  );
+}
+
 function PatientNameLine({
   fullName,
   paymentProfile,
@@ -858,6 +893,14 @@ function ScheduleCalendarGuide({
             />
             <span className="text-slate-600">Blocked (online only)</span>
           </span>
+          <span className="inline-flex items-center gap-1.5">
+            <PatientPaymentProfileBadge profile="insurance" compact />
+            <span className="text-slate-600">Insurance</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <PatientPaymentProfileBadge profile="cash" compact />
+            <span className="text-slate-600">Cash / self-pay</span>
+          </span>
         </div>
         {showDeskDetails ? (
           <p className="text-xs leading-relaxed text-slate-500">
@@ -1339,18 +1382,13 @@ function DayProviderColumn({
                   >
                     <div className="flex min-h-0 flex-1 flex-col">
                       <AppointmentStatusBanner status={uiStatus} />
-                      <div
-                        className={cn(
-                          "shrink-0 border-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
-                          uiStatus === "cancelled" && "border-rose-800/20 text-rose-950",
-                          uiStatus === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
-                          uiStatus === "completed" && "border-slate-400/40 text-slate-900",
-                          !["cancelled", "no_show", "completed"].includes(uiStatus) && "border-white/25 text-inherit",
-                          uiStatus !== "cancelled" && styles.text,
-                        )}
-                      >
-                        {startShown} – {endShown}
-                      </div>
+                      <ScheduleAppointmentTimeRow
+                        startShown={startShown}
+                        endShown={endShown}
+                        paymentProfile={a.patient_payment_profile}
+                        uiStatus={uiStatus}
+                        textClassName={styles.text}
+                      />
                       <PatientNameLine
                         fullName={a.patient_name}
                         paymentProfile={a.patient_payment_profile}
@@ -2021,18 +2059,13 @@ function WeekDayStack({
               >
                 <div className="flex min-h-0 flex-1 flex-col">
                   <AppointmentStatusBanner status={uiStatus} />
-                  <div
-                    className={cn(
-                      "shrink-0 border-b px-1 py-0.5 text-[11px] font-semibold tabular-nums leading-tight",
-                      uiStatus === "cancelled" && "border-rose-800/20 text-rose-950",
-                      uiStatus === "no_show" && "border-red-700/40 bg-red-300/50 text-red-950",
-                      uiStatus === "completed" && "border-slate-400/40 text-slate-900",
-                      !["cancelled", "no_show", "completed"].includes(uiStatus) && "border-white/25 text-inherit",
-                      uiStatus !== "cancelled" && styles.text,
-                    )}
-                  >
-                    {startShown} – {endShown}
-                  </div>
+                  <ScheduleAppointmentTimeRow
+                    startShown={startShown}
+                    endShown={endShown}
+                    paymentProfile={a.patient_payment_profile}
+                    uiStatus={uiStatus}
+                    textClassName={styles.text}
+                  />
                   <PatientNameLine
                     fullName={a.patient_name}
                     paymentProfile={a.patient_payment_profile}
@@ -2122,29 +2155,24 @@ function MonthGrid({
               ) : (
                 <>
                   <span className="mt-0.5 text-[10px] font-medium text-slate-600">{count} appt{count === 1 ? "" : "s"}</span>
-                  <div className="mt-1 flex flex-wrap gap-0.5">
-                    {list.slice(0, 6).map((a) => {
+                  <ul className="mt-1 min-w-0 space-y-0.5">
+                    {list.slice(0, 3).map((a) => {
                       const ui = scheduleAppointmentUiStatus(a);
+                      const shortName = formatPatientNameShort(a.patient_name);
                       return (
-                      <span
-                        key={a.id}
-                        className="h-1.5 max-w-[40%] flex-1 rounded-full"
-                        style={{
-                          backgroundColor:
-                            ui === "cancelled"
-                              ? "#fecdd3"
-                              : ui === "no_show"
-                                ? "#ef4444"
-                                : providerColorForId(a.provider),
-                        }}
-                        title={`${a.patient_name}${paymentProfileShortLabel(a.patient_payment_profile) ? ` · ${paymentProfileShortLabel(a.patient_payment_profile)}` : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
-                      />
-                    );
+                        <li
+                          key={a.id}
+                          className="truncate text-[9px] font-semibold leading-tight text-slate-800"
+                          title={`${a.patient_name}${paymentProfileShortLabel(a.patient_payment_profile) ? ` · ${paymentProfileShortLabel(a.patient_payment_profile)}` : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
+                        >
+                          <PatientNameWithProfile name={shortName} profile={a.patient_payment_profile} compactBadge />
+                        </li>
+                      );
                     })}
-                  </div>
-                  {list.length > 6 && (
-                    <span className="mt-0.5 text-[9px] text-slate-500">+{list.length - 6} more</span>
-                  )}
+                  </ul>
+                  {list.length > 3 ? (
+                    <span className="mt-0.5 text-[9px] text-slate-500">+{list.length - 3} more</span>
+                  ) : null}
                 </>
               )}
             </button>
