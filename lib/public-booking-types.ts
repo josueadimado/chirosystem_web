@@ -52,6 +52,9 @@ export type RescheduleAppointmentRow = {
   patient_name?: string;
   /** Present on my-appointments API (view / manage). */
   status?: string;
+  can_cancel_online?: boolean;
+  can_reschedule_online?: boolean;
+  /** @deprecated Use can_cancel_online / can_reschedule_online */
   can_manage_online?: boolean;
 };
 

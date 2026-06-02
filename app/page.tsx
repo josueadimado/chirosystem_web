@@ -1634,44 +1634,57 @@ export default function BookingPage() {
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                         Reschedule or cancel — same cell number must match the booking
                       </p>
-                      {rescheduleList.map((row) => (
-                        <div
-                          key={row.id}
-                          className="flex flex-col gap-3 rounded-xl border border-border/90 bg-card p-3 sm:flex-row sm:items-stretch"
-                        >
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <p className="font-semibold text-slate-900">{row.service_name}</p>
-                            {row.patient_name ? (
-                              <p className="text-xs font-medium text-slate-500">Patient: {row.patient_name}</p>
-                            ) : null}
-                            <p className="text-sm text-slate-600">
-                              {row.provider_name} ·{" "}
-                              {formatWeekdayMonthDayYear(row.appointment_date)} at {row.start_time}
-                            </p>
+                      {rescheduleList.map((row) => {
+                        const canCancel = row.can_cancel_online !== false;
+                        const canReschedule = row.can_reschedule_online === true;
+                        return (
+                          <div
+                            key={row.id}
+                            className="flex flex-col gap-3 rounded-xl border border-border/90 bg-card p-3 sm:flex-row sm:items-stretch"
+                          >
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <p className="font-semibold text-slate-900">{row.service_name}</p>
+                              {row.patient_name ? (
+                                <p className="text-xs font-medium text-slate-500">Patient: {row.patient_name}</p>
+                              ) : null}
+                              <p className="text-sm text-slate-600">
+                                {row.provider_name} ·{" "}
+                                {formatWeekdayMonthDayYear(row.appointment_date)} at {row.start_time}
+                              </p>
+                              {!canReschedule && canCancel ? (
+                                <p className="text-xs text-slate-500">
+                                  Cancel online below; to move this visit, call the clinic.
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 flex-col gap-2 sm:w-[11.5rem]">
+                              {canReschedule ? (
+                                <Button
+                                  type="button"
+                                  className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4d26]"
+                                  onClick={() => {
+                                    setReschedulePick(row);
+                                    setSlotWarning("");
+                                    setStep(2);
+                                  }}
+                                >
+                                  Reschedule
+                                </Button>
+                              ) : null}
+                              {canCancel ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-auto w-full rounded-xl border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-50"
+                                  onClick={() => void cancelPublicAppointment(row)}
+                                >
+                                  Cancel visit
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
-                          <div className="flex shrink-0 flex-col gap-2 sm:w-[11.5rem]">
-                            <Button
-                              type="button"
-                              className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4d26]"
-                              onClick={() => {
-                                setReschedulePick(row);
-                                setSlotWarning("");
-                                setStep(2);
-                              }}
-                            >
-                              Reschedule
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-auto w-full rounded-xl border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-50"
-                              onClick={() => void cancelPublicAppointment(row)}
-                            >
-                              Cancel visit
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1736,7 +1749,9 @@ export default function BookingPage() {
                                 : row.status
                                   ? row.status.replace(/_/g, " ")
                                   : "";
-                        const canManage = row.can_manage_online !== false && row.status === "booked";
+                        const canCancel =
+                          row.can_cancel_online !== false && row.status === "booked";
+                        const canReschedule = row.can_reschedule_online === true;
                         return (
                           <div
                             key={row.id}
@@ -1754,32 +1769,40 @@ export default function BookingPage() {
                               {statusLabel ? (
                                 <p className="text-xs font-semibold uppercase tracking-wide text-[#166534]">
                                   {statusLabel}
-                                  {!canManage ? " · call the clinic to change this visit" : ""}
+                                  {!canCancel && !canReschedule
+                                    ? " · call the clinic to change this visit"
+                                    : !canReschedule && canCancel
+                                      ? " · cancel online; call the clinic to reschedule"
+                                      : ""}
                                 </p>
                               ) : null}
                             </div>
-                            {canManage ? (
+                            {canCancel || canReschedule ? (
                               <div className="flex shrink-0 gap-2 sm:flex-col sm:w-[11.5rem]">
-                                <Button
-                                  type="button"
-                                  className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a4d26]"
-                                  onClick={() => {
-                                    setReschedulePick(row);
-                                    setSlotWarning("");
-                                    setBookingFlow("reschedule");
-                                    setStep(2);
-                                  }}
-                                >
-                                  Reschedule
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-auto w-full rounded-xl border-rose-200 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50"
-                                  onClick={() => void cancelPublicAppointment(row)}
-                                >
-                                  Cancel
-                                </Button>
+                                {canReschedule ? (
+                                  <Button
+                                    type="button"
+                                    className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a4d26]"
+                                    onClick={() => {
+                                      setReschedulePick(row);
+                                      setSlotWarning("");
+                                      setBookingFlow("reschedule");
+                                      setStep(2);
+                                    }}
+                                  >
+                                    Reschedule
+                                  </Button>
+                                ) : null}
+                                {canCancel ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-auto w-full rounded-xl border-rose-200 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50"
+                                    onClick={() => void cancelPublicAppointment(row)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>
