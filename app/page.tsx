@@ -927,14 +927,18 @@ export default function BookingPage() {
     setRescheduleListLoading(true);
     setRescheduleListError("");
     try {
+      const purpose = bookingFlow === "view" ? "view" : "manage";
       const res = await apiGet<{
         detail?: string;
         ambiguous_phone?: boolean;
+        empty_hint?: string;
         first_name: string;
         last_name: string;
         email: string;
         appointments: RescheduleAppointmentRow[];
-      }>(`/booking-options/my-appointments/?phone=${encodeURIComponent(phone)}`);
+      }>(
+        `/booking-options/my-appointments/?phone=${encodeURIComponent(phone)}&purpose=${purpose}`,
+      );
       setRescheduleList(res.appointments ?? []);
       setFirstName(res.first_name ?? "");
       setLastName(res.last_name ?? "");
@@ -942,7 +946,10 @@ export default function BookingPage() {
       setRescheduleSharedPhone(res.ambiguous_phone === true);
       if ((res.appointments ?? []).length === 0) {
         setRescheduleListError(
-          "No upcoming visits found for this number that can be changed online. Call the clinic if you need help.",
+          (res.empty_hint || "").trim() ||
+            (bookingFlow === "view"
+              ? "No upcoming visits found for this number. Call the clinic if you need help."
+              : "No upcoming visits found for this number that can be changed online. Call the clinic if you need help."),
         );
       }
     } catch (e) {
@@ -959,7 +966,7 @@ export default function BookingPage() {
     } finally {
       setRescheduleListLoading(false);
     }
-  }, [phone, toast]);
+  }, [phone, toast, bookingFlow]);
 
   const cancelPublicAppointment = async (row: RescheduleAppointmentRow) => {
     if (!phone || !isValidPhoneNumber(phone)) {
@@ -1718,45 +1725,66 @@ export default function BookingPage() {
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                         Scheduled visits
                       </p>
-                      {rescheduleList.map((row) => (
-                        <div
-                          key={row.id}
-                          className="flex flex-col gap-2 rounded-xl border border-border/90 bg-card p-4 sm:flex-row sm:items-center"
-                        >
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <p className="font-semibold text-slate-900">{row.service_name}</p>
-                            {row.patient_name ? (
-                              <p className="text-xs font-medium text-slate-500">Patient: {row.patient_name}</p>
+                      {rescheduleList.map((row) => {
+                        const statusLabel =
+                          row.status === "checked_in"
+                            ? "Checked in"
+                            : row.status === "in_consultation"
+                              ? "In visit"
+                              : row.status === "booked"
+                                ? "Scheduled"
+                                : row.status
+                                  ? row.status.replace(/_/g, " ")
+                                  : "";
+                        const canManage = row.can_manage_online !== false && row.status === "booked";
+                        return (
+                          <div
+                            key={row.id}
+                            className="flex flex-col gap-2 rounded-xl border border-border/90 bg-card p-4 sm:flex-row sm:items-center"
+                          >
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <p className="font-semibold text-slate-900">{row.service_name}</p>
+                              {row.patient_name ? (
+                                <p className="text-xs font-medium text-slate-500">Patient: {row.patient_name}</p>
+                              ) : null}
+                              <p className="text-sm text-slate-600">
+                                {row.provider_name} ·{" "}
+                                {formatWeekdayMonthDayYear(row.appointment_date)} at {row.start_time}
+                              </p>
+                              {statusLabel ? (
+                                <p className="text-xs font-semibold uppercase tracking-wide text-[#166534]">
+                                  {statusLabel}
+                                  {!canManage ? " · call the clinic to change this visit" : ""}
+                                </p>
+                              ) : null}
+                            </div>
+                            {canManage ? (
+                              <div className="flex shrink-0 gap-2 sm:flex-col sm:w-[11.5rem]">
+                                <Button
+                                  type="button"
+                                  className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a4d26]"
+                                  onClick={() => {
+                                    setReschedulePick(row);
+                                    setSlotWarning("");
+                                    setBookingFlow("reschedule");
+                                    setStep(2);
+                                  }}
+                                >
+                                  Reschedule
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-auto w-full rounded-xl border-rose-200 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50"
+                                  onClick={() => void cancelPublicAppointment(row)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
                             ) : null}
-                            <p className="text-sm text-slate-600">
-                              {row.provider_name} ·{" "}
-                              {formatWeekdayMonthDayYear(row.appointment_date)} at {row.start_time}
-                            </p>
                           </div>
-                          <div className="flex shrink-0 gap-2 sm:flex-col sm:w-[11.5rem]">
-                            <Button
-                              type="button"
-                              className="h-auto w-full rounded-xl bg-[#0d5c2e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a4d26]"
-                              onClick={() => {
-                                setReschedulePick(row);
-                                setSlotWarning("");
-                                setBookingFlow("reschedule");
-                                setStep(2);
-                              }}
-                            >
-                              Reschedule
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-auto w-full rounded-xl border-rose-200 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50"
-                              onClick={() => void cancelPublicAppointment(row)}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                       <Button
                         type="button"
                         variant="outline"

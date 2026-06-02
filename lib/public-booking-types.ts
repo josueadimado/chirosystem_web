@@ -50,6 +50,9 @@ export type RescheduleAppointmentRow = {
   duration_minutes: number;
   price: string;
   patient_name?: string;
+  /** Present on my-appointments API (view / manage). */
+  status?: string;
+  can_manage_online?: boolean;
 };
 
 export type BookingFlowMode = "new" | "reschedule" | "view";
