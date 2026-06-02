@@ -3,6 +3,7 @@
 import { Loader } from "@/components/loader";
 import { PatientNoShowBadge } from "@/components/status-chip";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
+import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { UsDateInput } from "@/components/us-date-input";
 import { Button } from "@/components/ui/button";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
@@ -33,6 +34,7 @@ type Patient = {
   balance_no_show_fee?: string;
   balance_late_cancel_fee?: string;
   has_overdue?: boolean;
+  payment_profile?: string;
 };
 
 type SortMode = "name_asc" | "visit_desc" | "visit_asc" | "balance_desc" | "balance_asc";
@@ -577,11 +579,17 @@ export default function AdminPatientsPage() {
                               </div>
                               <div className="min-w-0">
                                 <p className="flex flex-wrap items-center gap-2 leading-snug text-slate-900">
-                                  <span>
-                                    <span className="font-semibold tracking-tight">{last}</span>
-                                    <span className="font-normal text-slate-400">, </span>
-                                    <span className="font-medium text-slate-700">{first}</span>
-                                  </span>
+                                  <PatientNameWithProfile
+                                    name={
+                                      <span>
+                                        <span className="font-semibold tracking-tight">{last}</span>
+                                        <span className="font-normal text-slate-400">, </span>
+                                        <span className="font-medium text-slate-700">{first}</span>
+                                      </span>
+                                    }
+                                    profile={p.payment_profile}
+                                    compactBadge
+                                  />
                                   <PatientNoShowBadge count={noShows} />
                                 </p>
                                 <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">

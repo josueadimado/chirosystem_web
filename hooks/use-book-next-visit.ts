@@ -18,6 +18,7 @@ export type BookNextSource = {
 
 export type BookNextVisitContext = {
   patient_name: string;
+  patient_payment_profile?: string;
   appointment_date: string;
   start_time_display: string;
   service_name: string;
@@ -214,6 +215,7 @@ export function useBookNextVisit({
           Array<{
             id: number;
             patient_name: string;
+            patient_payment_profile?: string;
             start_time: string;
             end_time: string;
             status: string;
@@ -224,6 +226,7 @@ export function useBookNextVisit({
           list.map((a) => ({
             id: a.id,
             patient_name: a.patient_name,
+            patient_payment_profile: a.patient_payment_profile,
             start_time: a.start_time,
             end_time: a.end_time,
             status: a.status,
@@ -263,6 +266,7 @@ export function useBookNextVisit({
             id: number;
             appointment_date: string;
             patient_name: string;
+            patient_payment_profile?: string;
             start_time: string;
             end_time: string;
             status: string;
@@ -274,6 +278,7 @@ export function useBookNextVisit({
             id: a.id,
             appointment_date: a.appointment_date,
             patient_name: a.patient_name,
+            patient_payment_profile: a.patient_payment_profile,
             start_time: a.start_time,
             end_time: a.end_time,
             status: a.status,

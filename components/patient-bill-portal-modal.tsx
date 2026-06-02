@@ -1,6 +1,7 @@
 "use client";
 
 import { getPatientBillDocumentHtml, patientBillContentSignature, type PatientBillPayload } from "@/lib/patient-bill-print";
+import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -70,7 +71,16 @@ export function PatientBillPortalModal({ bill, onClose, onEmailBill, emailingBil
           </h2>
           <p className="truncate text-xs text-slate-500 sm:text-sm">
             {bill.invoice_number}
-            {bill.patient_name ? ` · ${bill.patient_name}` : ""}
+            {bill.patient_name ? (
+              <>
+                {" · "}
+                <PatientNameWithProfile
+                  name={bill.patient_name}
+                  profile={bill.patient_payment_profile}
+                  compactBadge
+                />
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">

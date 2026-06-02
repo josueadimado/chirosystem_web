@@ -1,5 +1,6 @@
 "use client";
 
+import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { AppointmentStatusBadge } from "@/components/status-chip";
 import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ export function VisitSummaryHeader({
   estimatedPrice,
   appointmentId,
   reasonForVisit,
+  patientPaymentProfile,
 }: {
   patientName: string;
   serviceName?: string;
@@ -28,6 +30,7 @@ export function VisitSummaryHeader({
   appointmentId: number;
   /** What the patient typed when booking online (if any). */
   reasonForVisit?: string | null;
+  patientPaymentProfile?: string;
 }) {
   return (
     <div
@@ -38,7 +41,9 @@ export function VisitSummaryHeader({
         status !== "no_show" && status !== "cancelled" && "border-slate-100",
       )}
     >
-      <h2 className="text-xl font-bold tracking-tight text-slate-900">{patientName}</h2>
+      <h2 className="text-xl font-bold tracking-tight text-slate-900">
+        <PatientNameWithProfile name={patientName} profile={patientPaymentProfile} />
+      </h2>
       <p className="mt-1 text-sm font-medium text-slate-600">{serviceName || "—"}</p>
       <AppointmentClientReason reason={reasonForVisit} className="mt-3" />
       <p className="mt-3 text-sm text-slate-800">{dateTimeLabel}</p>

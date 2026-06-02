@@ -1,6 +1,7 @@
 "use client";
 
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { AppointmentStatusBadge } from "@/components/status-chip";
@@ -28,6 +29,7 @@ type DashboardSummary = {
   today_schedule: Array<{
     id: number;
     patient_name: string;
+    patient_payment_profile?: string;
     provider_name?: string;
     start_time: string;
     status: string;
@@ -330,7 +332,13 @@ export default function AdminDashboardPage() {
                   )}
                 >
                   <span className="shrink-0 font-mono text-[13px] font-semibold tabular-nums text-slate-800">{a.start_time}</span>
-                  <span className="min-w-0 font-semibold text-slate-900">{a.patient_name}</span>
+                  <span className="min-w-0 font-semibold text-slate-900">
+                    <PatientNameWithProfile
+                      name={<span className="truncate">{a.patient_name}</span>}
+                      profile={a.patient_payment_profile}
+                      compactBadge
+                    />
+                  </span>
                   <span className="min-w-0 truncate text-[13px] text-slate-500 sm:text-right">{a.provider_name || "—"}</span>
                   <span className="flex flex-col items-start gap-0.5 justify-self-start sm:items-end sm:justify-self-end">
                     <AppointmentStatusBadge status={a.status} size="sm" className="normal-case" />

@@ -12,6 +12,7 @@ import { emailPatientBillAdmin } from "@/lib/patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ type BillingInvoiceRow = {
   invoice_number: string;
   patient_id: number;
   patient_name: string;
+  patient_payment_profile?: string;
   patient_credit_balance: string;
   status: string;
   /** visit | no_show_fee | late_cancel_fee — only visit invoices support line-item edit before payment */
@@ -615,7 +617,9 @@ export default function AdminBillingPage() {
                     </td>
                     <td className="py-2.5 pr-3 text-slate-600">{invoiceKindLabel(inv.kind)}</td>
                     <td className="py-2.5 pr-3 font-mono text-xs text-slate-800">{inv.invoice_number}</td>
-                    <td className="py-2.5 pr-3 font-medium text-slate-900">{inv.patient_name}</td>
+                    <td className="py-2.5 pr-3 font-medium text-slate-900">
+                      <PatientNameWithProfile name={inv.patient_name} profile={inv.patient_payment_profile} compactBadge />
+                    </td>
                     <td className="py-2.5 pr-3">
                       <StatusChipView status={inv.status} />
                     </td>
@@ -706,7 +710,9 @@ export default function AdminBillingPage() {
               </div>
 
               <div className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-4">
-                <p className="text-sm font-semibold text-slate-900">{selected.patient_name}</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  <PatientNameWithProfile name={selected.patient_name} profile={selected.patient_payment_profile} />
+                </p>
                 <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                   <div>
                     <dt className="text-xs font-medium text-slate-500">Issued</dt>

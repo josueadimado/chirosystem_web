@@ -26,6 +26,12 @@ import {
   type NotifyChannel,
 } from "@/components/patient-communication-prefs";
 import { PatientDocumentsPanel } from "@/components/patient-documents-panel";
+import {
+  PatientNameWithProfile,
+  PatientPaymentProfileSelector,
+  patientFullName,
+  type PatientPaymentProfile,
+} from "@/components/patient-payment-profile";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
@@ -103,6 +109,7 @@ type PatientDetail = {
   notify_booking?: string;
   notify_reminders?: string;
   notify_bills?: string;
+  payment_profile?: string;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -463,7 +470,11 @@ export function PatientDetailModal({
               {detail && (
                 <p className="mt-1.5 truncate text-sm text-slate-600">
                   <span className="font-semibold text-slate-900">
-                    {detail.first_name} {detail.last_name}
+                    <PatientNameWithProfile
+                      name={patientFullName(detail.first_name, detail.last_name)}
+                      profile={detail.payment_profile}
+                      compactBadge
+                    />
                   </span>
                   <span className="text-slate-300"> · </span>
                   <span className="tabular-nums text-slate-500">ID {detail.id}</span>
@@ -543,12 +554,26 @@ export function PatientDetailModal({
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                        {detail.first_name} {detail.last_name}
+                        <PatientNameWithProfile
+                          name={patientFullName(detail.first_name, detail.last_name)}
+                          profile={detail.payment_profile}
+                        />
                       </p>
                       <p className="mt-1 font-medium text-slate-700">{detail.phone}</p>
                       {detail.email ? <p className="mt-0.5 text-sm text-slate-500">{detail.email}</p> : null}
                     </div>
                   </div>
+
+                  {patientId ? (
+                    <PatientPaymentProfileSelector
+                      patientId={patientId}
+                      value={(detail.payment_profile || "") as PatientPaymentProfile}
+                      intakeSavePath={intakeSavePath}
+                      onSaved={(profile) =>
+                        setDetail((d) => (d ? { ...d, payment_profile: profile } : d))
+                      }
+                    />
+                  ) : null}
 
                   {fullHistoryHref ? (
                     <div className="rounded-2xl border-2 border-[#16a349]/35 bg-gradient-to-br from-[#ecfdf5] via-white to-emerald-50/40 p-5 shadow-sm ring-1 ring-emerald-100/60">

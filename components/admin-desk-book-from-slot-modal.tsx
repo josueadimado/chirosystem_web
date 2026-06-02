@@ -1,6 +1,7 @@
 "use client";
 
 import { useAppFeedback } from "@/components/app-feedback";
+import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import {
   minutesToLabel,
   parseTimeToMinutes,
@@ -50,6 +51,7 @@ type PatientSearchRow = {
   first_name: string;
   last_name: string;
   phone?: string;
+  payment_profile?: string;
 };
 
 function minutesToHHMMSS(totalMin: number): string {
@@ -485,7 +487,7 @@ export function AdminDeskBookFromSlotModal({
                           active ? "bg-emerald-50 font-semibold text-emerald-950" : "text-slate-800"
                         }`}
                       >
-                        {label}
+                        <PatientNameWithProfile name={label} profile={p.payment_profile} compactBadge />
                         {sub ? <span className="block text-sm font-normal text-slate-500">{sub}</span> : null}
                       </button>
                     </li>

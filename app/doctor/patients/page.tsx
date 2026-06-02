@@ -2,6 +2,7 @@
 
 import { DoctorPageIntro } from "@/components/doctor-shell";
 import { PatientNoShowBadge } from "@/components/status-chip";
+import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ type PatientApi = {
   next_appointment_date: string | null;
   next_appointment_time: string | null;
   no_show_count?: number;
+  payment_profile?: string;
 };
 
 type PaginatedPatients = {
@@ -323,11 +325,17 @@ export default function DoctorPatientsPage() {
                             </div>
                             <div className="min-w-0">
                               <p className="flex flex-wrap items-center gap-2 leading-snug text-slate-900">
-                                <span>
-                                  <span className="font-semibold tracking-tight">{last}</span>
-                                  <span className="font-normal text-slate-400">, </span>
-                                  <span className="font-medium text-slate-700">{first}</span>
-                                </span>
+                                <PatientNameWithProfile
+                                  name={
+                                    <span>
+                                      <span className="font-semibold tracking-tight">{last}</span>
+                                      <span className="font-normal text-slate-400">, </span>
+                                      <span className="font-medium text-slate-700">{first}</span>
+                                    </span>
+                                  }
+                                  profile={p.payment_profile}
+                                  compactBadge
+                                />
                                 <PatientNoShowBadge count={noShows} />
                               </p>
                               <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">

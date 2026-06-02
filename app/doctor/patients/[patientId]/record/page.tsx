@@ -22,6 +22,7 @@ import {
   formatPatientAge,
 } from "@/lib/patient-demographics";
 import Link from "next/link";
+import { PatientNameWithProfile, patientFullName } from "@/components/patient-payment-profile";
 import { useParams } from "next/navigation";
 import { flushSync } from "react-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -88,6 +89,7 @@ type PatientDetail = {
   emergency_contact_phone: string;
   clinical_access?: "full" | "read_only";
   clinical_access_message?: string;
+  payment_profile?: string;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -462,7 +464,10 @@ export default function DoctorPatientRecordPage() {
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#0d5c2e]">Medical record</p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
-              {detail.first_name} {detail.last_name}
+              <PatientNameWithProfile
+                name={patientFullName(detail.first_name, detail.last_name)}
+                profile={detail.payment_profile}
+              />
             </h1>
             <p className="mt-1 font-medium text-slate-700">{detail.phone}</p>
             {detail.email ? <p className="mt-0.5 text-sm text-slate-500">{detail.email}</p> : null}

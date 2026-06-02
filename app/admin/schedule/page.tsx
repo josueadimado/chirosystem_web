@@ -41,6 +41,10 @@ import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-pa
 import { VisitAppointmentStaffNotes } from "@/components/visit-panel/visit-appointment-staff-notes";
 import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
+import {
+  PatientPaymentProfileSelector,
+  type PatientPaymentProfile,
+} from "@/components/patient-payment-profile";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 import { useAppointmentActionConfirm } from "@/hooks/use-appointment-action-confirm";
@@ -114,6 +118,7 @@ type Appointment = {
   auto_no_show_processed_at?: string | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
+  patient_payment_profile?: string;
 };
 
 type Provider = {
@@ -983,10 +988,23 @@ function AdminSchedulePageContent() {
               estimatedPrice={estimatedPriceFromSnapshot(visitSnapshot)}
               appointmentId={selected.id}
               reasonForVisit={visitSnapshot?.reason_for_visit || selected.reason_for_visit}
+              patientPaymentProfile={selected.patient_payment_profile}
             />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-3">
+                <PatientPaymentProfileSelector
+                  patientId={selected.patient}
+                  value={(selected.patient_payment_profile || "") as PatientPaymentProfile}
+                  intakeSavePath="/admin/patient_intake/"
+                  onSaved={(profile) => {
+                    const patch = { patient_payment_profile: profile };
+                    setSelected((s) => (s ? { ...s, ...patch } : s));
+                    setAppointments((list) =>
+                      list.map((a) => (a.patient === selected.patient ? { ...a, ...patch } : a)),
+                    );
+                  }}
+                />
                 <VisitBirthdayReminder
                   appointmentDate={selected.appointment_date}
                   patientDateOfBirth={selected.patient_date_of_birth}

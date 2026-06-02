@@ -14,6 +14,10 @@ import {
   PatientCommunicationPrefsFields,
   type PatientCommunicationPrefs,
 } from "@/components/patient-communication-prefs";
+import {
+  PatientPaymentProfileSelector,
+  type PatientPaymentProfile,
+} from "@/components/patient-payment-profile";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
@@ -40,6 +44,7 @@ export type PatientDemographicsSource = {
   notify_reminders?: string;
   notify_bills?: string;
   sms_consent?: boolean;
+  payment_profile?: string;
 };
 
 type IntakeForm = {
@@ -104,6 +109,8 @@ type Props = {
   includeContactFields?: boolean;
   /** Booking / reminder / bill channel preferences (doctor + admin). */
   showCommunicationPrefs?: boolean;
+  /** Insurance / cash label shown on schedule (saves immediately). */
+  showPaymentProfile?: boolean;
 };
 
 /**
@@ -120,6 +127,7 @@ export function PatientDemographicsEditor({
   canEditDateEstablished = false,
   includeContactFields = false,
   showCommunicationPrefs = true,
+  showPaymentProfile = true,
 }: Props) {
   const [form, setForm] = useState<IntakeForm>(() =>
     detailToForm(patient, canEditDateEstablished, includeContactFields),
@@ -214,6 +222,15 @@ export function PatientDemographicsEditor({
 
   return (
     <section className="space-y-4">
+      {showPaymentProfile && !readOnly ? (
+        <PatientPaymentProfileSelector
+          patientId={patient.id}
+          value={(patient.payment_profile || "") as PatientPaymentProfile}
+          intakeSavePath={intakeSavePath}
+          onSaved={(profile) => onPatientUpdated({ ...patient, payment_profile: profile })}
+          disabled={readOnly}
+        />
+      ) : null}
       {showCommunicationPrefs && !readOnly ? (
         <PatientCommunicationPrefsFields
           prefs={commPrefs}

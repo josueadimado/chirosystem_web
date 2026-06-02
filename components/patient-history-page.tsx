@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Loader } from "@/components/loader";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+import { PatientNameWithProfile, patientFullName } from "@/components/patient-payment-profile";
 import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
@@ -87,6 +88,7 @@ type PatientDetail = {
   phone: string;
   clinical_access?: "full" | "read_only";
   clinical_access_message?: string;
+  payment_profile?: string;
   account_summary?: PatientAccountSummary;
   appointments: AppointmentHistoryRow[];
 };
@@ -823,7 +825,10 @@ export function PatientHistoryPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-              {detail.first_name} {detail.last_name}
+              <PatientNameWithProfile
+                name={patientFullName(detail.first_name, detail.last_name)}
+                profile={detail.payment_profile}
+              />
             </h1>
             <p className="mt-0.5 text-sm text-slate-600">
               {detail.phone}

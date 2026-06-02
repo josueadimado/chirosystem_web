@@ -41,6 +41,7 @@ export type PatientBillPayload = {
   /** “Statement” date top-right (from server, usually today). */
   statement_date_display?: string;
   patient_name: string;
+  patient_payment_profile?: string;
   patient_address: string;
   diagnosis: string;
   provider_name?: string;

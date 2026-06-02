@@ -91,6 +91,11 @@ const PatientDetailModal = dynamic(
 import { AppointmentStatusBadge, appointmentStatusStripeClass } from "@/components/status-chip";
 import { resolveAppointmentUiStatus } from "@/lib/appointment-ui-status";
 import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
+import {
+  PatientNameWithProfile,
+  PatientPaymentProfileSelector,
+  type PatientPaymentProfile,
+} from "@/components/patient-payment-profile";
 import { AppointmentClientReason } from "@/components/visit-panel/appointment-client-reason";
 import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
 const SquareTerminalCheckoutPoller = dynamic(
@@ -161,6 +166,7 @@ type Appointment = {
   invoice_total?: string;
   card_last4?: string;
   card_brand?: string;
+  patient_payment_profile?: string;
 };
 
 type ServiceOpt = {
@@ -295,6 +301,7 @@ export default function DoctorDashboardPage() {
     invoice_id: number;
     invoice_number: string;
     patient_name: string;
+    patient_payment_profile?: string;
     date_of_service: string;
     total_amount: string;
     status: string;
@@ -1441,10 +1448,23 @@ export default function DoctorDashboardPage() {
             {activeAppt.patient.charAt(0)}
           </div>
           <div>
-            <p className="font-semibold text-slate-900">{activeAppt.patient}</p>
+            <p className="font-semibold text-slate-900">
+              <PatientNameWithProfile name={activeAppt.patient} profile={activeAppt.patient_payment_profile} />
+            </p>
             <p className="text-xs text-slate-500">Patient #{activeAppt.patient_id}</p>
           </div>
         </div>
+        <PatientPaymentProfileSelector
+          patientId={activeAppt.patient_id}
+          value={(activeAppt.patient_payment_profile || "") as PatientPaymentProfile}
+          intakeSavePath="/doctor/patient_intake/"
+          onSaved={(profile) => {
+            const patch = { patient_payment_profile: profile };
+            setAppointments((list) =>
+              list.map((a) => (a.patient_id === activeAppt.patient_id ? { ...a, ...patch } : a)),
+            );
+          }}
+        />
         <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-wide text-[#166534]">Booked for this visit</p>
           <p className="mt-0.5 text-sm font-semibold text-slate-900">{activeAppt.service || "—"}</p>
@@ -2051,7 +2071,13 @@ export default function DoctorDashboardPage() {
                     className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
                   >
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">{inv.patient_name}</p>
+                      <p className="text-sm font-semibold text-slate-900">
+                        <PatientNameWithProfile
+                          name={inv.patient_name}
+                          profile={inv.patient_payment_profile}
+                          compactBadge
+                        />
+                      </p>
                       <p className="text-xs text-slate-500">
                         {inv.invoice_number} · {formatMonthDayYear(inv.date_of_service)} · ${inv.total_amount}
                         <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -2246,7 +2272,9 @@ export default function DoctorDashboardPage() {
                 >
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">{appt.patient}</p>
+                      <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">
+                        <PatientNameWithProfile name={appt.patient} profile={appt.patient_payment_profile} />
+                      </p>
                       <p className="mt-1.5 text-[13px] leading-normal text-slate-500">
                         {scheduleView !== "day" ? (
                           <span className="font-medium text-slate-600">

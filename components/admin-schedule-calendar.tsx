@@ -1,6 +1,11 @@
 "use client";
 
 import { useAppFeedback } from "@/components/app-feedback";
+import {
+  PatientNameWithProfile,
+  PatientPaymentProfileBadge,
+  paymentProfileShortLabel,
+} from "@/components/patient-payment-profile";
 import { cn } from "@/lib/utils";
 import { effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 import {
@@ -56,6 +61,8 @@ export type ScheduleAppointment = {
   display_status?: string;
   invoice_kind?: string | null;
   reason_for_visit?: string;
+  /** insurance | cash — badge next to name on calendar */
+  patient_payment_profile?: string;
 };
 
 /** Status used for colors, labels, and desk rules on the schedule grid. */
@@ -296,10 +303,12 @@ function appointmentTooltipStatus(status: string): string {
 
 function PatientNameLine({
   fullName,
+  paymentProfile,
   textClassName,
   wrapperClassName,
 }: {
   fullName: string;
+  paymentProfile?: string;
   textClassName?: string;
   /** Outer row padding (e.g. tighter when a time line sits above the name). */
   wrapperClassName?: string;
@@ -332,13 +341,17 @@ function PatientNameLine({
       >
         {fullName}
       </span>
-      <span className={cn("block font-semibold leading-snug text-[13px]", textClassName)}>{display}</span>
+      <span className={cn("flex min-w-0 items-center gap-1 font-semibold leading-snug text-[13px]", textClassName)}>
+        <span className="min-w-0 truncate">{display}</span>
+        <PatientPaymentProfileBadge profile={paymentProfile} compact />
+      </span>
     </div>
   );
 }
 
 function AppointmentBlockTooltip({
   patientName,
+  patientPaymentProfile,
   serviceName,
   startLabel,
   endLabel,
@@ -348,6 +361,7 @@ function AppointmentBlockTooltip({
   children,
 }: {
   patientName: string;
+  patientPaymentProfile?: string;
   serviceName: string;
   startLabel: string;
   endLabel: string;
@@ -393,7 +407,9 @@ function AppointmentBlockTooltip({
             place === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5",
           )}
         >
-          <p className="font-semibold text-slate-900">{patientName}</p>
+          <p className="font-semibold text-slate-900">
+            <PatientNameWithProfile name={patientName} profile={patientPaymentProfile} compactBadge />
+          </p>
           <p className="mt-1 text-slate-700">{serviceName?.trim() ? serviceName : "—"}</p>
           <p className="mt-1 tabular-nums text-slate-600">
             {startLabel} – {endLabel}
@@ -1313,6 +1329,7 @@ function DayProviderColumn({
                   <AppointmentBlockDecor status={uiStatus} />
                   <AppointmentBlockTooltip
                     patientName={a.patient_name}
+                    patientPaymentProfile={a.patient_payment_profile}
                     serviceName={a.service_name || ""}
                     startLabel={startShown}
                     endLabel={endShown}
@@ -1336,6 +1353,7 @@ function DayProviderColumn({
                       </div>
                       <PatientNameLine
                         fullName={a.patient_name}
+                        paymentProfile={a.patient_payment_profile}
                         textClassName={styles.text}
                         wrapperClassName="min-w-0 px-1.5 pb-1.5 pt-0.5"
                       />
@@ -1993,6 +2011,7 @@ function WeekDayStack({
               <AppointmentBlockDecor status={uiStatus} />
               <AppointmentBlockTooltip
                 patientName={a.patient_name}
+                patientPaymentProfile={a.patient_payment_profile}
                 serviceName={a.service_name || ""}
                 startLabel={startShown}
                 endLabel={endShown}
@@ -2016,6 +2035,7 @@ function WeekDayStack({
                   </div>
                   <PatientNameLine
                     fullName={a.patient_name}
+                    paymentProfile={a.patient_payment_profile}
                     textClassName={styles.text}
                     wrapperClassName="min-w-0 px-1 pb-1 pt-0.5"
                   />
@@ -2117,7 +2137,7 @@ function MonthGrid({
                                 ? "#ef4444"
                                 : providerColorForId(a.provider),
                         }}
-                        title={`${a.patient_name} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
+                        title={`${a.patient_name}${paymentProfileShortLabel(a.patient_payment_profile) ? ` · ${paymentProfileShortLabel(a.patient_payment_profile)}` : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
                       />
                     );
                     })}

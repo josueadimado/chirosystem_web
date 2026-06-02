@@ -54,6 +54,10 @@ const RescheduleVisitSlotsModal = dynamic(
 import { VisitDoctorScheduleActions } from "@/components/visit-panel/visit-doctor-schedule-actions";
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
+import {
+  PatientPaymentProfileSelector,
+  type PatientPaymentProfile,
+} from "@/components/patient-payment-profile";
 import { VisitSummaryHeader } from "@/components/visit-panel/visit-summary-header";
 import { VisitAppointmentStaffNotes } from "@/components/visit-panel/visit-appointment-staff-notes";
 import { VisitPriorChartNotes } from "@/components/visit-panel/visit-prior-chart-notes";
@@ -101,6 +105,7 @@ type AppointmentRow = {
   auto_no_show_processed_at?: string | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
+  patient_payment_profile?: string;
 };
 
 type ScheduleViewMode = "day" | "week" | "month";
@@ -871,9 +876,23 @@ function DoctorSchedulePageInner() {
               status={appointmentUiStatus(selected)}
               appointmentId={selected.id}
               reasonForVisit={selected.reason_for_visit}
+              patientPaymentProfile={selected.patient_payment_profile}
             />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <PatientPaymentProfileSelector
+                patientId={selected.patient}
+                value={(selected.patient_payment_profile || "") as PatientPaymentProfile}
+                intakeSavePath="/doctor/patient_intake/"
+                onSaved={(profile) => {
+                  const patch = { patient_payment_profile: profile };
+                  setSelected((s) => (s ? { ...s, ...patch } : s));
+                  setAppointments((list) =>
+                    list.map((a) => (a.patient === selected.patient ? { ...a, ...patch } : a)),
+                  );
+                }}
+                className="mb-4"
+              />
               <VisitBirthdayReminder
                 appointmentDate={selected.appointment_date}
                 patientDateOfBirth={selected.patient_date_of_birth}
