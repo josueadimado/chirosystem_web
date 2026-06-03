@@ -1,6 +1,7 @@
 "use client";
 
 import { HelpTip } from "@/components/help-tip";
+import { formatAutoNoShowCountdown, type AutoNoShowCountdown } from "@/lib/auto-no-show";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 
 export type DeskAppointmentActions = {
@@ -10,6 +11,8 @@ export type DeskAppointmentActions = {
   invoice_kind?: string | null;
   /** Set when the system auto-marked no-show after the grace period (e.g. 60 min). */
   auto_no_show_processed_at?: string | null;
+  auto_no_show_exempt?: boolean;
+  auto_no_show_countdown?: AutoNoShowCountdown | null;
   service_type?: string;
   appointment_date: string;
   start_time: string;
@@ -68,6 +71,7 @@ export function VisitDeskActions({
   adjustDuration,
   billing,
   onCheckIn,
+  onAutoNoShowExemptChange,
   onNoShow,
   onCancel,
   onMarkCompleted,
@@ -87,6 +91,7 @@ export function VisitDeskActions({
   adjustDuration?: AdjustDurationState;
   billing?: BillingActionsState;
   onCheckIn: () => void;
+  onAutoNoShowExemptChange?: (exempt: boolean) => void;
   onNoShow: () => void;
   onCancel: () => void;
   onMarkCompleted: () => void;
@@ -183,8 +188,33 @@ export function VisitDeskActions({
     uiStatus !== "no_show" &&
     uiStatus !== "cancelled";
 
+  const autoNoShowNote = formatAutoNoShowCountdown(appointment.auto_no_show_countdown);
+  const showAutoNoShowPanel =
+    showCheckIn && Boolean(autoNoShowNote) && onAutoNoShowExemptChange;
+
   return (
     <>
+      {showAutoNoShowPanel ? (
+        <div className="space-y-2 rounded-xl border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+          <p className="font-semibold">Automatic no-show timer</p>
+          <p className="text-xs leading-relaxed text-amber-900/95">{autoNoShowNote}</p>
+          <label className="flex cursor-pointer items-start gap-2.5 pt-1">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-amber-300"
+              checked={Boolean(appointment.auto_no_show_exempt)}
+              disabled={savingDesk}
+              onChange={(e) => onAutoNoShowExemptChange(e.target.checked)}
+            />
+            <span className="text-xs font-medium text-amber-950">
+              Pause auto no-show for this visit only
+            </span>
+          </label>
+          <p className="text-[10px] leading-snug text-amber-800/90">
+            You can still check in, reschedule, cancel, or mark no-show manually below.
+          </p>
+        </div>
+      ) : null}
       {appointment.status === "awaiting_payment" &&
       uiStatus !== "no_show" &&
       billing ? (

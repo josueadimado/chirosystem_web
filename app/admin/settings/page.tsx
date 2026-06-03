@@ -29,6 +29,8 @@ type ClinicProfile = {
   employer_tax_id: string;
   pos_default: string;
   no_show_fee: string;
+  auto_no_show_enabled: boolean;
+  auto_no_show_grace_minutes: number;
   business_hours: Array<{ day: string; hours: string }>;
 };
 
@@ -63,6 +65,8 @@ function emptyProfile(): ClinicProfile {
     employer_tax_id: "",
     pos_default: "11",
     no_show_fee: "25.00",
+    auto_no_show_enabled: true,
+    auto_no_show_grace_minutes: 60,
     business_hours: [],
   };
 }
@@ -140,6 +144,8 @@ export default function AdminSettingsPage() {
         employer_tax_id: data.employer_tax_id ?? "",
         pos_default: data.pos_default ?? "11",
         no_show_fee: data.no_show_fee ?? "25.00",
+        auto_no_show_enabled: data.auto_no_show_enabled !== false,
+        auto_no_show_grace_minutes: Number(data.auto_no_show_grace_minutes) || 60,
         business_hours: Array.isArray(data.business_hours) ? data.business_hours : [],
       });
     } catch (e) {
@@ -239,6 +245,8 @@ export default function AdminSettingsPage() {
           employer_tax_id: draft.employer_tax_id,
           pos_default: draft.pos_default,
           no_show_fee: draft.no_show_fee,
+          auto_no_show_enabled: draft.auto_no_show_enabled,
+          auto_no_show_grace_minutes: draft.auto_no_show_grace_minutes,
           business_hours: draft.business_hours,
         });
         setDraft({
@@ -252,6 +260,8 @@ export default function AdminSettingsPage() {
           employer_tax_id: updated.employer_tax_id ?? "",
           pos_default: updated.pos_default ?? "11",
           no_show_fee: updated.no_show_fee ?? "25.00",
+          auto_no_show_enabled: updated.auto_no_show_enabled !== false,
+          auto_no_show_grace_minutes: Number(updated.auto_no_show_grace_minutes) || 60,
           business_hours: Array.isArray(updated.business_hours) ? updated.business_hours : [],
         });
         return updated;
@@ -441,6 +451,53 @@ export default function AdminSettingsPage() {
                   />
                 </SettingsField>
               </div>
+            </div>
+
+            <div className="admin-panel space-y-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Automatic no-show</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Runs about every 15 minutes. Unattended visits still marked <strong>Booked</strong> or{" "}
+                  <strong>Checked in</strong> are marked no-show after the grace period, then billed like a manual
+                  no-show. Turn off clinic-wide or pause individual visits on the schedule.
+                </p>
+              </div>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300"
+                  checked={draft.auto_no_show_enabled}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, auto_no_show_enabled: e.target.checked }))
+                  }
+                  disabled={!canSave}
+                />
+                <span className="text-sm text-slate-800">
+                  <span className="font-semibold">Enable automatic no-show</span>
+                  <span className="mt-0.5 block text-slate-600">
+                    Uncheck to pause for the whole clinic (manual no-show from the schedule still works).
+                  </span>
+                </span>
+              </label>
+              <SettingsField
+                label="Grace period (minutes after start time)"
+                help="Minimum 15. Default 60 — e.g. a 9:00 visit can auto no-show around 10:00."
+              >
+                <input
+                  type="number"
+                  min={15}
+                  max={240}
+                  className={cn(inputClass, "max-w-[8rem] font-mono")}
+                  value={draft.auto_no_show_grace_minutes}
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...d,
+                      auto_no_show_grace_minutes: Math.min(240, Math.max(15, Number(e.target.value) || 60)),
+                    }))
+                  }
+                  disabled={!canSave || !draft.auto_no_show_enabled}
+                />
+              </SettingsField>
             </div>
 
             <div className="admin-panel">

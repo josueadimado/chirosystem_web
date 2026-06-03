@@ -1,13 +1,17 @@
 "use client";
 
 /** How automated messages go out for this patient (saved on patient chart). */
-export type NotifyChannel = "sms" | "email" | "both";
+export type NotifyChannel = "sms" | "email" | "both" | "none";
 
 export const NOTIFY_CHANNEL_OPTIONS: { value: NotifyChannel; label: string }[] = [
   { value: "sms", label: "Text (SMS) only" },
   { value: "email", label: "Email only" },
   { value: "both", label: "Text and email" },
+  { value: "none", label: "None" },
 ];
+
+/** Paid bills / receipts — text-only is not offered yet; SMS + none + email + both. */
+export const NOTIFY_BILLS_OPTIONS = NOTIFY_CHANNEL_OPTIONS.filter((o) => o.value !== "sms");
 
 export type PatientCommunicationPrefs = {
   notify_booking: NotifyChannel;
@@ -22,7 +26,7 @@ export const DEFAULT_COMM_PREFS: PatientCommunicationPrefs = {
 };
 
 function normalizeChannel(v: string | undefined, fallback: NotifyChannel): NotifyChannel {
-  if (v === "sms" || v === "email" || v === "both") return v;
+  if (v === "sms" || v === "email" || v === "both" || v === "none") return v;
   return fallback;
 }
 
@@ -68,7 +72,13 @@ function PrefChannelPicker({
     <fieldset className="space-y-2" disabled={disabled}>
       <legend className="text-sm font-semibold text-slate-900">{label}</legend>
       <div
-        className={`grid gap-2 ${options.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}
+        className={`grid gap-2 ${
+          options.length <= 2
+            ? "sm:grid-cols-2"
+            : options.length === 3
+              ? "sm:grid-cols-3"
+              : "sm:grid-cols-2 lg:grid-cols-4"
+        }`}
       >
         {options.map((o) => {
           const inputId = `${groupId}-${o.value}`;
@@ -116,8 +126,9 @@ export function PatientCommunicationPrefsFields({
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Communication preferences</p>
         <p className="mt-1 text-xs leading-relaxed text-slate-600">
-          For each row, pick one: text only, email only, or <span className="font-medium text-slate-700">text and email</span>{" "}
-          (both). New patients start with text for booking/reminders and email for bills until you change them.
+          For each row, pick one: text only, email only, text and email (both), or{" "}
+          <span className="font-medium text-slate-700">none</span> (no automated messages for that category). New patients
+          start with text for booking/reminders and email for bills until you change them.
         </p>
       </div>
       <PrefChannelPicker
@@ -142,11 +153,14 @@ export function PatientCommunicationPrefsFields({
         hint="Receipts are sent by email today. Pick email only, or both (email now; text later when we add it)."
         value={prefs.notify_bills === "sms" ? "email" : prefs.notify_bills}
         disabled={disabled}
-        options={NOTIFY_CHANNEL_OPTIONS.filter((o) => o.value !== "sms")}
+        options={NOTIFY_BILLS_OPTIONS}
         onValueChange={(notify_bills) => onChange({ ...prefs, notify_bills })}
       />
       {showSmsConsentNote &&
-      (prefs.notify_booking !== "email" || prefs.notify_reminders !== "email") ? (
+      (prefs.notify_booking === "sms" ||
+        prefs.notify_booking === "both" ||
+        prefs.notify_reminders === "sms" ||
+        prefs.notify_reminders === "both") ? (
         <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs leading-relaxed text-amber-950">
           {smsConsent ? (
             <>SMS consent is on file — text messages for reminders can be sent when preferences include text.</>

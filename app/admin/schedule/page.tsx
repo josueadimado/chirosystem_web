@@ -117,6 +117,8 @@ type Appointment = {
   display_status?: string;
   invoice_kind?: string | null;
   auto_no_show_processed_at?: string | null;
+  auto_no_show_exempt?: boolean;
+  auto_no_show_countdown?: import("@/lib/auto-no-show").AutoNoShowCountdown | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
   patient_payment_profile?: string;
@@ -1074,6 +1076,10 @@ function AdminSchedulePageContent() {
                       : undefined
                   }
                   onCheckIn={handleCheckIn}
+                  onAutoNoShowExemptChange={(exempt) => {
+                    if (!selected) return;
+                    void patchAppointment(selected.id, { auto_no_show_exempt: exempt });
+                  }}
                   onBookNext={() => openBookNext(selected)}
                   onNoShow={() => {
                     void (async () => {
