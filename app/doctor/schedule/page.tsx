@@ -23,7 +23,7 @@ import { useAppFeedback } from "@/components/app-feedback";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { ApiError, apiGetAuth, apiPatch } from "@/lib/api";
+import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { deskCheckInSuccessMessage, postDeskCheckIn } from "@/lib/kiosk-checkin";
 import {
   addDays,
