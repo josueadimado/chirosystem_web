@@ -133,6 +133,7 @@ const SquareTerminalCheckoutPoller = dynamic(
   { ssr: false },
 );
 import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { deskCheckInSuccessMessage, postDeskCheckIn } from "@/lib/kiosk-checkin";
 const PatientBillPortalModal = dynamic(
   () =>
     import("@/components/patient-bill-portal-modal").then((m) => ({
@@ -1266,12 +1267,17 @@ export default function DoctorDashboardPage() {
     setIsCheckingIn(true);
     await runWithFeedback(
       async () => {
-        await apiPost("/kiosk/checkin/", { appointment_id: appt.id });
+        const out = await postDeskCheckIn(appt.id);
         await load();
+        return out;
       },
       {
         loadingMessage: "Completing check-in…",
-        successMessage: `${appt.patient} — check-in complete. You can start the visit now.`,
+        successMessage: (out) =>
+          deskCheckInSuccessMessage(
+            out,
+            `${appt.patient} — check-in complete. You can start the visit now.`,
+          ),
         errorFallback: "Could not complete check-in for this patient.",
       },
     );

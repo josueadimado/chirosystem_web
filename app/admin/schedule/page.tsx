@@ -73,6 +73,7 @@ const PatientBillPortalModal = dynamic(
 );
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { deskCheckInSuccessMessage, postDeskCheckIn } from "@/lib/kiosk-checkin";
 import {
   addDays,
   apiTimeToTimeInputValue,
@@ -544,13 +545,14 @@ function AdminSchedulePageContent() {
     setError("");
     await runWithFeedback(
       async () => {
-        await apiPost("/kiosk/checkin/", { appointment_id: selected.id });
+        const out = await postDeskCheckIn(selected.id);
         await loadAppointments();
         setSelected((prev) => (prev ? { ...prev, status: "checked_in" } : null));
+        return out;
       },
       {
         loadingMessage: "Completing check-in…",
-        successMessage: "Check-in complete.",
+        successMessage: (out) => deskCheckInSuccessMessage(out, "Check-in complete."),
         errorFallback: "Could not complete check-in for this appointment.",
       },
     );
