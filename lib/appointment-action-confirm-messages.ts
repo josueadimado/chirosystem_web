@@ -177,3 +177,11 @@ export function confirmRescheduleBySlots(
     "Reschedule",
   );
 }
+
+export function confirmDismissPaymentBanner(): AppointmentConfirmOptions {
+  return base(
+    "Patient not paying now?",
+    "Hide the green payment banner for now. The invoice stays open on their account until it is paid. You can tap Collect payment on their visit anytime to bring these options back.",
+    "Dismiss for now",
+  );
+}

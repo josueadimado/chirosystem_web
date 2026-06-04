@@ -169,11 +169,7 @@ export function VisitDeskActions({
                   onClick={billing.onRecordCashPayment}
                   className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm hover:bg-emerald-100 disabled:opacity-50 sm:flex-1"
                 >
-                  {billing.recordingCash
-                    ? "Recording…"
-                    : billing.invoiceTotalAmount
-                      ? `Record cash ($${billing.invoiceTotalAmount})`
-                      : "Record cash payment"}
+                  {billing.recordingCash ? "Recording…" : "Record cash payment"}
                 </button>
               ) : null}
               {billing.onTerminalCheckout ? (
@@ -318,11 +314,7 @@ export function VisitDeskActions({
                 onClick={billing.onRecordCashPayment}
                 className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100 disabled:opacity-50"
               >
-                {billing.recordingCash
-                  ? "Recording…"
-                  : billing.invoiceTotalAmount
-                    ? `Record cash ($${billing.invoiceTotalAmount})`
-                    : "Record cash payment"}
+                {billing.recordingCash ? "Recording…" : "Record cash payment"}
               </button>
               <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
                 Use when the patient hands you cash — marks this invoice paid in the system.

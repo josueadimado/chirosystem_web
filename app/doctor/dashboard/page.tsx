@@ -82,6 +82,7 @@ import {
   confirmDeskBook,
   confirmNoShow,
   confirmOpenBookNextPicker,
+  confirmDismissPaymentBanner,
   confirmOpenReschedulePicker,
   confirmRescheduleBySlots,
   confirmStartVisit,
@@ -117,7 +118,7 @@ const PatientDetailModal = dynamic(
 );
 import { AppointmentStatusBadge, appointmentStatusStripeClass } from "@/components/status-chip";
 import { resolveAppointmentUiStatus } from "@/lib/appointment-ui-status";
-import { cashAmountPromptError, promptCashPaymentAmount } from "@/lib/record-cash-prompt";
+import { useRecordCashPayment } from "@/components/record-cash-payment-modal";
 import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import {
   PatientNameWithProfile,
@@ -338,6 +339,7 @@ type PaymentCollectMode = "current" | "all";
 export default function DoctorDashboardPage() {
   const { runWithFeedback, toast } = useAppFeedback();
   const { requestConfirm, ConfirmDialog } = useAppointmentActionConfirm();
+  const { requestCashAmount, RecordCashPaymentModal } = useRecordCashPayment();
   const todayStr = clinicTodayIso();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [services, setServices] = useState<ServiceOpt[]>([]);
@@ -375,6 +377,7 @@ export default function DoctorDashboardPage() {
   const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
   /** Avoid duplicate refresh when Terminal poller and invoice poll both see PAID. */
   const paymentHandledForInvoiceRef = useRef<number | null>(null);
+  const paymentBannerRef = useRef<HTMLElement | null>(null);
   const [squareTerminalConfig, setSquareTerminalConfig] = useState<SquareTerminalConfig | null>(null);
   const [displayName, setDisplayName] = useState("");
   /** Saved on the appointment row for handoff / next doctor (separate from visit-only notes). */
@@ -1252,6 +1255,7 @@ export default function DoctorDashboardPage() {
         setPaymentCollectMode("current");
         const terminalId = result.terminal_checkout_id ?? null;
         setSquareCheckoutId(terminalId);
+        window.setTimeout(() => scrollToPaymentBanner(), isRevisingAwaitingPayment ? 150 : 200);
 
         if (isRevisingAwaitingPayment) {
           billingEditSavedFingerprintRef.current = billingFormFingerprint(
@@ -1544,16 +1548,13 @@ export default function DoctorDashboardPage() {
       toast.error("This invoice is already paid in full.");
       return;
     }
-    const cashAmount = promptCashPaymentAmount({
+    const cashAmount = await requestCashAmount({
       invoiceTotal: paymentFollowUp.invoice_total ?? paymentFollowUp.total_amount ?? amountDue,
       amountPaid: paymentFollowUp.amount_paid,
       amountDue,
+      subtitle: activeAppt?.patient,
     });
-    if (cashAmount === null) {
-      return;
-    }
     if (!cashAmount) {
-      toast.error(cashAmountPromptError({ amountDue }));
       return;
     }
     setRecordingCashPayment(true);
@@ -1612,16 +1613,16 @@ export default function DoctorDashboardPage() {
       toast.error("This invoice is already paid in full.");
       return;
     }
-    const cashAmount = promptCashPaymentAmount({
+    const cashAmount = await requestCashAmount({
       invoiceTotal: appt.invoice_total ?? amountDue,
       amountPaid: appt.amount_paid,
       amountDue,
+      subtitle:
+        appt.invoice_kind === "no_show_fee" || appt.status === "no_show"
+          ? `No-show fee — ${appt.patient}`
+          : appt.patient,
     });
-    if (cashAmount === null) {
-      return;
-    }
     if (!cashAmount) {
-      toast.error(cashAmountPromptError({ amountDue }));
       return;
     }
     setRecordingCashAppointmentId(appt.id);
@@ -1744,6 +1745,22 @@ export default function DoctorDashboardPage() {
     );
   };
 
+  const scrollToPaymentBanner = useCallback(() => {
+    const run = () => {
+      paymentBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+  }, []);
+
+  const dismissPaymentBanner = async () => {
+    if (!paymentFollowUp) return;
+    const ok = await requestConfirm(confirmDismissPaymentBanner());
+    if (!ok) return;
+    setPaymentFollowUp(null);
+    setSquareCheckoutId(null);
+    toast.info("Payment banner hidden. Tap Collect payment on the visit when you are ready.");
+  };
+
   /** Bring back payment links / terminal after you dismissed the banner or left the page. */
   const resumePaymentForAppointment = async (appt: Appointment, opts?: { trySavedCard?: boolean }) => {
     await runWithFeedback(
@@ -1774,6 +1791,7 @@ export default function DoctorDashboardPage() {
         });
         setPaymentCollectMode("current");
         setSquareCheckoutId(null);
+        window.setTimeout(() => scrollToPaymentBanner(), 120);
         return out;
       },
       {
@@ -1781,7 +1799,7 @@ export default function DoctorDashboardPage() {
         successMessage: (o) =>
           o?.already_paid
             ? "Already paid — schedule refreshed. Use Print or Email bill on the banner when ready."
-            : "Payment banner is open above — desk checkout, reader, or retry saved card.",
+            : "",
         errorFallback: "Could not load payment options.",
       },
     );
@@ -2366,7 +2384,11 @@ export default function DoctorDashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
       {paymentFollowUp && (
-        <section className="doctor-panel border-[#16a349]/25 bg-gradient-to-br from-[#f0fdf4] via-white to-white shadow-md shadow-emerald-900/5 lg:col-span-2">
+        <section
+          ref={paymentBannerRef}
+          id="doctor-payment-banner"
+          className="doctor-panel scroll-mt-20 border-[#16a349]/25 bg-gradient-to-br from-[#f0fdf4] via-white to-white shadow-md shadow-emerald-900/5 lg:col-span-2"
+        >
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -2473,11 +2495,7 @@ export default function DoctorDashboardPage() {
                     disabled={recordingCashPayment}
                     className="rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                   >
-                    {recordingCashPayment
-                      ? "Recording…"
-                      : paymentAmountDue
-                        ? `Received cash (${formatMoneyUsd(paymentAmountDue)})`
-                        : "Received cash"}
+                    {recordingCashPayment ? "Recording…" : "Record cash payment"}
                   </button>
                   <button
                     type="button"
@@ -2584,10 +2602,10 @@ export default function DoctorDashboardPage() {
               ) : null}
               <button
                 type="button"
-                onClick={() => setPaymentFollowUp(null)}
-                className="text-sm font-medium text-slate-500 hover:text-slate-800"
+                onClick={() => void dismissPaymentBanner()}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
               >
-                Dismiss banner
+                Not paying now
               </button>
             </div>
           </div>
@@ -3029,11 +3047,7 @@ export default function DoctorDashboardPage() {
                               onClick={() => void recordCashForAppointment(appt)}
                               className="min-h-11 rounded-xl border border-emerald-600 bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 min-[480px]:col-span-2 lg:col-span-1"
                             >
-                              {recordingCashAppointmentId === appt.id
-                                ? "Recording…"
-                                : appt.amount_due ?? appt.invoice_total
-                                  ? `Record cash (${formatMoneyUsd(appt.amount_due ?? appt.invoice_total ?? "0")})`
-                                  : "Record cash payment"}
+                              {recordingCashAppointmentId === appt.id ? "Recording…" : "Record cash payment"}
                             </button>
                           )}
                           <button
@@ -3378,6 +3392,7 @@ export default function DoctorDashboardPage() {
         </div>
       )}
       <ConfirmDialog />
+      {RecordCashPaymentModal}
       <AdminDeskBookFromSlotModal
         open={deskBookSeed !== null}
         seed={deskBookSeed}

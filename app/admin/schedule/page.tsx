@@ -100,7 +100,7 @@ import {
 import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
-import { cashAmountPromptError, promptCashPaymentAmount } from "@/lib/record-cash-prompt";
+import { useRecordCashPayment } from "@/components/record-cash-payment-modal";
 import { estimatedPriceFromSnapshot, type VisitSnapshot } from "@/lib/visit-panel-types";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -223,6 +223,7 @@ function formatAppointmentDuration(start: string, end: string): string {
 function AdminSchedulePageContent() {
   const { runWithFeedback, toast } = useAppFeedback();
   const { requestConfirm, ConfirmDialog } = useAppointmentActionConfirm();
+  const { requestCashAmount, RecordCashPaymentModal } = useRecordCashPayment();
   const searchParams = useSearchParams();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -836,16 +837,17 @@ function AdminSchedulePageContent() {
       toast.error("This invoice is already paid in full.");
       return;
     }
-    const cashAmount = promptCashPaymentAmount({
+    const cashAmount = await requestCashAmount({
       invoiceTotal: billInvoiceTotal ?? billAmountDue,
       amountPaid: billAmountPaid ?? "0",
       amountDue: billAmountDue,
+      subtitle: selected
+        ? appointmentUiStatus(selected) === "no_show"
+          ? `No-show fee — ${selected.patient_name}`
+          : selected.patient_name
+        : undefined,
     });
-    if (cashAmount === null) {
-      return;
-    }
     if (!cashAmount) {
-      toast.error(cashAmountPromptError({ amountDue: billAmountDue }));
       return;
     }
     setRecordingCash(true);
@@ -1300,6 +1302,7 @@ function AdminSchedulePageContent() {
         />
       ) : null}
       <ConfirmDialog />
+      {RecordCashPaymentModal}
 
       {billingEditForAppointment && (
         <AdminVisitBillingModal
