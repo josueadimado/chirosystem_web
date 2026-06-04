@@ -1316,31 +1316,11 @@ function DayProviderColumn({
                       e.preventDefault();
                       return;
                     }
-                    if (freedSlot) {
-                      e.stopPropagation();
-                      const st = parseTimeToMinutes(a.start_time);
-                      const en = parseTimeToMinutes(a.end_time);
-                      const gap =
-                        openGapAtMinute(openGaps, st) ?? {
-                          startMin: st,
-                          endMin: Math.max(en, st + 15),
-                        };
-                      const startMinute = snapMinuteInsideGap(st, gap.startMin, gap.endMin);
-                      onPickOpenSlot({
-                        providerId: provider.id,
-                        providerName: provider.provider_name,
-                        dateIso: isoDate,
-                        startMinute,
-                        gapStartMin: gap.startMin,
-                        gapEndMin: gap.endMin,
-                      });
-                      return;
-                    }
                     onSelect(a);
                   }}
                   title={
                     freedSlot
-                      ? "Book a new visit in this open slot"
+                      ? "Open visit details (no-show fee, billing). Use the side panel to book another visit in this time."
                       : draggable
                         ? "Drag to reschedule · release without moving to open details"
                         : undefined
@@ -1757,14 +1737,6 @@ function WeekDayColumn({
           drag={drag}
           dragActive={dragActive}
           onAppointmentPointerDown={onAppointmentPointerDown}
-          onPickOpenSlot={
-            onPickOpenSlot
-              ? (appt) => {
-                  const st = parseTimeToMinutes(appt.start_time);
-                  pickAtMinute(st, st);
-                }
-              : undefined
-          }
         />
         {dropPreview &&
           (() => {
@@ -1908,7 +1880,6 @@ function WeekDayStack({
   drag,
   dragActive,
   onAppointmentPointerDown,
-  onPickOpenSlot,
 }: {
   appointments: ScheduleAppointment[];
   blocks: ProviderBlock[];
@@ -1920,7 +1891,6 @@ function WeekDayStack({
   drag: ScheduleDragState | null;
   dragActive: boolean;
   onAppointmentPointerDown?: (appt: ScheduleAppointment, e: React.PointerEvent) => void;
-  onPickOpenSlot?: (appt: ScheduleAppointment) => void;
 }) {
   const { entries, laneByKey, laneCount } = useMemo(() => {
     const providerSet = new Set(providers.map((p) => p.id));
@@ -1993,7 +1963,7 @@ function WeekDayStack({
           const leftPx = lane * (laneW + LANE_GAP_PX);
           const startShown = a.start_time_display || formatTimeShort(a.start_time);
           const endShown = a.end_time_display || formatTimeShort(a.end_time);
-          const freedSlot = !!onPickOpenSlot && (uiStatus === "cancelled" || uiStatus === "no_show");
+          const freedSlot = !!deskBooking && (uiStatus === "cancelled" || uiStatus === "no_show");
           const draggable = !!onAppointmentPointerDown && canDragAppointmentOnSchedule(a.status);
           const isDragging = drag?.appointment.id === a.id;
           return (
@@ -2009,15 +1979,11 @@ function WeekDayStack({
                   e.preventDefault();
                   return;
                 }
-                if (freedSlot && onPickOpenSlot) {
-                  onPickOpenSlot(a);
-                  return;
-                }
                 onSelect(a);
               }}
               title={
                 freedSlot
-                  ? "Book a new visit in this open slot"
+                  ? "Open visit details. Use the side panel to book another visit in this time."
                   : draggable
                     ? "Drag to reschedule · release without moving to open details"
                     : undefined

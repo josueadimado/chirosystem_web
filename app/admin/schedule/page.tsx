@@ -1157,6 +1157,22 @@ function AdminSchedulePageContent() {
                     void patchAppointment(selected.id, { auto_no_show_exempt: exempt });
                   }}
                   onBookNext={() => openBookNext(selected)}
+                  onBookInOpenSlot={
+                    view === "day" || view === "week"
+                      ? () => {
+                          const startMin = parseTimeToMinutes(selected.start_time);
+                          const endMin = parseTimeToMinutes(selected.end_time);
+                          setDeskBookSeed({
+                            providerId: selected.provider,
+                            providerName: selected.provider_name,
+                            dateIso: selected.appointment_date,
+                            startMinute: startMin,
+                            gapStartMin: startMin,
+                            gapEndMin: Math.max(endMin, startMin + 15),
+                          });
+                        }
+                      : undefined
+                  }
                   onNoShow={() => {
                     void (async () => {
                       const ok = await requestConfirm(confirmNoShow(selected.patient_name));

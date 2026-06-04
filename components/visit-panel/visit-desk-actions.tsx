@@ -81,6 +81,7 @@ export function VisitDeskActions({
   onCancel,
   onMarkCompleted,
   onBookNext,
+  onBookInOpenSlot,
 }: {
   appointment: DeskAppointmentActions;
   providers: DeskProviderOption[];
@@ -101,6 +102,8 @@ export function VisitDeskActions({
   onCancel: () => void;
   onMarkCompleted: () => void;
   onBookNext: () => void;
+  /** Opens desk booking for this time block (no-show / cancelled slots on day or week schedule). */
+  onBookInOpenSlot?: () => void;
 }) {
   const uiStatus =
     appointment.display_status ??
@@ -199,6 +202,15 @@ export function VisitDeskActions({
               </p>
             ) : null}
           </div>
+        ) : null}
+        {onBookInOpenSlot ? (
+          <button
+            type="button"
+            onClick={onBookInOpenSlot}
+            className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-100"
+          >
+            Book visit in this open slot
+          </button>
         ) : null}
         <button
           type="button"
