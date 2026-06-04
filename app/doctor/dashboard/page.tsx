@@ -2018,6 +2018,7 @@ export default function DoctorDashboardPage() {
         </p>
         ) : null}
         {!isEditingSoapOnly ? (
+        <>
         <div
           className={cn(
             "flex flex-col gap-2",
@@ -2092,6 +2093,7 @@ export default function DoctorDashboardPage() {
           The patient bill is not printed until the invoice is paid (card on file, reader, or desk checkout). Use{" "}
           <strong>Print patient bill</strong> on the banner after payment.
         </p>
+        </>
         ) : null}
         <ChartNoteWideViewModal
           open={handoffWideOpen}
