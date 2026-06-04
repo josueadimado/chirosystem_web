@@ -46,13 +46,18 @@ type AdjustDurationState = {
 type BillingActionsState = {
   invoiceId: number | null;
   invoiceTotalAmount?: string | null;
+  amountPaid?: string | null;
+  amountDue?: string | null;
   hintLoading: boolean;
   snapshotLoading: boolean;
   previewing: boolean;
   recordingCash?: boolean;
+  terminalBusy?: boolean;
+  terminalCheckoutId?: string | null;
   onPreview: () => void;
-  onEditBilling: () => void;
+  onEditBilling?: () => void;
   onRecordCashPayment?: () => void;
+  onTerminalCheckout?: () => void;
 };
 
 /** Front-desk actions for an appointment side panel (admin schedule). */
@@ -138,24 +143,61 @@ export function VisitDeskActions({
         {showNoShowBilling ? (
           <div className="rounded-xl border border-red-200/80 bg-red-50/50 p-4">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-red-900">No-show fee</p>
-            <p className="mt-1 text-xs text-red-950/90">Collect or preview the no-show fee bill below.</p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <p className="mt-1 text-xs text-red-950/90">
+              {billing.invoiceTotalAmount
+                ? billing.amountPaid && parseFloat(billing.amountPaid) > 0
+                  ? `Invoice $${billing.invoiceTotalAmount} · Paid $${billing.amountPaid} · Still due $${billing.amountDue ?? billing.invoiceTotalAmount}. Tap Record cash for each cash payment.`
+                  : `Amount due: $${billing.amountDue ?? billing.invoiceTotalAmount}. Tap Record cash when they pay with bills/coins, or Pay on Terminal for a card.`
+                : "Collect or preview the no-show fee bill below."}
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
-                disabled={billing.previewing}
+                disabled={billing.previewing || billing.invoiceId == null}
                 onClick={billing.onPreview}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:flex-1"
               >
                 {billing.previewing ? "Opening…" : "Preview bill"}
               </button>
-              <button
-                type="button"
-                onClick={billing.onEditBilling}
-                className="w-full rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-950 shadow-sm hover:bg-red-50 sm:flex-1"
-              >
-                Edit billing
-              </button>
+              {billing.onRecordCashPayment ? (
+                <button
+                  type="button"
+                  disabled={billing.recordingCash || billing.invoiceId == null}
+                  onClick={billing.onRecordCashPayment}
+                  className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm hover:bg-emerald-100 disabled:opacity-50 sm:flex-1"
+                >
+                  {billing.recordingCash
+                    ? "Recording…"
+                    : billing.invoiceTotalAmount
+                      ? `Record cash ($${billing.invoiceTotalAmount})`
+                      : "Record cash payment"}
+                </button>
+              ) : null}
+              {billing.onTerminalCheckout ? (
+                <button
+                  type="button"
+                  disabled={billing.terminalBusy || billing.invoiceId == null}
+                  onClick={billing.onTerminalCheckout}
+                  className="w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900 shadow-sm hover:bg-violet-100 disabled:opacity-50 sm:flex-1"
+                >
+                  {billing.terminalBusy ? "Sending to reader…" : "Pay on Terminal"}
+                </button>
+              ) : null}
+              {billing.onEditBilling ? (
+                <button
+                  type="button"
+                  onClick={billing.onEditBilling}
+                  className="w-full rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-950 shadow-sm hover:bg-red-50 sm:flex-1"
+                >
+                  Edit billing
+                </button>
+              ) : null}
             </div>
+            {billing.terminalCheckoutId ? (
+              <p className="mt-2 text-[10px] leading-snug text-violet-900/90">
+                Follow the prompts on the Square reader. This page will update when payment completes.
+              </p>
+            ) : null}
           </div>
         ) : null}
         <button
@@ -267,11 +309,11 @@ export function VisitDeskActions({
                 {billing.recordingCash
                   ? "Recording…"
                   : billing.invoiceTotalAmount
-                    ? `Paid — Cash ($${billing.invoiceTotalAmount})`
-                    : "Paid — Cash"}
+                    ? `Record cash ($${billing.invoiceTotalAmount})`
+                    : "Record cash payment"}
               </button>
               <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-                Records a cash payment and marks this invoice paid immediately.
+                Use when the patient hands you cash — marks this invoice paid in the system.
               </p>
             </div>
           ) : null}

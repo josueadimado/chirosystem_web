@@ -19,6 +19,11 @@ export type VisitSnapshotInvoice = {
   professional_discount_reason: string;
   total_amount: string;
   status: string;
+  /** Cash/card recorded on this invoice (partial payments). */
+  amount_paid?: string;
+  /** Still owed after prior payments. */
+  amount_due?: string;
+  invoice_total?: string;
 };
 
 export type VisitSnapshot = {

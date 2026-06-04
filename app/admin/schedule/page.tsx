@@ -71,6 +71,14 @@ const PatientBillPortalModal = dynamic(
     })),
   { ssr: false },
 );
+
+const SquareTerminalCheckoutPoller = dynamic(
+  () =>
+    import("@/components/square-terminal-checkout").then((m) => ({
+      default: m.SquareTerminalCheckoutPoller,
+    })),
+  { ssr: false },
+);
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { deskCheckInSuccessMessage, postDeskCheckIn } from "@/lib/kiosk-checkin";
@@ -92,6 +100,7 @@ import {
 import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
+import { cashAmountPromptError, promptCashPaymentAmount } from "@/lib/record-cash-prompt";
 import { estimatedPriceFromSnapshot, type VisitSnapshot } from "@/lib/visit-panel-types";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -244,6 +253,8 @@ function AdminSchedulePageContent() {
   const [billingInvoiceIdHint, setBillingInvoiceIdHint] = useState<number | null>(null);
   const [billingHintLoading, setBillingHintLoading] = useState(false);
   const [recordingCash, setRecordingCash] = useState(false);
+  const [terminalBusy, setTerminalBusy] = useState(false);
+  const [terminalCheckoutId, setTerminalCheckoutId] = useState<string | null>(null);
 
   const { contact: patientContact, loading: patientContactLoading } = usePatientQuickContact(
     selected?.patient ?? null,
@@ -364,12 +375,16 @@ function AdminSchedulePageContent() {
   };
 
   useEffect(() => {
+    setTerminalCheckoutId(null);
+  }, [selected?.id]);
+
+  useEffect(() => {
     const ui = selected
       ? selected.display_status ?? effectiveAppointmentStatus(selected.status, selected.invoice_kind)
       : "";
+    const isNoShowFee = ui === "no_show" && selected?.invoice_kind === "no_show_fee";
     const needsBillingHint =
-      selected &&
-      (selected.status === "awaiting_payment" || (ui === "no_show" && selected.invoice_kind === "no_show_fee"));
+      selected && (selected.status === "awaiting_payment" || isNoShowFee);
     if (!needsBillingHint) {
       setBillingInvoiceIdHint(null);
       setBillingHintLoading(false);
@@ -377,7 +392,10 @@ function AdminSchedulePageContent() {
     }
     let cancelled = false;
     setBillingHintLoading(true);
-    void apiGetAuth<{ invoice_id: number }>(`/admin/visit_billing_for_edit/?appointment_id=${selected.id}`)
+    const hintPath = isNoShowFee
+      ? `/admin/visit_open_invoice/?appointment_id=${selected.id}`
+      : `/admin/visit_billing_for_edit/?appointment_id=${selected.id}`;
+    void apiGetAuth<{ invoice_id: number }>(hintPath)
       .then((b) => {
         if (!cancelled) setBillingInvoiceIdHint(b.invoice_id);
       })
@@ -390,7 +408,7 @@ function AdminSchedulePageContent() {
     return () => {
       cancelled = true;
     };
-  }, [selected?.id, selected?.status]);
+  }, [selected?.id, selected?.status, selected?.invoice_kind]);
 
   useEffect(() => {
     const ms = focusDate.getTime();
@@ -775,32 +793,83 @@ function AdminSchedulePageContent() {
     });
   };
 
-  const billInvoiceId = visitSnapshot?.invoice?.id ?? billingInvoiceIdHint ?? null;
-  const billTotalAmount = visitSnapshot?.invoice?.total_amount ?? null;
+  const snapshotInvoice = visitSnapshot?.invoice ?? null;
+  const snapshotInvoiceOpen =
+    snapshotInvoice != null &&
+    snapshotInvoice.status !== "paid" &&
+    snapshotInvoice.status !== "void";
+  const billInvoiceId =
+    (snapshotInvoiceOpen ? snapshotInvoice?.id : null) ?? billingInvoiceIdHint ?? null;
+  const billInvoiceTotal = snapshotInvoiceOpen ? snapshotInvoice?.total_amount ?? null : null;
+  const billAmountPaid = snapshotInvoiceOpen ? snapshotInvoice?.amount_paid ?? "0" : null;
+  const billAmountDue = snapshotInvoiceOpen
+    ? snapshotInvoice?.amount_due ?? snapshotInvoice?.total_amount ?? null
+    : null;
 
-  const recordCashPayment = async () => {
-    if (!billInvoiceId) return;
-    const amount = billTotalAmount ? parseFloat(billTotalAmount) : null;
-    if (!amount || Number.isNaN(amount) || amount <= 0) {
-      toast.error("Invoice amount not available. Open the billing page to record this payment.");
+  const startTerminalCheckout = async () => {
+    if (!billInvoiceId) {
+      toast.error("No unpaid invoice on file for this visit yet.");
       return;
     }
-    if (!window.confirm(`Record cash payment of $${billTotalAmount} and mark this invoice paid?`)) return;
+    setTerminalBusy(true);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ checkout_id: string }>("/admin/terminal_checkout/", {
+          invoice_id: billInvoiceId,
+        });
+        setTerminalCheckoutId(out.checkout_id);
+        return out;
+      },
+      {
+        loadingMessage: "Sending amount to Square Terminal…",
+        successMessage: "Follow the prompts on the card reader.",
+        errorFallback: "Could not start terminal payment.",
+      },
+    );
+    setTerminalBusy(false);
+  };
+
+  const recordCashPayment = async () => {
+    if (!billInvoiceId || !billAmountDue) return;
+    const dueNum = parseFloat(billAmountDue);
+    if (Number.isNaN(dueNum) || dueNum <= 0) {
+      toast.error("This invoice is already paid in full.");
+      return;
+    }
+    const cashAmount = promptCashPaymentAmount({
+      invoiceTotal: billInvoiceTotal ?? billAmountDue,
+      amountPaid: billAmountPaid ?? "0",
+      amountDue: billAmountDue,
+    });
+    if (cashAmount === null) {
+      return;
+    }
+    if (!cashAmount) {
+      toast.error(cashAmountPromptError({ amountDue: billAmountDue }));
+      return;
+    }
     setRecordingCash(true);
     await runWithFeedback(
       async () => {
-        await apiPost(`/invoices/${billInvoiceId}/pay/`, {
-          amount: billTotalAmount,
-          payment_method: "cash",
-          payment_reference: "",
-        });
+        const out = await apiPost<{ fully_paid?: boolean; amount_due?: string }>(
+          `/invoices/${billInvoiceId}/pay/`,
+          {
+            amount: cashAmount,
+            payment_method: "cash",
+            payment_reference: "",
+          },
+        );
         const snap = await apiGetAuth<VisitSnapshot>(`/admin/visit_snapshot/?appointment_id=${selected!.id}`);
         setVisitSnapshot(snap);
         await loadAppointments();
+        return out;
       },
       {
         loadingMessage: "Recording cash payment…",
-        successMessage: "Cash payment recorded — invoice marked paid.",
+        successMessage: (out) =>
+          out?.fully_paid
+            ? "Cash recorded — invoice paid in full."
+            : `Cash recorded — $${out?.amount_due ?? billAmountDue} still due.`,
         errorFallback: "Could not record payment. Try again.",
       },
     );
@@ -1061,7 +1130,9 @@ function AdminSchedulePageContent() {
                     (appointmentUiStatus(selected) === "no_show" && selected.invoice_kind === "no_show_fee")
                       ? {
                           invoiceId: billInvoiceId,
-                          invoiceTotalAmount: billTotalAmount,
+                          invoiceTotalAmount: billAmountDue ?? billInvoiceTotal,
+                          amountPaid: billAmountPaid ?? undefined,
+                          amountDue: billAmountDue ?? undefined,
                           hintLoading: billingHintLoading,
                           snapshotLoading: visitSnapshotLoading,
                           previewing: previewingBill,
@@ -1069,9 +1140,14 @@ function AdminSchedulePageContent() {
                           onPreview: () => {
                             if (billInvoiceId != null) void openPatientBillPreview(billInvoiceId);
                           },
-                          onEditBilling: () => setBillingEditForAppointment(selected),
-                          onRecordCashPayment:
-                            selected.status === "awaiting_payment" ? () => void recordCashPayment() : undefined,
+                          onEditBilling:
+                            selected.status === "awaiting_payment"
+                              ? () => setBillingEditForAppointment(selected)
+                              : undefined,
+                          onRecordCashPayment: () => void recordCashPayment(),
+                          onTerminalCheckout: () => void startTerminalCheckout(),
+                          terminalBusy,
+                          terminalCheckoutId,
                         }
                       : undefined
                   }
@@ -1183,6 +1259,30 @@ function AdminSchedulePageContent() {
       <BookNextVisitModal bookNext={bookNext} titleId="admin-book-next-title" />
 
       <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
+      {terminalCheckoutId ? (
+        <SquareTerminalCheckoutPoller
+          checkoutId={terminalCheckoutId}
+          statusPath="/admin/terminal_checkout_status/"
+          onComplete={() => {
+            void (async () => {
+              setTerminalCheckoutId(null);
+              if (selected) {
+                try {
+                  const snap = await apiGetAuth<VisitSnapshot>(
+                    `/admin/visit_snapshot/?appointment_id=${selected.id}`,
+                  );
+                  setVisitSnapshot(snap);
+                } catch {
+                  /* keep prior snapshot */
+                }
+              }
+              await loadAppointments();
+              toast.success("Terminal payment recorded — invoice marked paid.");
+            })();
+          }}
+          onTerminalError={() => setTerminalCheckoutId(null)}
+        />
+      ) : null}
       <ConfirmDialog />
 
       {billingEditForAppointment && (

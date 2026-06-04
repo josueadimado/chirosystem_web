@@ -117,6 +117,7 @@ const PatientDetailModal = dynamic(
 );
 import { AppointmentStatusBadge, appointmentStatusStripeClass } from "@/components/status-chip";
 import { resolveAppointmentUiStatus } from "@/lib/appointment-ui-status";
+import { cashAmountPromptError, promptCashPaymentAmount } from "@/lib/record-cash-prompt";
 import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import {
   PatientNameWithProfile,
@@ -194,6 +195,10 @@ type Appointment = {
   invoice_id?: number;
   invoice_number?: string;
   invoice_total?: string;
+  /** Cash/card recorded so far on this invoice (partial payments). */
+  amount_paid?: string;
+  /** Still owed on this invoice after prior payments. */
+  amount_due?: string;
   card_last4?: string;
   card_brand?: string;
   patient_payment_profile?: string;
@@ -211,6 +216,8 @@ type PendingPaymentContext = {
     kind: string;
     kind_label: string;
     total_amount: string;
+    /** Remaining balance on this older invoice (after partial payments). */
+    amount_due: string;
     appointment_date: string | null;
   }>;
   other_total: string;
@@ -254,7 +261,10 @@ function DoctorPendingBalanceNotice({
             <li key={inv.id}>
               {inv.kind_label} {inv.invoice_number}
               {inv.appointment_date ? ` (${formatMonthDayYear(inv.appointment_date)})` : ""} —{" "}
-              {formatMoneyUsd(inv.total_amount)}
+              {formatMoneyUsd(inv.amount_due ?? inv.total_amount)}
+              {parseMoneyAmount(inv.total_amount) > parseMoneyAmount(inv.amount_due ?? inv.total_amount) + 0.009
+                ? ` (of ${formatMoneyUsd(inv.total_amount)} total)`
+                : ""}
             </li>
           ))}
         </ul>
@@ -313,6 +323,9 @@ type PaymentFollowUp = {
   invoice_id: number;
   invoice_number?: string;
   total_amount?: string;
+  amount_paid?: string;
+  amount_due?: string;
+  invoice_total?: string;
   patient_credit_balance?: string;
   /** Set when the server auto-sent the bill to the desk Terminal — UI polls until paid. */
   terminal_checkout_id?: string | null;
@@ -356,6 +369,8 @@ export default function DoctorDashboardPage() {
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [applyingCredit, setApplyingCredit] = useState(false);
   const [recordingCashPayment, setRecordingCashPayment] = useState(false);
+  /** Schedule row: recording cash for a no-show / penalty invoice without opening the payment banner. */
+  const [recordingCashAppointmentId, setRecordingCashAppointmentId] = useState<number | null>(null);
   /** Square Terminal API checkout id — we poll until the physical device completes payment. */
   const [squareCheckoutId, setSquareCheckoutId] = useState<string | null>(null);
   /** Avoid duplicate refresh when Terminal poller and invoice poll both see PAID. */
@@ -639,7 +654,12 @@ export default function DoctorDashboardPage() {
     if (paymentCollectMode === "all" && pending?.has_other_pending) {
       return pending.combined_amount;
     }
-    return paymentFollowUp.total_amount ?? pending?.current_amount ?? null;
+    return (
+      paymentFollowUp.amount_due ??
+      paymentFollowUp.total_amount ??
+      pending?.current_amount ??
+      null
+    );
   }, [paymentFollowUp, paymentCollectMode]);
 
   const handlePaymentReceived = useCallback(
@@ -1466,51 +1486,174 @@ export default function DoctorDashboardPage() {
     if (!paymentFollowUp) return;
     const pending = paymentFollowUp.pending_payment;
     const payAll = paymentCollectMode === "all" && Boolean(pending?.has_other_pending);
-    const amount = payAll ? pending?.combined_amount : paymentFollowUp.total_amount;
-    if (!amount || parseMoneyAmount(amount) <= 0) {
-      toast.error("Invoice amount not available. Use the Admin → Billing page to record this payment.");
+
+    if (payAll) {
+      const amount = pending?.combined_amount;
+      if (!amount || parseMoneyAmount(amount) <= 0) {
+        toast.error("Invoice amount not available. Use the Admin → Billing page to record this payment.");
+        return;
+      }
+      if (
+        !window.confirm(
+          `Record cash payment of ${formatMoneyUsd(amount)} (today's visit + prior fees) and mark all related invoices paid?`,
+        )
+      ) {
+        return;
+      }
+      setRecordingCashPayment(true);
+      await runWithFeedback(
+        async () => {
+          const invoiceIds = [
+            paymentFollowUp.invoice_id,
+            ...(pending?.other_invoices.map((i) => i.id) ?? []),
+          ];
+          for (const invId of invoiceIds) {
+            let lineAmount: string | undefined;
+            if (invId === paymentFollowUp.invoice_id) {
+              lineAmount = paymentFollowUp.amount_due ?? paymentFollowUp.total_amount;
+            } else {
+              const other = pending?.other_invoices.find((i) => i.id === invId);
+              lineAmount = other?.amount_due ?? other?.total_amount;
+            }
+            if (!lineAmount || parseMoneyAmount(lineAmount) <= 0) {
+              continue;
+            }
+            await apiPost(`/invoices/${invId}/pay/`, {
+              amount: lineAmount,
+              payment_method: "cash",
+              payment_reference: "doctor_cash_bundle",
+            });
+          }
+          setPaymentFollowUp((prev) =>
+            prev ? { ...prev, payment: { ...prev.payment, charged: true, status: "paid_cash" } } : prev,
+          );
+          await load();
+        },
+        {
+          loadingMessage: "Recording cash payment…",
+          successMessage: "Cash recorded — today’s visit and prior fees marked paid.",
+          errorFallback: "Could not record payment. Try again.",
+        },
+      );
+      setRecordingCashPayment(false);
       return;
     }
-    const confirmMsg = payAll
-      ? `Record cash payment of ${formatMoneyUsd(amount)} (today's visit + prior fees) and mark all related invoices paid?`
-      : `Record cash payment of ${formatMoneyUsd(amount)} and mark this invoice paid?`;
-    if (!window.confirm(confirmMsg)) return;
+
+    const amountDue = paymentFollowUp.amount_due ?? paymentFollowUp.total_amount;
+    if (!amountDue || parseMoneyAmount(amountDue) <= 0) {
+      toast.error("This invoice is already paid in full.");
+      return;
+    }
+    const cashAmount = promptCashPaymentAmount({
+      invoiceTotal: paymentFollowUp.invoice_total ?? paymentFollowUp.total_amount ?? amountDue,
+      amountPaid: paymentFollowUp.amount_paid,
+      amountDue,
+    });
+    if (cashAmount === null) {
+      return;
+    }
+    if (!cashAmount) {
+      toast.error(cashAmountPromptError({ amountDue }));
+      return;
+    }
     setRecordingCashPayment(true);
     await runWithFeedback(
       async () => {
-        const invoiceIds = payAll
-          ? [
-              paymentFollowUp.invoice_id,
-              ...(pending?.other_invoices.map((i) => i.id) ?? []),
-            ]
-          : [paymentFollowUp.invoice_id];
-        for (const invId of invoiceIds) {
-          const inv = payAll
-            ? invId === paymentFollowUp.invoice_id
-              ? { amount: paymentFollowUp.total_amount }
-              : pending?.other_invoices.find((i) => i.id === invId)
-            : { amount };
-          const lineAmount = inv && "total_amount" in inv ? inv.total_amount : amount;
-          await apiPost(`/invoices/${invId}/pay/`, {
-            amount: lineAmount,
-            payment_method: "cash",
-            payment_reference: payAll ? "doctor_cash_bundle" : "",
-          });
+        const out = await apiPost<{
+          fully_paid?: boolean;
+          amount_due?: string;
+          amount_paid?: string;
+          invoice_total?: string;
+        }>(`/invoices/${paymentFollowUp.invoice_id}/pay/`, {
+          amount: cashAmount,
+          payment_method: "cash",
+          payment_reference: "",
+        });
+        if (out.fully_paid) {
+          setPaymentFollowUp((prev) =>
+            prev ? { ...prev, payment: { ...prev.payment, charged: true, status: "paid_cash" } } : prev,
+          );
+        } else {
+          setPaymentFollowUp((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  amount_paid: out.amount_paid,
+                  amount_due: out.amount_due,
+                  invoice_total: out.invoice_total ?? prev.invoice_total,
+                  total_amount: out.amount_due ?? prev.total_amount,
+                }
+              : prev,
+          );
         }
-        setPaymentFollowUp((prev) =>
-          prev ? { ...prev, payment: { ...prev.payment, charged: true, status: "paid_cash" } } : prev,
-        );
         await load();
+        return out;
       },
       {
         loadingMessage: "Recording cash payment…",
-        successMessage: payAll
-          ? "Cash recorded — today’s visit and prior fees marked paid."
-          : "Cash payment recorded — invoice marked paid.",
+        successMessage: (out) =>
+          out?.fully_paid
+            ? "Cash recorded — invoice paid in full."
+            : `Cash recorded — $${out?.amount_due ?? amountDue} still due on this invoice.`,
         errorFallback: "Could not record payment. Try again.",
       },
     );
     setRecordingCashPayment(false);
+  };
+
+  /** Record cash on the schedule row (no-show fee or visit invoice) — supports partial payments. */
+  const recordCashForAppointment = async (appt: Appointment) => {
+    if (!appt.invoice_id) {
+      toast.error("No unpaid invoice on file for this visit yet.");
+      return;
+    }
+    const amountDue = appt.amount_due ?? appt.invoice_total;
+    if (!amountDue || parseMoneyAmount(amountDue) <= 0) {
+      toast.error("This invoice is already paid in full.");
+      return;
+    }
+    const cashAmount = promptCashPaymentAmount({
+      invoiceTotal: appt.invoice_total ?? amountDue,
+      amountPaid: appt.amount_paid,
+      amountDue,
+    });
+    if (cashAmount === null) {
+      return;
+    }
+    if (!cashAmount) {
+      toast.error(cashAmountPromptError({ amountDue }));
+      return;
+    }
+    setRecordingCashAppointmentId(appt.id);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{
+          fully_paid?: boolean;
+          amount_due?: string;
+          amount_paid?: string;
+        }>(`/invoices/${appt.invoice_id}/pay/`, {
+          amount: cashAmount,
+          payment_method: "cash",
+          payment_reference: "",
+        });
+        if (out.fully_paid && paymentFollowUp?.invoice_id === appt.invoice_id) {
+          setPaymentFollowUp((prev) =>
+            prev ? { ...prev, payment: { ...prev.payment, charged: true, status: "paid_cash" } } : prev,
+          );
+        }
+        await load();
+        return out;
+      },
+      {
+        loadingMessage: "Recording cash payment…",
+        successMessage: (out) =>
+          out?.fully_paid
+            ? "Cash recorded — invoice paid in full."
+            : `Cash recorded — $${out?.amount_due ?? amountDue} still due on this invoice.`,
+        errorFallback: "Could not record cash payment. Try again.",
+      },
+    );
+    setRecordingCashAppointmentId(null);
   };
 
   const sortedBillServices = useMemo(
@@ -2257,8 +2400,13 @@ export default function DoctorDashboardPage() {
                           className="mt-1"
                         />
                         <span>
-                          <strong>Today&apos;s visit only</strong> —{" "}
-                          {formatMoneyUsd(paymentFollowUp.total_amount ?? paymentFollowUp.pending_payment.current_amount)}
+                          <strong>Current bill only</strong> — today&apos;s visit:{" "}
+                          {formatMoneyUsd(
+                            paymentFollowUp.amount_due ??
+                              paymentFollowUp.pending_payment.current_amount ??
+                              paymentFollowUp.total_amount ??
+                              "0",
+                          )}
                         </span>
                       </label>
                       <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-800">
@@ -2270,8 +2418,8 @@ export default function DoctorDashboardPage() {
                           className="mt-1"
                         />
                         <span>
-                          <strong>Today + prior fees</strong> —{" "}
-                          {formatMoneyUsd(paymentFollowUp.pending_payment.combined_amount)}
+                          <strong>Current bill + outstanding</strong> — today plus prior no-show / late-cancel
+                          balances: {formatMoneyUsd(paymentFollowUp.pending_payment.combined_amount)}
                         </span>
                       </label>
                     </div>
@@ -2846,12 +2994,19 @@ export default function DoctorDashboardPage() {
                         </HelpTip>
                       </div>
                     )}
-                    {uiStatus === "awaiting_payment" && (
+                    {(uiStatus === "awaiting_payment" ||
+                      (isNoShow &&
+                        appt.invoice_id != null &&
+                        parseMoneyAmount(appt.amount_due ?? appt.invoice_total) > 0.009)) && (
                       <div className="space-y-2.5 rounded-xl border border-slate-200/90 bg-slate-50/60 p-3">
                         <p className="text-xs leading-relaxed text-slate-600">
-                          Chart or invoice changes, then collect payment. Amount due is shown below.
+                          {isNoShow
+                            ? "Patient paid in cash, on the card reader, or with a saved card — record it here so the no-show fee is marked paid."
+                            : "Chart or invoice changes, then collect payment. Amount due is shown below."}
                         </p>
                         <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-3">
+                          {!isNoShow ? (
+                            <>
                           <button
                             type="button"
                             onClick={() => void openSoapNotesEdit(appt)}
@@ -2866,12 +3021,27 @@ export default function DoctorDashboardPage() {
                           >
                             Edit billing
                           </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={recordingCashAppointmentId === appt.id}
+                              onClick={() => void recordCashForAppointment(appt)}
+                              className="min-h-11 rounded-xl border border-emerald-600 bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 min-[480px]:col-span-2 lg:col-span-1"
+                            >
+                              {recordingCashAppointmentId === appt.id
+                                ? "Recording…"
+                                : appt.amount_due ?? appt.invoice_total
+                                  ? `Record cash (${formatMoneyUsd(appt.amount_due ?? appt.invoice_total ?? "0")})`
+                                  : "Record cash payment"}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => void resumePaymentForAppointment(appt)}
                             className="min-h-11 rounded-xl bg-[#16a349] px-3 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] min-[480px]:col-span-2 lg:col-span-1"
                           >
-                            Collect payment
+                            {isNoShow ? "Card / desk checkout" : "Collect payment"}
                           </button>
                           <button
                             type="button"
@@ -2894,9 +3064,21 @@ export default function DoctorDashboardPage() {
                     )}
                   </div>
                 </div>
-                {uiStatus === "awaiting_payment" && appt.invoice_total != null && (
-                  <p className="border-t border-emerald-100/80 bg-[#f0fdf4]/90 px-4 py-2 text-center text-[13px] font-medium leading-normal text-[#0d5c2e]">
-                    Amount due (invoice): ${appt.invoice_total}
+                {(uiStatus === "awaiting_payment" || isNoShow) &&
+                  parseMoneyAmount(appt.amount_due ?? appt.invoice_total) > 0.009 && (
+                  <p
+                    className={`border-t px-4 py-2 text-center text-[13px] font-medium leading-normal ${
+                      isNoShow
+                        ? "border-red-200/80 bg-red-50/90 text-red-950"
+                        : "border-emerald-100/80 bg-[#f0fdf4]/90 text-[#0d5c2e]"
+                    }`}
+                  >
+                    {isNoShow ? "No-show fee" : "Invoice"}: ${appt.invoice_total ?? appt.amount_due}
+                    {parseMoneyAmount(appt.amount_paid ?? "0") > 0.009 ? (
+                      <> · Paid ${appt.amount_paid} · Still due ${appt.amount_due ?? appt.invoice_total}</>
+                    ) : (
+                      <> · Due ${appt.amount_due ?? appt.invoice_total}</>
+                    )}
                     {appt.invoice_number ? ` · ${appt.invoice_number}` : ""}
                   </p>
                 )}
