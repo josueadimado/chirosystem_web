@@ -241,7 +241,12 @@ export function buildProviderDayBusyIntervals(
   appointments: ScheduleBusyAppointment[],
   blocks: ScheduleBusyBlock[],
   dayEndMin: number,
-  options?: { deskBooking?: boolean; excludeAppointmentId?: number },
+  options?: {
+    deskBooking?: boolean;
+    excludeAppointmentId?: number;
+    /** Desk schedule: still treat cancelled/no-show as busy for click-to-book overlays (details open on the visit block). */
+    gapOverlays?: boolean;
+  },
 ): TimeInterval[] {
   const deskBooking = options?.deskBooking ?? false;
   const excludeId = options?.excludeAppointmentId;
@@ -250,7 +255,7 @@ export function buildProviderDayBusyIntervals(
       (a) =>
         a.provider === providerId &&
         a.appointment_date === isoDate &&
-        appointmentBlocksScheduleGrid(a.status) &&
+        (options?.gapOverlays || appointmentBlocksScheduleGrid(a.status)) &&
         (excludeId == null || a.id !== excludeId),
     )
     .map((a) => ({
@@ -285,9 +290,13 @@ export function providerDayOpenGaps(
   blocks: ScheduleBusyBlock[],
   dayEndMin: number,
   deskBooking?: boolean,
+  options?: { gapOverlays?: boolean },
 ): TimeInterval[] {
   return computeOpenGaps(
-    buildProviderDayBusyIntervals(providerId, isoDate, appointments, blocks, dayEndMin, { deskBooking }),
+    buildProviderDayBusyIntervals(providerId, isoDate, appointments, blocks, dayEndMin, {
+      deskBooking,
+      gapOverlays: options?.gapOverlays,
+    }),
     SCHEDULE_DAY_START_MIN,
     dayEndMin,
   );
@@ -304,7 +313,11 @@ export function unionProviderBookableGaps(
 ): TimeInterval[] {
   const merged: TimeInterval[] = [];
   for (const pid of providerIds) {
-    merged.push(...providerDayOpenGaps(pid, isoDate, appointments, blocks, dayEndMin, deskBooking));
+    merged.push(
+      ...providerDayOpenGaps(pid, isoDate, appointments, blocks, dayEndMin, deskBooking, {
+        gapOverlays: true,
+      }),
+    );
   }
   return mergeTimeIntervals(merged);
 }
