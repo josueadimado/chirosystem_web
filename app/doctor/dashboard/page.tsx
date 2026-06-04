@@ -422,6 +422,8 @@ export default function DoctorDashboardPage() {
   const [lastClosedConsultAppointmentId, setLastClosedConsultAppointmentId] = useState<number | null>(null);
   /** Awaiting-payment visits: doctor is editing billing lines (Edit billing). */
   const [revisingBillingForAppointmentId, setRevisingBillingForAppointmentId] = useState<number | null>(null);
+  /** Completed or awaiting-payment: edit SOAP only (after visit / payment). */
+  const [editingSoapAppointmentId, setEditingSoapAppointmentId] = useState<number | null>(null);
   /** After "Update invoice" succeeds — stay open until doctor taps Close (or edits again for another save). */
   const [billingEditJustSaved, setBillingEditJustSaved] = useState(false);
   const billingEditSavedFingerprintRef = useRef<string | null>(null);
@@ -990,6 +992,11 @@ export default function DoctorDashboardPage() {
     }
   };
 
+  const isEditingSoapOnly =
+    editingSoapAppointmentId != null &&
+    activeAppt != null &&
+    editingSoapAppointmentId === activeAppt.id;
+
   const saveSoapNotes = async () => {
     if (!activeAppt) return;
     setSavingSoapNotes(true);
@@ -1003,13 +1010,46 @@ export default function DoctorDashboardPage() {
         },
         {
           loadingMessage: "Saving consultation notes…",
-          successMessage: "SOAP notes saved — you can keep editing until you complete the visit.",
+          successMessage: isEditingSoapOnly
+            ? "SOAP notes saved."
+            : "SOAP notes saved — you can keep editing until you complete the visit.",
           errorFallback: "Could not save consultation notes.",
         },
       );
     } finally {
       setSavingSoapNotes(false);
     }
+  };
+
+  const openSoapNotesEdit = async (appt: Appointment) => {
+    await runWithFeedback(
+      async () => {
+        const data = await apiGetAuth<{ doctor_notes: string }>(`/doctor/${appt.id}/visit_soap_notes/`);
+        setRevisingBillingForAppointmentId(null);
+        setBillingEditJustSaved(false);
+        billingEditSavedFingerprintRef.current = null;
+        setEditingSoapAppointmentId(appt.id);
+        setActiveAppt(appt);
+        setDoctorNotes(data.doctor_notes ?? "");
+        setSoapNotesLoaded(true);
+        setConsultWorkspaceExpanded(true);
+      },
+      {
+        loadingMessage: "Loading consultation notes…",
+        successMessage: "You can update SOAP notes and save as often as you need.",
+        errorFallback: "Could not open consultation notes for editing.",
+      },
+    );
+  };
+
+  const closeSoapNotesEdit = () => {
+    setEditingSoapAppointmentId(null);
+    setDoctorNotes("");
+    setSoapNotesLoaded(false);
+    setSoapWideOpen(false);
+    setSoapWideEditOpen(false);
+    setConsultWorkspaceExpanded(false);
+    setActiveAppt(null);
   };
 
   const startVisit = async (appt: Appointment) => {
@@ -1254,6 +1294,10 @@ export default function DoctorDashboardPage() {
 
   const closeConsultWorkspace = () => {
     setPaymentConfirmOpen(false);
+    if (editingSoapAppointmentId != null) {
+      closeSoapNotesEdit();
+      return;
+    }
     setConsultWorkspaceExpanded(false);
     if (activeAppt?.status === "in_consultation") {
       setLastClosedConsultAppointmentId(activeAppt.id);
@@ -1640,12 +1684,14 @@ export default function DoctorDashboardPage() {
       document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     };
 
-    const consultNavItems = [
-      { id: "consult-chart", label: "Chart notes" },
-      { id: "consult-diagnosis", label: "Diagnosis" },
-      { id: "consult-procedures", label: "Procedures" },
-      { id: "consult-finish", label: "Finish" },
-    ] as const;
+    const consultNavItems = isEditingSoapOnly
+      ? ([{ id: "consult-soap", label: "SOAP notes" }] as const)
+      : ([
+          { id: "consult-chart", label: "Chart notes" },
+          { id: "consult-diagnosis", label: "Diagnosis" },
+          { id: "consult-procedures", label: "Procedures" },
+          { id: "consult-finish", label: "Finish" },
+        ] as const);
     const showSoapInBillingForm = isRevisingBilling;
 
     return (
@@ -1654,11 +1700,13 @@ export default function DoctorDashboardPage() {
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div className="min-w-0">
               <p className="text-[11px] font-bold uppercase tracking-wide text-[#166534]">
-                {isRevisingBilling
-                  ? billingEditShowCloseOnly
-                    ? "Invoice updated — awaiting payment"
-                    : "Editing billing — awaiting payment"
-                  : "Active visit · full workspace"}
+                {isEditingSoapOnly
+                  ? "Edit consultation notes (SOAP)"
+                  : isRevisingBilling
+                    ? billingEditShowCloseOnly
+                      ? "Invoice updated — awaiting payment"
+                      : "Editing billing — awaiting payment"
+                    : "Active visit · full workspace"}
               </p>
               <p className="truncate text-lg font-bold text-slate-900">{activeAppt.patient}</p>
               <p className="text-sm text-slate-600">
@@ -1770,9 +1818,11 @@ export default function DoctorDashboardPage() {
         <VisitPriorChartNotes appointmentId={activeAppt.id} className="mb-3" />
         {!isRevisingBilling ? (
           <div
-            id="consult-chart"
+            id={isEditingSoapOnly ? "consult-soap" : "consult-chart"}
             className="scroll-mt-24 space-y-4 rounded-xl border border-sky-200/70 bg-sky-50/50 p-3 sm:p-4"
           >
+            {!isEditingSoapOnly ? (
+              <>
             <p className="text-[11px] font-bold uppercase tracking-wide text-sky-900">Chart notes for this visit</p>
             <p className="text-xs leading-relaxed text-sky-950/85">
               Save as you go — notes are stored on the server before you complete the visit. Handoff is for the{" "}
@@ -1812,15 +1862,24 @@ export default function DoctorDashboardPage() {
                 {savingHandoff ? "Saving…" : "Save reminders & handoff"}
               </button>
             </div>
+              </>
+            ) : (
+              <p className="text-xs leading-relaxed text-sky-950/85">
+                Update exam documentation for this visit. Saving does not change billing or payment — only the SOAP notes
+                on the chart.
+              </p>
+            )}
 
-            <div id="consult-soap" className="scroll-mt-24 rounded-lg border border-violet-200/80 bg-white/70 p-3">
+            <div id={isEditingSoapOnly ? undefined : "consult-soap"} className="scroll-mt-24 rounded-lg border border-violet-200/80 bg-white/70 p-3">
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                     Consultation notes (SOAP)
                   </p>
                   <HelpTip label="Consultation notes (SOAP)" tone="emerald">
-                    Exam documentation for this visit. Tap Save often — you do not have to wait until Complete visit.
+                    {isEditingSoapOnly
+                      ? "You can edit and save again anytime — useful after payment if you could not finish notes during the visit."
+                      : "Exam documentation for this visit. Tap Save often — you do not have to wait until Complete visit."}
                   </HelpTip>
                 </div>
                 <ChartNoteOpenWideButton
@@ -1854,6 +1913,26 @@ export default function DoctorDashboardPage() {
             </div>
           </div>
         ) : null}
+        {isEditingSoapOnly ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              disabled={savingSoapNotes}
+              onClick={() => void saveSoapNotes()}
+              className="min-h-11 rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+            >
+              {savingSoapNotes ? "Saving…" : "Save SOAP notes"}
+            </button>
+            <button
+              type="button"
+              onClick={closeSoapNotesEdit}
+              className="min-h-11 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </div>
+        ) : null}
+        {!isEditingSoapOnly ? (
         <VisitBillingForm
           spacious={spacious}
           discountLayout="embedded"
@@ -1916,6 +1995,8 @@ export default function DoctorDashboardPage() {
             )
           }
         />
+        ) : null}
+        {!isEditingSoapOnly ? (
         <p id="consult-finish" className="scroll-mt-24 rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
           {billingEditShowCloseOnly ? (
             <>
@@ -1935,6 +2016,8 @@ export default function DoctorDashboardPage() {
             </>
           )}
         </p>
+        ) : null}
+        {!isEditingSoapOnly ? (
         <div
           className={cn(
             "flex flex-col gap-2",
@@ -2009,6 +2092,7 @@ export default function DoctorDashboardPage() {
           The patient bill is not printed until the invoice is paid (card on file, reader, or desk checkout). Use{" "}
           <strong>Print patient bill</strong> on the banner after payment.
         </p>
+        ) : null}
         <ChartNoteWideViewModal
           open={handoffWideOpen}
           onClose={() => setHandoffWideOpen(false)}
@@ -2729,6 +2813,16 @@ export default function DoctorDashboardPage() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
+                            void openSoapNotesEdit(appt);
+                          }}
+                          className="min-h-11 w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-violet-950 shadow-sm hover:bg-violet-100 sm:flex-1 sm:min-w-[9rem]"
+                        >
+                          Edit SOAP notes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             void openBillingForEdit(appt);
                           }}
                           className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-800 shadow-sm hover:border-[#16a349]/40 hover:bg-emerald-50/80 sm:flex-1 sm:min-w-[9rem]"
@@ -2855,7 +2949,17 @@ export default function DoctorDashboardPage() {
                   </div>
                 )}
                 {appt.status === "completed" && (
-                  <div className="border-t border-slate-200/80 bg-slate-50/60 px-4 py-3">
+                  <div className="grid grid-cols-1 gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void openSoapNotesEdit(appt);
+                      }}
+                      className="min-h-11 w-full rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-violet-950 hover:bg-violet-100"
+                    >
+                      Edit SOAP notes
+                    </button>
                     <button
                       type="button"
                       disabled={bookNext.saving || bookNext.optionsLoading}
