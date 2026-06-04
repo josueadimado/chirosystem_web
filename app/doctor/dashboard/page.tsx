@@ -435,8 +435,12 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     setRevisingBillingForAppointmentId(null);
+    setEditingSoapAppointmentId(null);
     setBillingEditJustSaved(false);
     billingEditSavedFingerprintRef.current = null;
+    setDoctorNotes("");
+    setSoapNotesLoaded(false);
+    setConsultWorkspaceExpanded(false);
   }, [scheduleView, scheduleFocusIso, todayStr]);
 
   useEffect(() => {
@@ -801,9 +805,24 @@ export default function DoctorDashboardPage() {
           const rev = appts.find((a) => a.id === revisingId && a.status === "awaiting_payment");
           if (rev) return rev;
         }
+        const soapEditId = editingSoapAppointmentId;
+        if (soapEditId != null) {
+          const soapAppt = appts.find((a) => a.id === soapEditId);
+          if (soapAppt) return soapAppt;
+        }
         // During a silent background refresh, keep the workspace open if the doctor
-        // is actively in a consultation — closing it would discard unsaved SOAP notes.
+        // is actively editing — closing it would discard unsaved SOAP or billing work.
         if (opts?.silent && current != null) {
+          if (editingSoapAppointmentId === current.id) {
+            const soap = appts.find((a) => a.id === current.id);
+            if (soap) return soap;
+          }
+          if (revisingBillingForAppointmentId === current.id) {
+            const rev = appts.find(
+              (a) => a.id === current.id && a.status === "awaiting_payment",
+            );
+            if (rev) return rev;
+          }
           const stillActive = appts.find(
             (a) => a.id === current.id && a.status === "in_consultation",
           );
@@ -886,13 +905,22 @@ export default function DoctorDashboardPage() {
     if (revisingBillingForAppointmentId === activeAppt.id) {
       return;
     }
+    // Post-visit SOAP edit loads notes via openSoapNotesEdit — do not wipe them here.
+    if (editingSoapAppointmentId === activeAppt.id) {
+      return;
+    }
     if (activeAppt.status !== "in_consultation") {
       setDoctorNotes("");
       setSoapNotesLoaded(false);
     }
     setProfessionalDiscount("");
     setProfessionalDiscountReason("");
-  }, [activeAppt?.id, activeAppt?.status, revisingBillingForAppointmentId]);
+  }, [
+    activeAppt?.id,
+    activeAppt?.status,
+    revisingBillingForAppointmentId,
+    editingSoapAppointmentId,
+  ]);
 
   useEffect(() => {
     if (!activeAppt) {
@@ -908,6 +936,9 @@ export default function DoctorDashboardPage() {
     }
     if (revisingBillingForAppointmentId === activeAppt.id) {
       setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
+      return;
+    }
+    if (editingSoapAppointmentId === activeAppt.id) {
       return;
     }
     setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
@@ -967,6 +998,7 @@ export default function DoctorDashboardPage() {
     activeAppt?.clinical_handoff_notes,
     activeAppt?.status,
     revisingBillingForAppointmentId,
+    editingSoapAppointmentId,
   ]);
 
   const saveHandoffNote = async () => {
@@ -1032,6 +1064,8 @@ export default function DoctorDashboardPage() {
         setActiveAppt(appt);
         setDoctorNotes(data.doctor_notes ?? "");
         setSoapNotesLoaded(true);
+        setSoapWideOpen(false);
+        setSoapWideEditOpen(false);
         setConsultWorkspaceExpanded(true);
       },
       {
@@ -1094,9 +1128,11 @@ export default function DoctorDashboardPage() {
         setBillingEditJustSaved(false);
         billingEditSavedFingerprintRef.current = null;
         setRevisingBillingForAppointmentId(appt.id);
+        setEditingSoapAppointmentId(null);
         setConsultWorkspaceExpanded(true);
         setActiveAppt(appt);
         setDoctorNotes(data.doctor_notes ?? "");
+        setSoapNotesLoaded(true);
         setDiagnosis(data.diagnosis ?? "");
         setSelectedDiagnosisIds(data.diagnosis_ids ?? []);
         setDiagnosisPriorVisitHint(null);
