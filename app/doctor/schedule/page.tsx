@@ -45,6 +45,22 @@ const BookNextVisitModal = dynamic(
   { ssr: false },
 );
 
+const PatientBillPortalModal = dynamic(
+  () =>
+    import("@/components/patient-bill-portal-modal").then((m) => ({
+      default: m.PatientBillPortalModal,
+    })),
+  { ssr: false },
+);
+
+const SquareTerminalCheckoutPoller = dynamic(
+  () =>
+    import("@/components/square-terminal-checkout").then((m) => ({
+      default: m.SquareTerminalCheckoutPoller,
+    })),
+  { ssr: false },
+);
+
 const RescheduleVisitSlotsModal = dynamic(
   () =>
     import("@/components/visit-panel/reschedule-visit-slots-modal").then((m) => ({
@@ -52,7 +68,9 @@ const RescheduleVisitSlotsModal = dynamic(
     })),
   { ssr: false },
 );
+import { VisitDeskActions } from "@/components/visit-panel/visit-desk-actions";
 import { VisitDoctorScheduleActions } from "@/components/visit-panel/visit-doctor-schedule-actions";
+import { useRecordCashPayment } from "@/components/record-cash-payment-modal";
 import { VisitPanelPatientFooter } from "@/components/visit-panel/visit-panel-patient-footer";
 import { VisitBirthdayReminder } from "@/components/visit-panel/visit-birthday-reminder";
 import {
@@ -75,6 +93,8 @@ import {
   confirmRescheduleBySlots,
 } from "@/lib/appointment-action-confirm-messages";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
+import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import { parseMoneyAmount } from "@/lib/record-cash-prompt";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -103,6 +123,10 @@ type AppointmentRow = {
   status: string;
   display_status?: string;
   invoice_kind?: string | null;
+  invoice_id?: number | null;
+  invoice_total?: string | null;
+  amount_paid?: string | null;
+  amount_due?: string | null;
   auto_no_show_processed_at?: string | null;
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
@@ -173,6 +197,7 @@ function blockListRange(view: ScheduleViewMode, focusDate: Date): { from: string
 function DoctorSchedulePageInner() {
   const { runWithFeedback, toast } = useAppFeedback();
   const { requestConfirm, ConfirmDialog } = useAppointmentActionConfirm();
+  const { requestCashAmount, RecordCashPaymentModal } = useRecordCashPayment();
   const searchParams = useSearchParams();
   const [providerId, setProviderId] = useState<number | null>(null);
   const [providerName, setProviderName] = useState("");
@@ -191,6 +216,11 @@ function DoctorSchedulePageInner() {
   const [savingHandoff, setSavingHandoff] = useState(false);
 
   const [deskBookSeed, setDeskBookSeed] = useState<DeskBookSlotSeed | null>(null);
+  const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+  const [previewingBill, setPreviewingBill] = useState(false);
+  const [recordingCash, setRecordingCash] = useState(false);
+  const [terminalBusy, setTerminalBusy] = useState(false);
+  const [terminalCheckoutId, setTerminalCheckoutId] = useState<string | null>(null);
 
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus | null>(null);
   const [calendarNote, setCalendarNote] = useState("");
@@ -297,6 +327,96 @@ function DoctorSchedulePageInner() {
     },
     [providerId, view, focusDate],
   );
+
+  useEffect(() => {
+    setTerminalCheckoutId(null);
+  }, [selected?.id]);
+
+  const showNoShowBilling =
+    selected != null &&
+    appointmentUiStatus(selected) === "no_show" &&
+    selected.invoice_kind === "no_show_fee" &&
+    selected.invoice_id != null &&
+    parseMoneyAmount(selected.amount_due ?? selected.invoice_total ?? "0") > 0.009;
+
+  const openPatientBillPreview = async (invoiceId: number) => {
+    setPreviewingBill(true);
+    try {
+      const bill = await apiGetAuth<PatientBillPayload>(
+        `/doctor/invoice_bill/?invoice_id=${invoiceId}&preview=1`,
+        { cache: "no-store" },
+      );
+      setPatientBillModal(bill);
+      toast.success("Bill preview opened — press Esc to close.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
+    } finally {
+      setPreviewingBill(false);
+    }
+  };
+
+  const startTerminalCheckout = async () => {
+    if (!selected?.invoice_id) {
+      toast.error("No unpaid invoice on file for this visit yet.");
+      return;
+    }
+    setTerminalBusy(true);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ checkout_id: string }>("/doctor/terminal_checkout/", {
+          invoice_id: selected.invoice_id,
+        });
+        setTerminalCheckoutId(out.checkout_id);
+        return out;
+      },
+      {
+        loadingMessage: "Sending amount to Square Terminal…",
+        successMessage: "Follow the prompts on the card reader.",
+        errorFallback: "Could not start terminal payment.",
+      },
+    );
+    setTerminalBusy(false);
+  };
+
+  const recordCashPayment = async () => {
+    if (!selected?.invoice_id) return;
+    const amountDue = selected.amount_due ?? selected.invoice_total;
+    if (!amountDue || parseMoneyAmount(amountDue) <= 0) {
+      toast.error("This invoice is already paid in full.");
+      return;
+    }
+    const cashAmount = await requestCashAmount({
+      invoiceTotal: selected.invoice_total ?? amountDue,
+      amountPaid: selected.amount_paid ?? "0",
+      amountDue,
+      subtitle: `No-show fee — ${selected.patient_name}`,
+    });
+    if (!cashAmount) return;
+    setRecordingCash(true);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ fully_paid?: boolean; amount_due?: string }>(
+          `/invoices/${selected.invoice_id}/pay/`,
+          {
+            amount: cashAmount,
+            payment_method: "cash",
+            payment_reference: "",
+          },
+        );
+        await loadAppointments();
+        return out;
+      },
+      {
+        loadingMessage: "Recording cash payment…",
+        successMessage: (out) =>
+          out?.fully_paid
+            ? "Cash recorded — no-show fee paid in full."
+            : `Cash recorded — $${out?.amount_due ?? amountDue} still due.`,
+        errorFallback: "Could not record payment. Try again.",
+      },
+    );
+    setRecordingCash(false);
+  };
 
   const scheduleRangeHasToday = useMemo(() => {
     const { from, to } = blockListRange(view, focusDate);
@@ -900,24 +1020,119 @@ function DoctorSchedulePageInner() {
                 patientDateOfBirth={selected.patient_date_of_birth}
                 className="mb-4"
               />
-              <VisitDoctorScheduleActions
-                patientName={selected.patient_name}
-                requestConfirm={requestConfirm}
-                status={selected.status}
-                displayStatus={selected.display_status}
-                invoiceKind={selected.invoice_kind}
-                autoNoShowProcessedAt={selected.auto_no_show_processed_at}
-                checkingIn={checkingIn}
-                saving={appointmentSaving}
-                serviceType={selected.service_type}
-                appointmentDate={selected.appointment_date}
-                startTime={selected.start_time}
-                onCheckIn={() => void handleCheckIn()}
-                onReschedule={() => openReschedule(selected)}
-                onBookNext={() => openBookNext(selected)}
-                onNoShow={() => handleNoShow(selected)}
-                onCancel={() => handleCancel(selected)}
-              />
+              {appointmentBlocksDeskActions(selected.status, selected.invoice_kind) ? (
+                <VisitDeskActions
+                  appointment={{
+                    id: selected.id,
+                    status: selected.status,
+                    display_status: selected.display_status,
+                    invoice_kind: selected.invoice_kind,
+                    auto_no_show_processed_at: selected.auto_no_show_processed_at,
+                    appointment_date: selected.appointment_date,
+                    start_time: selected.start_time,
+                  }}
+                  providers={[]}
+                  checkingIn={false}
+                  savingDesk={appointmentSaving}
+                  waiveLateCancelFee={false}
+                  onWaiveLateCancelFeeChange={() => {}}
+                  within24HoursBeforeStart={() => false}
+                  canReschedule={() => false}
+                  canNoShowOrCancel={() => false}
+                  canMarkCompleted={() => false}
+                  reschedule={{
+                    open: false,
+                    date: "",
+                    time: "",
+                    providerId: "",
+                    onToggle: () => {},
+                    onDateChange: () => {},
+                    onTimeChange: () => {},
+                    onProviderChange: () => {},
+                    onSave: () => {},
+                  }}
+                  billing={
+                    showNoShowBilling
+                      ? {
+                          invoiceId: selected.invoice_id ?? null,
+                          invoiceTotalAmount: selected.invoice_total,
+                          amountPaid: selected.amount_paid ?? undefined,
+                          amountDue: selected.amount_due ?? undefined,
+                          hintLoading: false,
+                          snapshotLoading: false,
+                          previewing: previewingBill,
+                          recordingCash,
+                          onPreview: () => void openPatientBillPreview(selected.invoice_id!),
+                          onRecordCashPayment: () => void recordCashPayment(),
+                          onTerminalCheckout: () => void startTerminalCheckout(),
+                          terminalBusy,
+                          terminalCheckoutId,
+                        }
+                      : undefined
+                  }
+                  onCheckIn={() => {}}
+                  onNoShow={() => {}}
+                  onCancel={() => {}}
+                  onMarkCompleted={() => {}}
+                  onBookNext={() => openBookNext(selected)}
+                  onBookInOpenSlot={
+                    view === "day" || view === "week"
+                      ? () => {
+                          const startMin = parseTimeToMinutes(selected.start_time);
+                          const endMin = parseTimeToMinutes(selected.end_time);
+                          setDeskBookSeed({
+                            providerId: selected.provider,
+                            providerName: selected.provider_name,
+                            dateIso: selected.appointment_date,
+                            startMinute: startMin,
+                            gapStartMin: startMin,
+                            gapEndMin: Math.max(endMin, startMin + 15),
+                          });
+                        }
+                      : undefined
+                  }
+                />
+              ) : (
+                <VisitDoctorScheduleActions
+                  patientName={selected.patient_name}
+                  requestConfirm={requestConfirm}
+                  status={selected.status}
+                  displayStatus={selected.display_status}
+                  invoiceKind={selected.invoice_kind}
+                  autoNoShowProcessedAt={selected.auto_no_show_processed_at}
+                  checkingIn={checkingIn}
+                  saving={appointmentSaving}
+                  serviceType={selected.service_type}
+                  appointmentDate={selected.appointment_date}
+                  startTime={selected.start_time}
+                  onCheckIn={() => void handleCheckIn()}
+                  onReschedule={() => openReschedule(selected)}
+                  onBookNext={() => openBookNext(selected)}
+                  onNoShow={() => handleNoShow(selected)}
+                  onCancel={() => handleCancel(selected)}
+                />
+              )}
+              {terminalCheckoutId && selected?.invoice_id ? (
+                <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50/90 p-3 text-sm text-violet-950">
+                  <p className="font-semibold">Square Terminal</p>
+                  <p className="mt-1 text-xs leading-relaxed">
+                    Complete payment on the desk reader. This panel updates when the device finishes.
+                  </p>
+                  <SquareTerminalCheckoutPoller
+                    checkoutId={terminalCheckoutId}
+                    statusPath="/doctor/terminal_checkout_status/"
+                    onComplete={() => {
+                      setTerminalCheckoutId(null);
+                      void loadAppointments();
+                      toast.success("Terminal payment recorded.");
+                    }}
+                    onTerminalError={(msg) => {
+                      toast.error(msg);
+                      setTerminalCheckoutId(null);
+                    }}
+                  />
+                </div>
+              ) : null}
 
               <div className="mt-6 space-y-4 border-t border-slate-200 pt-6">
                 <VisitPriorChartNotes appointmentId={selected.id} />
@@ -970,6 +1185,9 @@ function DoctorSchedulePageInner() {
       />
 
       <ConfirmDialog />
+      {RecordCashPaymentModal}
+
+      <PatientBillPortalModal bill={patientBillModal} onClose={() => setPatientBillModal(null)} />
 
       <RescheduleVisitSlotsModal reschedule={rescheduleVisit} titleId="doctor-schedule-reschedule-title" />
       <BookNextVisitModal
