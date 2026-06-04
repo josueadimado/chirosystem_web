@@ -2722,7 +2722,7 @@ export default function DoctorDashboardPage() {
                   onKeyDown={(e) => e.key === "Enter" && setPatientDetailId(appt.patient_id)}
                   className="cursor-pointer px-4 py-4 sm:px-5 sm:py-5"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">
                         <PatientNameWithProfile name={appt.patient} profile={appt.patient_payment_profile} />
@@ -2735,146 +2735,127 @@ export default function DoctorDashboardPage() {
                           Owes {formatMoneyUsd(appt.patient_balance_due ?? "0")}
                         </p>
                       ) : null}
-                      <p className="mt-1.5 text-[13px] leading-normal text-slate-500">
+                      <p className="mt-1.5 text-sm leading-snug text-slate-600">
                         {scheduleView !== "day" ? (
-                          <span className="font-medium text-slate-600">
+                          <span className="font-medium text-slate-700">
                             {formatMonthDayYear(appt.appointment_date)} ·{" "}
                           </span>
                         ) : null}
-                        {appt.start_time} – {appt.end_time}
-                        {appt.service ? ` · ${appt.service}` : " · Follow-up"}
+                        <span className="whitespace-nowrap">
+                          {appt.start_time} – {appt.end_time}
+                        </span>
+                        {appt.service ? (
+                          <span className="text-slate-500"> · {appt.service}</span>
+                        ) : (
+                          <span className="text-slate-500"> · Follow-up</span>
+                        )}
                       </p>
                       <AppointmentClientReason reason={appt.reason_for_visit} compact className="mt-2" />
-                    </div>
-                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
-                      <AppointmentStatusBadge
-                        status={statusDisplay(uiStatus)}
-                        size="md"
-                        className="w-fit shrink-0 normal-case"
-                      />
                       {isNoShow && appt.auto_no_show_processed_at ? (
-                        <span className="w-full text-[11px] font-medium text-red-900/90 sm:w-auto sm:text-right">
-                          Marked automatically
-                        </span>
+                        <p className="mt-2 text-[11px] font-medium text-red-900/90">Marked automatically</p>
                       ) : null}
-                      <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                    </div>
+                    <AppointmentStatusBadge
+                      status={statusDisplay(uiStatus)}
+                      size="md"
+                      className="shrink-0 normal-case"
+                    />
+                  </div>
+
+                  <div
+                    className="mt-3 flex flex-col gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    role="presentation"
+                  >
                     {uiStatus === "booked" && (
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void checkInPatient(appt);
-                        }}
+                        onClick={() => void checkInPatient(appt)}
                         disabled={isCheckingIn}
-                        className="min-h-11 w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto sm:min-w-[10rem]"
+                        className="min-h-11 w-full max-w-md rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
                       >
                         {isCheckingIn ? "Completing check-in…" : "Check-in"}
                       </button>
                     )}
                     {uiStatus === "checked_in" && (
-                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                      <div className="flex max-w-md flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startVisit(appt);
-                          }}
+                          onClick={() => startVisit(appt)}
                           disabled={isStarting}
-                          className="min-h-11 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-[14px] font-semibold leading-normal text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50 sm:w-auto sm:min-w-[11rem]"
+                          className="min-h-11 flex-1 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50 sm:flex-none sm:px-6"
                         >
                           Start visit
                         </button>
                         <HelpTip label="Start visit" align="center" tone="emerald">
-                          Opens a large chart-and-bill workspace (you can dock it to the narrow side panel). Document the visit, then
-                          complete when finished.
+                          Opens chart and billing workspace. Document the visit, then complete when finished.
                         </HelpTip>
                       </div>
                     )}
                     {uiStatus === "in_consultation" && (
-                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                      <div className="flex max-w-md flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                          onClick={() => {
                             setConsultWorkspaceExpanded(true);
                             setActiveAppt(appt);
                           }}
-                          className="min-h-11 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-[14px] font-semibold leading-normal text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] sm:w-auto sm:min-w-[11rem]"
+                          className="min-h-11 flex-1 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] sm:flex-none sm:px-6"
                         >
                           Resume visit
                         </button>
                         <HelpTip label="Resume visit" align="center" tone="emerald">
-                          Reopens the consultation workspace for this patient so you can continue charting and billing without
-                          logging out.
+                          Reopens the consultation workspace for this patient.
                         </HelpTip>
                       </div>
                     )}
                     {uiStatus === "awaiting_payment" && (
-                      <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-end">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void openSoapNotesEdit(appt);
-                          }}
-                          className="min-h-11 w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-violet-950 shadow-sm hover:bg-violet-100 sm:flex-1 sm:min-w-[9rem]"
-                        >
-                          Edit SOAP notes
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void openBillingForEdit(appt);
-                          }}
-                          className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-800 shadow-sm hover:border-[#16a349]/40 hover:bg-emerald-50/80 sm:flex-1 sm:min-w-[9rem]"
-                        >
-                          Edit billing
-                        </button>
-                        <HelpTip label="Edit billing" align="center" tone="emerald">
-                          Opens the same chart and procedure workspace so you can add lines or adjust fees while we&apos;re still waiting
-                          on payment. Saving updates the open invoice — confirm the new total with the patient, then collect payment.
-                        </HelpTip>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void resumePaymentForAppointment(appt);
-                          }}
-                          className="min-h-11 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-[14px] font-semibold leading-normal text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] sm:flex-1 sm:min-w-[11rem]"
-                        >
-                          Collect payment
-                        </button>
-                        <HelpTip label="Collect payment" align="center" tone="emerald">
-                          Reopens the green payment banner (desk pay link, card reader). Use if you closed it earlier or need another
-                          attempt. Patient bill still prints only after payment succeeds.
-                        </HelpTip>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void resumePaymentForAppointment(appt, { trySavedCard: true });
-                          }}
-                          className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-700 shadow-sm hover:border-[#16a349]/35 hover:bg-emerald-50/80 hover:text-[#0d5c2e] sm:flex-1 sm:min-w-[10rem]"
-                        >
-                          Retry saved card
-                        </button>
-                        {appt.invoice_id ? (
+                      <div className="space-y-2.5 rounded-xl border border-slate-200/90 bg-slate-50/60 p-3">
+                        <p className="text-xs leading-relaxed text-slate-600">
+                          Chart or invoice changes, then collect payment. Amount due is shown below.
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-3">
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void checkSquarePaymentForAppointment(appt);
-                            }}
-                            className="min-h-11 w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-violet-900 shadow-sm hover:bg-violet-100 sm:flex-1 sm:min-w-[10rem]"
+                            onClick={() => void openSoapNotesEdit(appt)}
+                            className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-sm font-semibold text-violet-950 shadow-sm hover:bg-violet-100"
                           >
-                            Check Square (any device)
+                            Edit SOAP notes
                           </button>
-                        ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void openBillingForEdit(appt)}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:border-[#16a349]/40 hover:bg-emerald-50/80"
+                          >
+                            Edit billing
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void resumePaymentForAppointment(appt)}
+                            className="min-h-11 rounded-xl bg-[#16a349] px-3 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] min-[480px]:col-span-2 lg:col-span-1"
+                          >
+                            Collect payment
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void resumePaymentForAppointment(appt, { trySavedCard: true })}
+                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#16a349]/35 hover:bg-emerald-50/80"
+                          >
+                            Retry saved card
+                          </button>
+                          {appt.invoice_id ? (
+                            <button
+                              type="button"
+                              onClick={() => void checkSquarePaymentForAppointment(appt)}
+                              className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100 min-[480px]:col-span-2 lg:col-span-3"
+                            >
+                              Check Square (any device)
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     )}
-                      </div>
-                    </div>
                   </div>
                 </div>
                 {uiStatus === "awaiting_payment" && appt.invoice_total != null && (

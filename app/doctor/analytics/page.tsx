@@ -84,23 +84,34 @@ function formatSeen(iso: string | null): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** Needs-attention column: capped height + scroll so one long list does not stretch the page. */
 function AttentionList({
   title,
   help,
   empty,
   isEmpty,
+  count,
   children,
 }: {
   title: string;
   help: string;
   empty: string;
   isEmpty: boolean;
+  /** Shown in the heading, e.g. "No upcoming session (24)". */
+  count?: number;
   children: React.ReactNode;
 }) {
+  const heading = count != null && count > 0 ? `${title} (${count})` : title;
   return (
-    <div className="doctor-panel flex min-h-[200px] flex-col">
-      <DoctorSectionLabel help={help}>{title}</DoctorSectionLabel>
-      <div className="min-h-0 flex-1">{isEmpty ? <p className="text-sm text-slate-500">{empty}</p> : children}</div>
+    <div className="doctor-panel flex flex-col">
+      <DoctorSectionLabel help={help}>{heading}</DoctorSectionLabel>
+      {isEmpty ? (
+        <p className="text-sm text-slate-500">{empty}</p>
+      ) : (
+        <div className="max-h-[min(20rem,42vh)] overflow-y-auto overscroll-y-contain rounded-lg border border-slate-100/90 bg-white/50 pr-0.5">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -283,17 +294,18 @@ export default function DoctorAnalyticsPage() {
       </section>
 
       {/* Section 3 — Needs attention */}
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-3 lg:items-start">
         <AttentionList
           title="Missed 2+ sessions"
           help="Last two or more appointments in a row were cancelled or no-show."
           empty="No one flagged — great retention."
           isEmpty={attn.missed_sessions.length === 0}
+          count={attn.missed_sessions.length}
         >
           {attn.missed_sessions.length > 0 ? (
-            <ul className="space-y-3">
+            <ul className="space-y-2 p-2">
               {attn.missed_sessions.map((row) => (
-                <li key={row.patient_id} className="rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-2.5">
+                <li key={row.patient_id} className="rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-2">
                   <p className="font-semibold text-slate-900">{row.name}</p>
                   <p className="text-xs text-slate-600">
                     {row.program} · Last seen {formatSeen(row.last_seen)}
@@ -315,11 +327,12 @@ export default function DoctorAnalyticsPage() {
           help={`Within 2 sessions of the ${planSessions}-visit care plan.`}
           empty="No patients near plan completion."
           isEmpty={attn.completing_soon.length === 0}
+          count={attn.completing_soon.length}
         >
           {attn.completing_soon.length > 0 ? (
-            <ul className="space-y-3">
+            <ul className="space-y-2 p-2">
               {attn.completing_soon.map((row) => (
-                <li key={row.patient_id} className="rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2.5">
+                <li key={row.patient_id} className="rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2">
                   <p className="font-semibold text-slate-900">{row.name}</p>
                   <p className="text-xs text-slate-600">
                     {row.program} · {row.sessions_left} session{row.sessions_left === 1 ? "" : "s"} left
@@ -338,21 +351,22 @@ export default function DoctorAnalyticsPage() {
 
         <AttentionList
           title="No upcoming session"
-          help="Had a visit with you before but nothing scheduled ahead."
+          help="Had a visit with you before but nothing scheduled ahead. Scroll inside this box when the list is long — the rest of the page stays compact."
           empty="Everyone has a future visit booked."
           isEmpty={attn.unscheduled.length === 0}
+          count={attn.unscheduled.length}
         >
           {attn.unscheduled.length > 0 ? (
-            <ul className="space-y-3">
+            <ul className="space-y-2 p-2">
               {attn.unscheduled.map((row) => (
-                <li key={row.patient_id} className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
-                  <p className="font-semibold text-slate-900">{row.name}</p>
-                  <p className="text-xs text-slate-600">
+                <li key={row.patient_id} className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2">
+                  <p className="text-sm font-semibold leading-snug text-slate-900">{row.name}</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-slate-600">
                     {row.program} · Last session {formatSeen(row.last_session)}
                   </p>
                   <Link
                     href={`/doctor/patients/${row.patient_id}/record`}
-                    className="mt-2 inline-block text-xs font-semibold text-[#16a349] hover:underline"
+                    className="mt-1.5 inline-block text-[11px] font-semibold text-[#16a349] hover:underline"
                   >
                     Schedule session →
                   </Link>
