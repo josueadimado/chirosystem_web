@@ -16,6 +16,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
+type BillingEditApiMode = "admin" | "doctor";
+
 type Props = {
   appointmentId: number;
   appointmentDate: string;
@@ -24,10 +26,12 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  /** Admin desk endpoints (default) or doctor-owned appointment endpoints. */
+  apiMode?: BillingEditApiMode;
 };
 
 /**
- * Owner/staff: edit visit billing while appointment is awaiting payment (mirrors doctor flow, uses /admin/revise_visit_billing/).
+ * Edit visit billing (awaiting payment or after visit completed).
  */
 export function AdminVisitBillingModal({
   appointmentId,
@@ -37,6 +41,7 @@ export function AdminVisitBillingModal({
   open,
   onClose,
   onSaved,
+  apiMode = "admin",
 }: Props) {
   const { runWithFeedback, toast } = useAppFeedback();
   const [loading, setLoading] = useState(false);
@@ -51,6 +56,7 @@ export function AdminVisitBillingModal({
   const [professionalDiscountReason, setProfessionalDiscountReason] = useState("");
   const [billLines, setBillLines] = useState<VisitBillLine[]>([]);
   const [invoiceHint, setInvoiceHint] = useState("");
+  const [invoiceWasPaid, setInvoiceWasPaid] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
 
   useEffect(() => {
@@ -81,10 +87,17 @@ export function AdminVisitBillingModal({
             diagnosis_ids?: number[];
             rendered_services: Array<{ service_id: number; quantity: number; unit_price: string }>;
             invoice_number: string;
+            invoice_status?: string;
+            amount_paid?: string;
+            amount_due?: string;
             discount?: string;
             professional_discount_reason?: string;
             total_amount: string;
-          }>(`/admin/visit_billing_for_edit/?appointment_id=${appointmentId}`),
+          }>(
+            apiMode === "doctor"
+              ? `/doctor/${appointmentId}/billing_for_edit/`
+              : `/admin/visit_billing_for_edit/?appointment_id=${appointmentId}`,
+          ),
         ]);
         if (cancelled) return;
         setServices(svcList);
@@ -96,6 +109,7 @@ export function AdminVisitBillingModal({
         setProfessionalDiscount(billing.discount ?? "");
         setProfessionalDiscountReason(billing.professional_discount_reason ?? "");
         setInvoiceHint(`${billing.invoice_number ?? ""} · $${billing.total_amount ?? ""}`.trim());
+        setInvoiceWasPaid(billing.invoice_status === "paid");
         if (!billing.rendered_services?.length) {
           toast.error("No billing lines on this visit.");
           onClose();
@@ -120,7 +134,7 @@ export function AdminVisitBillingModal({
     return () => {
       cancelled = true;
     };
-  }, [open, appointmentId, onClose, toast]);
+  }, [open, appointmentId, apiMode, onClose, toast]);
 
   const sortedBillServices = useMemo(
     () => sortBillableServices(services, bookedServiceId),
@@ -146,21 +160,32 @@ export function AdminVisitBillingModal({
     setSaving(true);
     await runWithFeedback(
       async () => {
-        await apiPost("/admin/revise_visit_billing/", {
-          appointment_id: appointmentId,
-          doctor_notes: doctorNotes,
-          diagnosis_ids: selectedDiagnosisIds,
-          rendered_services: rendered,
-          professional_discount: professionalDiscount.trim() || "0",
-          professional_discount_reason: professionalDiscountReason.trim(),
-          charge_saved_card_if_present: false,
-        });
+        if (apiMode === "doctor") {
+          await apiPost(`/doctor/${appointmentId}/revise_visit_billing/`, {
+            doctor_notes: doctorNotes,
+            diagnosis_ids: selectedDiagnosisIds,
+            rendered_services: rendered,
+            professional_discount: professionalDiscount.trim() || "0",
+            professional_discount_reason: professionalDiscountReason.trim(),
+            charge_saved_card_if_present: false,
+          });
+        } else {
+          await apiPost("/admin/revise_visit_billing/", {
+            appointment_id: appointmentId,
+            doctor_notes: doctorNotes,
+            diagnosis_ids: selectedDiagnosisIds,
+            rendered_services: rendered,
+            professional_discount: professionalDiscount.trim() || "0",
+            professional_discount_reason: professionalDiscountReason.trim(),
+            charge_saved_card_if_present: false,
+          });
+        }
         onSaved();
         onClose();
       },
       {
         loadingMessage: "Updating invoice…",
-        successMessage: "Invoice updated from the schedule.",
+        successMessage: apiMode === "doctor" ? "Invoice updated." : "Invoice updated from the schedule.",
         errorFallback: "Could not update billing.",
       },
     );
@@ -212,6 +237,12 @@ export function AdminVisitBillingModal({
                   </>
                 ) : null}
               </p>
+              {invoiceWasPaid ? (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  This invoice was already paid. Saving changes updates the bill; if the new total is higher than
+                  payments received, the visit moves back to <strong>awaiting payment</strong> for collection.
+                </p>
+              ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-8 sm:py-6">
               {loading ? (

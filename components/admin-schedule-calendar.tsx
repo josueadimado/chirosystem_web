@@ -741,9 +741,9 @@ export function AdminScheduleCalendar({
       {showDeskHint ? (
         <p className="text-sm text-slate-600">
           <span className="font-medium text-[#0d5c2e]">Desk booking:</span> in{" "}
-          <strong>Day</strong> or <strong>Week</strong> view, click open white space on the grid, or click a{" "}
-          <span className="font-medium text-rose-800">cancelled</span> / no-show block to book someone new in that time. Schedule
-          runs through <strong>9:00 PM</strong> for staff.
+          <strong>Day</strong> or <strong>Week</strong> view, click open white space on the grid, or open a visit and use{" "}
+          <strong>Book another patient in this slot</strong> to double-book a time that already has someone. Schedule runs
+          through <strong>9:00 PM</strong> for staff.
         </p>
       ) : null}
 

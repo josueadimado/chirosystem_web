@@ -37,6 +37,8 @@ export type DeskBookSlotSeed = {
   /** Contiguous free window on the admin grid (minutes from midnight) */
   gapStartMin: number;
   gapEndMin: number;
+  /** Admin/staff: book another patient in a slot that already has a visit. */
+  allowDoubleBook?: boolean;
 };
 
 type BookingOptionsResponse = {
@@ -184,7 +186,11 @@ export function AdminDeskBookFromSlotModal({
   }, [selectedStartMinutes, dateIso, todayMinIso]);
 
   const fitsInClickedStrip = useMemo(() => {
-    if (!seed || !gapContextActive || selectedStartMinutes == null || !selectedService) return true;
+    if (!seed || selectedStartMinutes == null || !selectedService) return true;
+    if (seed.allowDoubleBook) {
+      return selectedStartMinutes === seed.startMinute;
+    }
+    if (!gapContextActive) return true;
     const span = deskCalendarSpanMinutes(selectedService);
     const end = selectedStartMinutes + span;
     return selectedStartMinutes >= seed.gapStartMin && end <= seed.gapEndMin;
@@ -267,6 +273,9 @@ export function AdminDeskBookFromSlotModal({
       service_id: String(serviceId),
       desk: "1",
     });
+    if (seed?.allowDoubleBook) {
+      q.set("double_book", "1");
+    }
     void apiGetAuth<{ available_slots?: string[]; slot_start_times?: string[] }>(`/booking-options/availability/?${q}`)
       .then((data) => {
         if (cancelled) return;
@@ -276,7 +285,7 @@ export function AdminDeskBookFromSlotModal({
 
         const strip =
           seed && dateIso === seed.dateIso && providerId === seed.providerId ? seed : null;
-        if (strip) {
+        if (strip && !strip.allowDoubleBook) {
           const span = deskCalendarSpanMinutes(svc);
           const keptLabels: string[] = [];
           const keptTimes: string[] = [];
@@ -289,6 +298,24 @@ export function AdminDeskBookFromSlotModal({
               keptTimes.push(tStr || minutesToHHMMSS(st));
             }
           });
+          labels = keptLabels;
+          resolvedTimes = keptTimes;
+        } else if (strip?.allowDoubleBook) {
+          const keptLabels: string[] = [];
+          const keptTimes: string[] = [];
+          labels.forEach((lab, i) => {
+            const tStr = (resolvedTimes[i] || "").trim();
+            const st = startMinutesForSlotRow(lab, tStr);
+            if (slotStartIsInPastForClinic(dateIso, st, todayMinIso)) return;
+            if (st === strip.startMinute) {
+              keptLabels.push(lab);
+              keptTimes.push(tStr || minutesToHHMMSS(st));
+            }
+          });
+          if (keptLabels.length === 0 && !slotStartIsInPastForClinic(dateIso, strip.startMinute, todayMinIso)) {
+            keptLabels.push(minutesToLabel(strip.startMinute));
+            keptTimes.push(minutesToHHMMSS(strip.startMinute));
+          }
           labels = keptLabels;
           resolvedTimes = keptTimes;
         } else {
@@ -413,8 +440,9 @@ export function AdminDeskBookFromSlotModal({
   ]);
 
   const recurringReady =
-    !repeatEnabled ||
-    (!recurringPreviewLoading && Boolean(recurringPreview?.ok) && Boolean(recurringPreview?.all_available));
+    !seed?.allowDoubleBook &&
+    (!repeatEnabled ||
+      (!recurringPreviewLoading && Boolean(recurringPreview?.ok) && Boolean(recurringPreview?.all_available)));
 
   const canSubmit =
     !saving &&
@@ -487,6 +515,7 @@ export function AdminDeskBookFromSlotModal({
             provider_id: providerId,
             appointment_date: dateIso,
             start_time: selectedSlot,
+            ...(seed.allowDoubleBook ? { allow_double_book: true } : {}),
           });
           onClose();
           await onBooked();
@@ -523,7 +552,7 @@ export function AdminDeskBookFromSlotModal({
     >
       <div className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-8 shadow-xl">
         <h2 id="desk-book-slot-title" className="text-2xl font-bold text-slate-900">
-          Book from schedule
+          {seed.allowDoubleBook ? "Book another patient in this slot" : "Book from schedule"}
         </h2>
         <p className="mt-2 text-base text-slate-600">
           Near <span className="font-semibold text-slate-800">{seedLabel}</span> ·{" "}
@@ -531,17 +560,26 @@ export function AdminDeskBookFromSlotModal({
           {formatWeekdayMonthDayYear(seed.dateIso)}
         </p>
         <p className="mt-1 text-sm text-slate-500">
-          Open strip on calendar: <span className="font-medium text-slate-700">{gapStripLabel}</span>
-          {gapContextActive ? (
-            <span className="block pt-1">
-              Staff may schedule past public online closing (through 9:00 PM). The visit must still fit inside
-              this open strip (visit length
-              {selectedService?.service_type === "massage"
-                ? ` plus ${MASSAGE_DESK_BOOK_TAIL_MINUTES} min schedule cleanup for massage`
-                : ""}
-              ).
+          {seed.allowDoubleBook ? (
+            <span className="block">
+              This time already has a visit on the calendar. You can add a second patient at{" "}
+              <span className="font-medium text-slate-700">{seedLabel}</span> — both will show side by side.
             </span>
-          ) : null}
+          ) : (
+            <>
+              Open strip on calendar: <span className="font-medium text-slate-700">{gapStripLabel}</span>
+              {gapContextActive ? (
+                <span className="block pt-1">
+                  Staff may schedule past public online closing (through 9:00 PM). The visit must still fit inside
+                  this open strip (visit length
+                  {selectedService?.service_type === "massage"
+                    ? ` plus ${MASSAGE_DESK_BOOK_TAIL_MINUTES} min schedule cleanup for massage`
+                    : ""}
+                  ).
+                </span>
+              ) : null}
+            </>
+          )}
         </p>
 
         {optionsLoading ? (
@@ -712,6 +750,7 @@ export function AdminDeskBookFromSlotModal({
               )}
             </label>
 
+            {!seed.allowDoubleBook ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
               <label className="flex cursor-pointer items-start gap-3">
                 <Checkbox
@@ -825,6 +864,7 @@ export function AdminDeskBookFromSlotModal({
                 </div>
               )}
             </div>
+            ) : null}
           </div>
         )}
         <div className="mt-8 flex flex-wrap justify-end gap-3">

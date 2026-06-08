@@ -21,6 +21,8 @@ export default function DoctorPatientHistoryRoute() {
       invoiceBillPath="/doctor/invoice_bill"
       invoiceEmailPath="/doctor/email-patient-bill"
       invoiceSyncPath="/doctor/sync-invoice-payment"
+      allowEditVisitBilling
+      billingEditApiMode="doctor"
     />
   );
 }

@@ -231,6 +231,13 @@ function parseMoneyAmount(amount: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Doctor may revise normal visit invoices after completion or while awaiting payment. */
+function doctorCanEditVisitBilling(appt: Appointment): boolean {
+  if (!appt.visit_id) return false;
+  if (appt.invoice_kind === "no_show_fee" || appt.invoice_kind === "late_cancel_fee") return false;
+  return appt.status === "awaiting_payment" || appt.status === "completed";
+}
+
 function formatMoneyUsd(amount: string | number): string {
   const n = typeof amount === "number" ? amount : parseMoneyAmount(amount);
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -3164,7 +3171,11 @@ export default function DoctorDashboardPage() {
                   </div>
                 )}
                 {appt.status === "completed" && (
-                  <div className="grid grid-cols-1 gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+                  <div
+                    className={`grid grid-cols-1 gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-3 ${
+                      doctorCanEditVisitBilling(appt) ? "sm:grid-cols-3" : "sm:grid-cols-2"
+                    }`}
+                  >
                     <button
                       type="button"
                       onClick={(e) => {
@@ -3175,6 +3186,18 @@ export default function DoctorDashboardPage() {
                     >
                       Edit SOAP notes
                     </button>
+                    {doctorCanEditVisitBilling(appt) ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openBillingForEdit(appt);
+                        }}
+                        className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-800 hover:border-[#16a349]/40 hover:bg-emerald-50/80"
+                      >
+                        Edit billing
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       disabled={bookNext.saving || bookNext.optionsLoading}

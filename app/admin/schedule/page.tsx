@@ -795,12 +795,21 @@ function AdminSchedulePageContent() {
   };
 
   const snapshotInvoice = visitSnapshot?.invoice ?? null;
-  const snapshotInvoiceOpen =
+  const isVisitKindInvoice =
     snapshotInvoice != null &&
+    snapshotInvoice.kind !== "no_show_fee" &&
+    snapshotInvoice.kind !== "late_cancel_fee";
+  const snapshotInvoiceOpen =
+    isVisitKindInvoice &&
     snapshotInvoice.status !== "paid" &&
     snapshotInvoice.status !== "void";
+  const canAdminEditVisitInvoice =
+    isVisitKindInvoice &&
+    snapshotInvoice.status !== "void" &&
+    selected != null &&
+    (selected.status === "awaiting_payment" || selected.status === "completed");
   const billInvoiceId =
-    (snapshotInvoiceOpen ? snapshotInvoice?.id : null) ?? billingInvoiceIdHint ?? null;
+    (isVisitKindInvoice ? snapshotInvoice?.id : null) ?? billingInvoiceIdHint ?? null;
   const billInvoiceTotal = snapshotInvoiceOpen ? snapshotInvoice?.total_amount ?? null : null;
   const billAmountPaid = snapshotInvoiceOpen ? snapshotInvoice?.amount_paid ?? "0" : null;
   const billAmountDue = snapshotInvoiceOpen
@@ -1128,13 +1137,13 @@ function AdminSchedulePageContent() {
                     onSave: () => void submitAdjustDuration(),
                   }}
                   billing={
-                    selected.status === "awaiting_payment" ||
+                    canAdminEditVisitInvoice ||
                     (appointmentUiStatus(selected) === "no_show" && selected.invoice_kind === "no_show_fee")
                       ? {
                           invoiceId: billInvoiceId,
-                          invoiceTotalAmount: billAmountDue ?? billInvoiceTotal,
-                          amountPaid: billAmountPaid ?? undefined,
-                          amountDue: billAmountDue ?? undefined,
+                          invoiceTotalAmount: billAmountDue ?? billInvoiceTotal ?? snapshotInvoice?.total_amount,
+                          amountPaid: billAmountPaid ?? snapshotInvoice?.amount_paid ?? undefined,
+                          amountDue: billAmountDue ?? snapshotInvoice?.amount_due ?? undefined,
                           hintLoading: billingHintLoading,
                           snapshotLoading: visitSnapshotLoading,
                           previewing: previewingBill,
@@ -1142,12 +1151,15 @@ function AdminSchedulePageContent() {
                           onPreview: () => {
                             if (billInvoiceId != null) void openPatientBillPreview(billInvoiceId);
                           },
-                          onEditBilling:
-                            selected.status === "awaiting_payment"
-                              ? () => setBillingEditForAppointment(selected)
-                              : undefined,
-                          onRecordCashPayment: () => void recordCashPayment(),
-                          onTerminalCheckout: () => void startTerminalCheckout(),
+                          onEditBilling: canAdminEditVisitInvoice
+                            ? () => setBillingEditForAppointment(selected)
+                            : undefined,
+                          onRecordCashPayment: snapshotInvoiceOpen
+                            ? () => void recordCashPayment()
+                            : undefined,
+                          onTerminalCheckout: snapshotInvoiceOpen
+                            ? () => void startTerminalCheckout()
+                            : undefined,
                           terminalBusy,
                           terminalCheckoutId,
                         }
@@ -1171,6 +1183,23 @@ function AdminSchedulePageContent() {
                             startMinute: startMin,
                             gapStartMin: startMin,
                             gapEndMin: Math.max(endMin, startMin + 15),
+                          });
+                        }
+                      : undefined
+                  }
+                  onBookAnotherInSlot={
+                    view === "day" || view === "week"
+                      ? () => {
+                          const startMin = parseTimeToMinutes(selected.start_time);
+                          const endMin = parseTimeToMinutes(selected.end_time);
+                          setDeskBookSeed({
+                            providerId: selected.provider,
+                            providerName: selected.provider_name,
+                            dateIso: selected.appointment_date,
+                            startMinute: startMin,
+                            gapStartMin: startMin,
+                            gapEndMin: Math.max(endMin, startMin + 15),
+                            allowDoubleBook: true,
                           });
                         }
                       : undefined

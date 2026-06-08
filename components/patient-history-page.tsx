@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useAppFeedback } from "@/components/app-feedback";
 import { Loader } from "@/components/loader";
 import { EmailBillButton } from "@/components/email-bill-button";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+import { useRecordCashPayment } from "@/components/record-cash-payment-modal";
 import { usePatientBillEmail } from "@/hooks/use-patient-bill-email";
 import {
   formatPatientBillEmailSentMessage,
@@ -16,10 +18,20 @@ import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
 import { cn } from "@/lib/utils";
 import { clinicTodayIso } from "@/lib/format-date";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import { parseMoneyAmount } from "@/lib/record-cash-prompt";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { CalendarClock, FileText, Printer, Receipt } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+const AdminVisitBillingModal = dynamic(
+  () =>
+    import("@/components/admin-visit-billing-modal").then((m) => ({
+      default: m.AdminVisitBillingModal,
+    })),
+  { ssr: false },
+);
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
@@ -50,6 +62,7 @@ type AppointmentHistoryRow = {
   start_time: string;
   end_time: string;
   service: string | null;
+  booked_service_id?: number | null;
   provider: string | null;
   status: string;
   clinical_handoff_notes: string;
@@ -237,36 +250,65 @@ function visitHasBill(a: AppointmentHistoryRow): boolean {
   return Boolean(a.invoice?.id);
 }
 
+function invoiceAmountDue(inv: NonNullable<AppointmentHistoryRow["invoice"]>): number {
+  const raw = inv.remaining_client_responsibility_total ?? inv.total_amount;
+  return parseMoneyAmount(raw);
+}
+
+function invoiceIsUnpaid(inv: AppointmentHistoryRow["invoice"]): inv is NonNullable<AppointmentHistoryRow["invoice"]> {
+  return Boolean(inv && inv.status !== "paid" && invoiceAmountDue(inv) > 0.009);
+}
+
+/** Normal visit invoice on completed or awaiting-payment appointment. */
+function canEditVisitInvoice(a: AppointmentHistoryRow): boolean {
+  const inv = a.invoice;
+  if (!inv || inv.status === "void") return false;
+  if (inv.kind === "no_show_fee" || inv.kind === "late_cancel_fee") return false;
+  if (inv.kind && inv.kind !== "visit") return false;
+  if (!a.visit) return false;
+  return a.status === "awaiting_payment" || a.status === "completed";
+}
+
 function VisitBillPanel({
   appointment,
+  patientName,
   onPrint,
   onEmail,
   onSyncPayment,
   onConfirmPaid,
+  onRecordCashPayment,
+  onEditBilling,
   printing,
   emailing,
   emailSentTo,
   syncing,
   confirming,
+  recordingCash,
 }: {
   appointment: AppointmentHistoryRow;
+  patientName: string;
   onPrint: (invoiceId: number, invoiceStatus: string) => void;
   onEmail?: (invoiceId: number) => void;
   onSyncPayment?: (invoiceId: number) => void;
   onConfirmPaid?: (invoiceId: number, invoiceNumber: string) => void;
+  onRecordCashPayment?: () => void;
+  onEditBilling?: () => void;
   printing: boolean;
   emailing?: boolean;
   emailSentTo?: string | null;
   syncing?: boolean;
   confirming?: boolean;
+  recordingCash?: boolean;
 }) {
   const inv = appointment.invoice;
   const lines = appointment.visit?.rendered_services ?? [];
+  const unpaid = invoiceIsUnpaid(inv);
+  const isPenaltyBill = inv?.kind === "no_show_fee" || inv?.kind === "late_cancel_fee";
   const awaiting =
-    appointment.status === "awaiting_payment" &&
-    inv &&
-    inv.status !== "paid" &&
-    parseFloat(inv.remaining_client_responsibility_total ?? inv.total_amount) > 0;
+    unpaid &&
+    (appointment.status === "awaiting_payment" ||
+      appointment.status === "no_show" ||
+      isPenaltyBill);
 
   if (!inv) {
     return (
@@ -280,14 +322,48 @@ function VisitBillPanel({
   }
 
   return (
-    <div className="rounded-xl border-2 border-[#0f766e]/25 bg-gradient-to-b from-[#f0fdfa] to-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#0f766e]/15 pb-3">
+    <div
+      className={cn(
+        "rounded-xl border-2 p-4 shadow-sm",
+        isPenaltyBill
+          ? "border-red-200/90 bg-gradient-to-b from-red-50/80 to-white"
+          : "border-[#0f766e]/25 bg-gradient-to-b from-[#f0fdfa] to-white",
+      )}
+    >
+      <div
+        className={cn(
+          "flex flex-wrap items-start justify-between gap-3 border-b pb-3",
+          isPenaltyBill ? "border-red-200/80" : "border-[#0f766e]/15",
+        )}
+      >
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0f766e]">Patient bill</p>
+          <p
+            className={cn(
+              "text-[10px] font-bold uppercase tracking-[0.16em]",
+              isPenaltyBill ? "text-red-900" : "text-[#0f766e]",
+            )}
+          >
+            {isPenaltyBill ? invoiceKindLabel(inv.kind) : "Patient bill"}
+          </p>
           <p className="mt-1 font-mono text-sm font-bold text-slate-900">{inv.invoice_number}</p>
           <p className="mt-0.5 text-xs capitalize text-slate-600">{inv.status.replace(/_/g, " ")}</p>
+          {isPenaltyBill && unpaid ? (
+            <p className="mt-1 text-xs text-red-950/90">
+              {patientName} missed or cancelled this visit — collect the fee below when they pay.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          {unpaid && onRecordCashPayment ? (
+            <button
+              type="button"
+              disabled={recordingCash}
+              onClick={onRecordCashPayment}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-950 shadow-sm hover:bg-emerald-100 disabled:opacity-60"
+            >
+              {recordingCash ? "Recording…" : "Record cash payment"}
+            </button>
+          ) : null}
           {awaiting && onSyncPayment ? (
             <button
               type="button"
@@ -323,6 +399,15 @@ function VisitBillPanel({
               sentTo={emailSentTo}
             />
           ) : null}
+          {onEditBilling ? (
+            <button
+              type="button"
+              onClick={onEditBilling}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#16a349]/50 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-[#d1fae5]"
+            >
+              Edit billing
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={printing}
@@ -334,6 +419,12 @@ function VisitBillPanel({
           </button>
         </div>
       </div>
+      {onEditBilling && inv.status === "paid" && !isPenaltyBill ? (
+        <p className="mt-3 text-xs text-slate-600">
+          Paid already? Use <strong>Edit billing</strong> to fix lines or discounts — if the new total is higher than
+          payments received, the visit reopens for collection.
+        </p>
+      ) : null}
 
       {lines.length > 0 ? (
         <div className="mt-3 overflow-x-auto">
@@ -462,6 +553,7 @@ function VisitListRow({
 
 function VisitRecordCard({
   appointment,
+  patientName,
   handoffValue,
   onHandoffChange,
   savingHandoff,
@@ -471,13 +563,17 @@ function VisitRecordCard({
   onEmailBill,
   onSyncPayment,
   onConfirmPaid,
+  onRecordCashPayment,
+  onEditBilling,
   printingBill,
   emailingBill,
   emailSentTo,
   syncingBill,
   confirmingBill,
+  recordingCash,
 }: {
   appointment: AppointmentHistoryRow;
+  patientName: string;
   handoffValue: string;
   onHandoffChange: (v: string) => void;
   savingHandoff: boolean;
@@ -487,11 +583,14 @@ function VisitRecordCard({
   onEmailBill?: (invoiceId: number) => void;
   onSyncPayment?: (invoiceId: number) => void;
   onConfirmPaid?: (invoiceId: number, invoiceNumber: string) => void;
+  onRecordCashPayment?: () => void;
+  onEditBilling?: () => void;
   printingBill: boolean;
   emailingBill?: boolean;
   emailSentTo?: string | null;
   syncingBill?: boolean;
   confirmingBill?: boolean;
+  recordingCash?: boolean;
 }) {
   const a = appointment;
   const dateLabel = formatWeekdayMonthDayYear(a.appointment_date);
@@ -622,15 +721,19 @@ function VisitRecordCard({
         <section className={cn(panel === "chart" ? "hidden lg:block" : "")}>
           <VisitBillPanel
             appointment={a}
+            patientName={patientName}
             onPrint={onPrintBill}
             onEmail={onEmailBill}
             onSyncPayment={onSyncPayment}
             onConfirmPaid={onConfirmPaid}
+            onRecordCashPayment={onRecordCashPayment}
+            onEditBilling={onEditBilling}
             printing={printingBill}
             emailing={emailingBill}
             emailSentTo={emailSentTo}
             syncing={syncingBill}
             confirming={confirmingBill}
+            recordingCash={recordingCash}
           />
         </section>
       </div>
@@ -650,6 +753,8 @@ export function PatientHistoryPage({
   invoiceSyncPath,
   invoiceConfirmPaidPath,
   billingHref,
+  allowEditVisitBilling,
+  billingEditApiMode,
 }: {
   patientId: number;
   detailPath: string;
@@ -659,6 +764,10 @@ export function PatientHistoryPage({
   chartHref?: string;
   /** Admin only — link to Invoices & Billing (search patient name there). */
   billingHref?: string;
+  /** Open billing editor for completed or awaiting-payment visit invoices. */
+  allowEditVisitBilling?: boolean;
+  /** Which API endpoints the billing editor uses (default admin desk). */
+  billingEditApiMode?: "admin" | "doctor";
   scheduleHrefPrefix: string;
   /** e.g. `/admin/invoice_bill` or `/doctor/invoice_bill` */
   invoiceBillPath: string;
@@ -679,7 +788,11 @@ export function PatientHistoryPage({
   const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
   const [syncingInvoiceId, setSyncingInvoiceId] = useState<number | null>(null);
   const [confirmingInvoiceId, setConfirmingInvoiceId] = useState<number | null>(null);
+  const [recordingCashInvoiceId, setRecordingCashInvoiceId] = useState<number | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
+  const [billingEditAppointment, setBillingEditAppointment] = useState<AppointmentHistoryRow | null>(null);
+  const { runWithFeedback } = useAppFeedback();
+  const { requestCashAmount, RecordCashPaymentModal } = useRecordCashPayment();
 
   const loadDetail = async () => {
     setLoading(true);
@@ -764,6 +877,56 @@ export function PatientHistoryPage({
       }
     },
     [invoiceConfirmPaidPath],
+  );
+
+  const recordCashPayment = useCallback(
+    async (appointment: AppointmentHistoryRow, patientName: string) => {
+      const inv = appointment.invoice;
+      if (!inv || !invoiceIsUnpaid(inv)) {
+        setHandoffMsg("This invoice is already paid in full.");
+        return;
+      }
+      const amountDue = inv.remaining_client_responsibility_total ?? inv.total_amount;
+      const subtitle =
+        inv.kind === "no_show_fee" || appointment.status === "no_show"
+          ? `No-show fee — ${patientName}`
+          : inv.kind === "late_cancel_fee"
+            ? `Late cancel fee — ${patientName}`
+            : patientName;
+      const cashAmount = await requestCashAmount({
+        invoiceTotal: inv.total_amount,
+        amountPaid: inv.payments_received_total ?? "0",
+        amountDue,
+        subtitle,
+      });
+      if (!cashAmount) return;
+      setRecordingCashInvoiceId(inv.id);
+      setHandoffMsg("");
+      await runWithFeedback(
+        async () => {
+          const out = await apiPost<{
+            fully_paid?: boolean;
+            amount_due?: string;
+          }>(`/invoices/${inv.id}/pay/`, {
+            amount: cashAmount,
+            payment_method: "cash",
+            payment_reference: "",
+          });
+          await loadDetail();
+          return out;
+        },
+        {
+          loadingMessage: "Recording cash payment…",
+          successMessage: (out) =>
+            out?.fully_paid
+              ? "Cash recorded — invoice paid in full."
+              : `Cash recorded — $${out?.amount_due ?? amountDue} still due on this invoice.`,
+          errorFallback: "Could not record cash payment. Try again.",
+        },
+      );
+      setRecordingCashInvoiceId(null);
+    },
+    [requestCashAmount, runWithFeedback],
   );
 
   const openBill = useCallback(
@@ -872,7 +1035,8 @@ export function PatientHistoryPage({
             className={cn(
               "mt-2 rounded-lg px-3 py-2 text-xs font-medium",
               handoffMsg === "Reminders & handoff saved." ||
-              /marked paid|already marked paid|payment found/i.test(handoffMsg) ||
+              handoffMsg === "Invoice updated." ||
+              /marked paid|already marked paid|payment found|cash recorded/i.test(handoffMsg) ||
               isPatientBillEmailSuccessMessage(handoffMsg)
                 ? "bg-emerald-50 text-emerald-900"
                 : "bg-amber-50 text-amber-950",
@@ -938,6 +1102,7 @@ export function PatientHistoryPage({
               <VisitRecordCard
                 key={selectedVisit.id}
                 appointment={selectedVisit}
+                patientName={patientFullName(detail.first_name, detail.last_name)}
                 handoffValue={handoffEdits[selectedVisit.id] ?? ""}
                 onHandoffChange={(v) => setHandoffEdits((prev) => ({ ...prev, [selectedVisit.id]: v }))}
                 savingHandoff={savingHandoffId === selectedVisit.id}
@@ -951,6 +1116,15 @@ export function PatientHistoryPage({
                     ? (id, no) => void confirmPaid(id, no)
                     : undefined
                 }
+                onRecordCashPayment={
+                  invoiceIsUnpaid(selectedVisit.invoice)
+                    ? () =>
+                        void recordCashPayment(
+                          selectedVisit,
+                          patientFullName(detail.first_name, detail.last_name),
+                        )
+                    : undefined
+                }
                 printingBill={printingInvoiceId === selectedVisit.invoice?.id}
                 emailingBill={
                   selectedVisit.invoice?.id != null && billEmail.isSending(selectedVisit.invoice.id)
@@ -962,6 +1136,12 @@ export function PatientHistoryPage({
                 }
                 syncingBill={syncingInvoiceId === selectedVisit.invoice?.id}
                 confirmingBill={confirmingInvoiceId === selectedVisit.invoice?.id}
+                recordingCash={recordingCashInvoiceId === selectedVisit.invoice?.id}
+                onEditBilling={
+                  allowEditVisitBilling && canEditVisitInvoice(selectedVisit)
+                    ? () => setBillingEditAppointment(selectedVisit)
+                    : undefined
+                }
               />
             ) : (
               <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
@@ -971,6 +1151,25 @@ export function PatientHistoryPage({
           </main>
         </div>
       )}
+
+      {RecordCashPaymentModal}
+
+      {allowEditVisitBilling && billingEditAppointment ? (
+        <AdminVisitBillingModal
+          open
+          apiMode={billingEditApiMode ?? "admin"}
+          appointmentId={billingEditAppointment.id}
+          appointmentDate={billingEditAppointment.appointment_date}
+          bookedServiceId={billingEditAppointment.booked_service_id ?? null}
+          patientLabel={patientFullName(detail?.first_name ?? "", detail?.last_name ?? "")}
+          onClose={() => setBillingEditAppointment(null)}
+          onSaved={() => {
+            void loadDetail();
+            setBillingEditAppointment(null);
+            setHandoffMsg("Invoice updated.");
+          }}
+        />
+      ) : null}
 
       <PatientBillPortalModal
         bill={patientBillModal}

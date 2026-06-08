@@ -22,6 +22,7 @@ export default function AdminPatientHistoryRoute() {
       invoiceSyncPath="/admin/sync-invoice-payment"
       invoiceConfirmPaidPath="/admin/confirm-invoice-paid"
       billingHref="/admin/billing"
+      allowEditVisitBilling
     />
   );
 }

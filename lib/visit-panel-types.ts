@@ -13,6 +13,7 @@ export type VisitSnapshotLine = {
 export type VisitSnapshotInvoice = {
   id: number;
   invoice_number: string;
+  kind?: string;
   subtotal: string;
   discount: string;
   credit_applied_total: string;

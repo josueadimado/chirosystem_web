@@ -7,6 +7,7 @@ import { XIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
+
 type DialogContextValue = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -104,7 +105,7 @@ function DialogOverlay({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="dialog-overlay"
       aria-hidden
       className={cn(
-        "fixed inset-0 z-[200] bg-slate-900/40 supports-backdrop-filter:backdrop-blur-sm",
+        "fixed inset-0 z-[450] bg-slate-900/40 supports-backdrop-filter:backdrop-blur-sm",
         className
       )}
       onClick={() => onOpenChange(false)}
@@ -133,7 +134,7 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
     <>
       <div
         aria-hidden
-        className="fixed inset-0 z-[200] bg-slate-900/40 supports-backdrop-filter:backdrop-blur-sm"
+        className="fixed inset-0 z-[450] bg-slate-900/40 supports-backdrop-filter:backdrop-blur-sm"
         onClick={() => onOpenChange(false)}
       />
       <div
@@ -141,7 +142,7 @@ function DialogContent({ className, children, showCloseButton = true, ...props }
         aria-modal="true"
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-1/2 z-[200] grid w-[min(100%-2rem,100vw-2rem)] min-w-0 max-w-[calc(100%-2rem)] max-h-[min(calc(100dvh-2rem),44rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-2xl bg-background p-6 text-[14px] leading-normal shadow-xl ring-1 ring-foreground/10 outline-none sm:min-w-[480px] sm:max-w-lg",
+          "fixed top-[50%] left-1/2 z-[450] grid w-[min(100%-2rem,100vw-2rem)] min-w-0 max-w-[calc(100%-2rem)] max-h-[min(calc(100dvh-2rem),44rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-2xl bg-background p-6 text-[14px] leading-normal shadow-xl ring-1 ring-foreground/10 outline-none sm:min-w-[480px] sm:max-w-lg",
           className
         )}
         onClick={(e) => e.stopPropagation()}

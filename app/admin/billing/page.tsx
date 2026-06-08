@@ -286,12 +286,12 @@ export default function AdminBillingPage() {
     selected &&
     (selected.status === "issued" || selected.status === "overdue" || selected.status === "draft");
 
-  /** Same rules as /admin/revise_visit_billing/ — visit invoices while appointment awaits payment */
+  /** Same rules as /admin/revise_visit_billing/ — normal visit invoices (open or already paid). */
   const canEditVisitBilling =
     selected &&
-    canRecordPayment &&
     selected.kind === "visit" &&
-    selected.appointment_status === "awaiting_payment";
+    selected.status !== "void" &&
+    (selected.appointment_status === "awaiting_payment" || selected.appointment_status === "completed");
 
   const submitPayment = async () => {
     if (!selected || !canRecordPayment) return;
@@ -899,21 +899,32 @@ export default function AdminBillingPage() {
               )}
 
               {selected.status === "paid" && (
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <EmailBillButton
-                    onClick={() => void billEmail.send(selected.id)}
-                    sending={billEmail.isSending(selected.id)}
-                    sentTo={billEmail.sentFor(selected.id)}
-                    className="w-full sm:flex-1"
-                  />
-                  <button
-                    type="button"
-                    disabled={printBusy}
-                    onClick={() => void printBill(selected.id)}
-                    className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50 sm:flex-1"
-                  >
-                    {printBusy ? "Loading…" : "Print patient bill"}
-                  </button>
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <EmailBillButton
+                      onClick={() => void billEmail.send(selected.id)}
+                      sending={billEmail.isSending(selected.id)}
+                      sentTo={billEmail.sentFor(selected.id)}
+                      className="w-full sm:flex-1"
+                    />
+                    <button
+                      type="button"
+                      disabled={printBusy}
+                      onClick={() => void printBill(selected.id)}
+                      className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50 sm:flex-1"
+                    >
+                      {printBusy ? "Loading…" : "Print patient bill"}
+                    </button>
+                  </div>
+                  {canEditVisitBilling ? (
+                    <button
+                      type="button"
+                      onClick={() => setBillingEditAppointmentId(selected.appointment_id)}
+                      className="w-full rounded-xl border border-[#16a349]/40 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-[#d1fae5]"
+                    >
+                      Edit billing (lines &amp; diagnosis)
+                    </button>
+                  ) : null}
                 </div>
               )}
 

@@ -154,7 +154,7 @@ export function AppFeedbackProvider({ children }: { children: React.ReactNode })
         {/* Busy overlay */}
         {busyDepth > 0 && (
           <div
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/35 backdrop-blur-[3px] animate-fade-in"
+            className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/35 backdrop-blur-[3px] animate-fade-in"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby={liveId}
@@ -168,7 +168,7 @@ export function AppFeedbackProvider({ children }: { children: React.ReactNode })
 
         {/* Toasts */}
         <div
-          className="pointer-events-none fixed bottom-4 right-4 z-[210] flex max-w-[min(22rem,calc(100vw-2rem))] flex-col gap-2"
+          className="pointer-events-none fixed bottom-4 right-4 z-[510] flex max-w-[min(22rem,calc(100vw-2rem))] flex-col gap-2"
           aria-live="polite"
         >
           {toasts.map((t) => (

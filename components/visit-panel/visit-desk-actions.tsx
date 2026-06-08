@@ -82,6 +82,7 @@ export function VisitDeskActions({
   onMarkCompleted,
   onBookNext,
   onBookInOpenSlot,
+  onBookAnotherInSlot,
 }: {
   appointment: DeskAppointmentActions;
   providers: DeskProviderOption[];
@@ -104,6 +105,8 @@ export function VisitDeskActions({
   onBookNext: () => void;
   /** Opens desk booking for this time block (no-show / cancelled slots on day or week schedule). */
   onBookInOpenSlot?: () => void;
+  /** Admin: book a second patient in the same time slot as this visit. */
+  onBookAnotherInSlot?: () => void;
 }) {
   const uiStatus =
     appointment.display_status ??
@@ -221,13 +224,42 @@ export function VisitDeskActions({
 
   if (appointment.status === "completed") {
     return (
-      <button
-        type="button"
-        onClick={onBookNext}
-        className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 transition hover:bg-[#13823d]"
-      >
-        Book next visit
-      </button>
+      <div className="space-y-3">
+        {billing?.onEditBilling ? (
+          <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-4 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Visit invoice</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Correct services, diagnosis, or discounts on this completed visit.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              {billing.onPreview ? (
+                <button
+                  type="button"
+                  disabled={billing.previewing}
+                  onClick={billing.onPreview}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:flex-1"
+                >
+                  {billing.previewing ? "Opening…" : "View bill"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={billing.onEditBilling}
+                className="w-full rounded-xl border border-[#16a349]/50 bg-[#16a349] px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#13823d] sm:flex-1"
+              >
+                Edit billing
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={onBookNext}
+          className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 transition hover:bg-[#13823d]"
+        >
+          Book next visit
+        </button>
+      </div>
     );
   }
 
@@ -514,6 +546,16 @@ export function VisitDeskActions({
           className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950 hover:bg-emerald-100 disabled:opacity-50"
         >
           Mark completed
+        </button>
+      ) : null}
+
+      {onBookAnotherInSlot ? (
+        <button
+          type="button"
+          onClick={onBookAnotherInSlot}
+          className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-100"
+        >
+          Book another patient in this slot
         </button>
       ) : null}
     </>
