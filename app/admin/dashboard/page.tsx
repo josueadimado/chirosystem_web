@@ -11,13 +11,6 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type RecentActivityKind = "check_in" | "completed" | "payment" | "other";
-
-type RecentActivityItem = {
-  text: string;
-  kind: RecentActivityKind;
-};
-
 type TodayScheduleRow = {
   id: number;
   patient_name: string;
@@ -48,36 +41,9 @@ type DashboardSummary = {
   daily_revenue: string;
   unpaid_invoices: number;
   today_schedule: TodayScheduleRow[];
-  recent_activity: RecentActivityItem[] | string[];
   today_display?: string;
   as_of_display?: string;
 };
-
-function normalizeRecentActivity(raw: DashboardSummary["recent_activity"]): RecentActivityItem[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item) => {
-    if (typeof item === "string") {
-      return { text: item, kind: "other" as RecentActivityKind };
-    }
-    const k = item.kind;
-    const kind: RecentActivityKind =
-      k === "check_in" || k === "completed" || k === "payment" ? k : "other";
-    return { text: item.text || "", kind };
-  });
-}
-
-function activityKindStyles(kind: RecentActivityKind): { bar: string; dot: string } {
-  switch (kind) {
-    case "check_in":
-      return { bar: "border-l-[#16a349]", dot: "bg-[#16a349]" };
-    case "completed":
-      return { bar: "border-l-sky-500", dot: "bg-sky-500" };
-    case "payment":
-      return { bar: "border-l-violet-500", dot: "bg-violet-500" };
-    default:
-      return { bar: "border-l-slate-300", dot: "bg-slate-400" };
-  }
-}
 
 function scheduleRowMinutes(row: TodayScheduleRow): number {
   if (typeof row.start_minutes === "number") return row.start_minutes;
@@ -187,7 +153,7 @@ export default function AdminDashboardPage() {
       <div className="space-y-6">
         <AdminPageIntro
           title="Overview"
-          description="A quick snapshot of today’s visits, revenue, and what happened recently."
+          description="Today’s visits, revenue, and your full day schedule."
           pageHelp="Numbers refresh when you open or reload this page. Use the links below to jump into the full schedule or billing workflows."
         />
         <Loader variant="page" label="Loading dashboard" sublabel="Summarizing your clinic…" />
@@ -200,7 +166,7 @@ export default function AdminDashboardPage() {
       <div className="space-y-6">
         <AdminPageIntro
           title="Overview"
-          description="A quick snapshot of today’s visits, revenue, and what happened recently."
+          description="Today’s visits, revenue, and your full day schedule."
           pageHelp="Numbers refresh when you open or reload this page."
         />
         <div className="admin-panel border-rose-200 bg-rose-50 text-rose-800">
@@ -224,7 +190,6 @@ export default function AdminDashboardPage() {
     ? data.daily_revenue
     : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(revenue);
 
-  const activityItems = normalizeRecentActivity(data.recent_activity);
   const scheduleCount = data.today_schedule.length;
   const todayLine =
     data.today_display && data.as_of_display
@@ -240,11 +205,11 @@ export default function AdminDashboardPage() {
       <div className="space-y-2">
         <AdminPageIntro
           title="Overview"
-          description="A quick snapshot of today’s visits, revenue, and what happened recently."
+          description="Today’s visits, revenue, and your full day schedule."
           pageHelp={
             <>
               All counts below are for <strong>today’s calendar date</strong> in the clinic’s time zone.{" "}
-              <strong>Today&apos;s schedule</strong> lists every visit for the day (including no-shows and cancelled). Click a row to open it on the full calendar.
+              <strong>Today&apos;s schedule</strong> lists every visit for the day. Click a row to open it on the full calendar.
             </>
           }
         />
@@ -430,32 +395,6 @@ export default function AdminDashboardPage() {
             ))}
           </div>
         )}
-      </section>
-
-      <section className="admin-panel flex min-h-[200px] flex-col lg:max-w-2xl">
-        <div className="mb-3 flex items-start justify-between gap-2">
-          <AdminSectionLabel help="Check-ins, completed visits, and payments recorded today. Newest updates first.">
-            Recent activity
-          </AdminSectionLabel>
-        </div>
-        <ul className="min-h-0 flex-1 space-y-0 divide-y divide-slate-100">
-          {activityItems.length === 0 ? (
-            <li className="flex flex-1 flex-col justify-center py-10 text-center">
-              <p className="text-sm font-medium text-slate-600">Nothing logged here yet today.</p>
-              <p className="mt-1 text-xs text-slate-500">Check-ins and payments will show as they happen.</p>
-            </li>
-          ) : (
-            activityItems.map((item, i) => {
-              const { bar, dot } = activityKindStyles(item.kind);
-              return (
-                <li key={`${item.kind}-${i}`} className={cn("flex gap-3 border-l-4 py-3 pl-3 pr-1", bar)}>
-                  <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dot)} aria-hidden />
-                  <span className="min-w-0 text-[14px] leading-relaxed text-slate-700">{item.text}</span>
-                </li>
-              );
-            })
-          )}
-        </ul>
       </section>
     </div>
   );
