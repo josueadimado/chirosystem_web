@@ -315,7 +315,8 @@ export function unionProviderBookableGaps(
   for (const pid of providerIds) {
     merged.push(
       ...providerDayOpenGaps(pid, isoDate, appointments, blocks, dayEndMin, deskBooking, {
-        gapOverlays: true,
+        /** Desk booking: treat cancelled/no-show slots as open (same as the availability API). */
+        gapOverlays: !deskBooking,
       }),
     );
   }

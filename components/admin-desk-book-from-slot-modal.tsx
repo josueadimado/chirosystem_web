@@ -185,10 +185,19 @@ export function AdminDeskBookFromSlotModal({
     return slotStartIsInPastForClinic(dateIso, selectedStartMinutes, todayMinIso);
   }, [selectedStartMinutes, dateIso, todayMinIso]);
 
+  const selectedSlotListed = useMemo(() => {
+    if (!selectedSlot || slotTimes.length === 0) return false;
+    if (slotTimes.some((t) => t === selectedSlot)) return true;
+    if (!selectedSlot.includes(":")) return false;
+    const selMin = parseTimeToMinutes(selectedSlot);
+    return slotTimes.some((t) => t && parseTimeToMinutes(t) === selMin);
+  }, [selectedSlot, slotTimes]);
+
+  /** Soft check for UI hints — submit trusts the start-time dropdown list instead. */
   const fitsInClickedStrip = useMemo(() => {
     if (!seed || selectedStartMinutes == null || !selectedService) return true;
     if (seed.allowDoubleBook) {
-      return selectedStartMinutes === seed.startMinute;
+      return Math.abs(selectedStartMinutes - seed.startMinute) < 15;
     }
     if (!gapContextActive) return true;
     const span = deskCalendarSpanMinutes(selectedService);
@@ -279,9 +288,25 @@ export function AdminDeskBookFromSlotModal({
     void apiGetAuth<{ available_slots?: string[]; slot_start_times?: string[] }>(`/booking-options/availability/?${q}`)
       .then((data) => {
         if (cancelled) return;
-        let labels = data.available_slots ?? [];
+        const rawLabels = data.available_slots ?? [];
         const timesRaw = data.slot_start_times ?? [];
-        let resolvedTimes = timesRaw.length ? timesRaw : labels.map(() => "");
+        const rawTimes = timesRaw.length ? timesRaw : rawLabels.map(() => "");
+
+        const filterFutureSlots = (labs: string[], times: string[]) => {
+          const keptLabels: string[] = [];
+          const keptTimes: string[] = [];
+          labs.forEach((lab, i) => {
+            const tStr = (times[i] || "").trim();
+            const st = startMinutesForSlotRow(lab, tStr);
+            if (slotStartIsInPastForClinic(dateIso, st, todayMinIso)) return;
+            keptLabels.push(lab);
+            keptTimes.push(tStr || minutesToHHMMSS(st));
+          });
+          return { keptLabels, keptTimes };
+        };
+
+        let labels = rawLabels;
+        let resolvedTimes = rawTimes;
 
         const strip =
           seed && dateIso === seed.dateIso && providerId === seed.providerId ? seed : null;
@@ -289,8 +314,8 @@ export function AdminDeskBookFromSlotModal({
           const span = deskCalendarSpanMinutes(svc);
           const keptLabels: string[] = [];
           const keptTimes: string[] = [];
-          labels.forEach((lab, i) => {
-            const tStr = (resolvedTimes[i] || "").trim();
+          rawLabels.forEach((lab, i) => {
+            const tStr = (rawTimes[i] || "").trim();
             const st = startMinutesForSlotRow(lab, tStr);
             if (slotStartIsInPastForClinic(dateIso, st, todayMinIso)) return;
             if (st >= strip.gapStartMin && st + span <= strip.gapEndMin) {
@@ -298,16 +323,23 @@ export function AdminDeskBookFromSlotModal({
               keptTimes.push(tStr || minutesToHHMMSS(st));
             }
           });
-          labels = keptLabels;
-          resolvedTimes = keptTimes;
+          if (keptLabels.length > 0) {
+            labels = keptLabels;
+            resolvedTimes = keptTimes;
+          } else {
+            /** Strip may be shorter than the service — fall back to all desk openings. */
+            const fallback = filterFutureSlots(rawLabels, rawTimes);
+            labels = fallback.keptLabels;
+            resolvedTimes = fallback.keptTimes;
+          }
         } else if (strip?.allowDoubleBook) {
           const keptLabels: string[] = [];
           const keptTimes: string[] = [];
-          labels.forEach((lab, i) => {
-            const tStr = (resolvedTimes[i] || "").trim();
+          rawLabels.forEach((lab, i) => {
+            const tStr = (rawTimes[i] || "").trim();
             const st = startMinutesForSlotRow(lab, tStr);
             if (slotStartIsInPastForClinic(dateIso, st, todayMinIso)) return;
-            if (st === strip.startMinute) {
+            if (Math.abs(st - strip.startMinute) < 15) {
               keptLabels.push(lab);
               keptTimes.push(tStr || minutesToHHMMSS(st));
             }
@@ -319,17 +351,9 @@ export function AdminDeskBookFromSlotModal({
           labels = keptLabels;
           resolvedTimes = keptTimes;
         } else {
-          const keptLabels: string[] = [];
-          const keptTimes: string[] = [];
-          labels.forEach((lab, i) => {
-            const tStr = (resolvedTimes[i] || "").trim();
-            const st = startMinutesForSlotRow(lab, tStr);
-            if (slotStartIsInPastForClinic(dateIso, st, todayMinIso)) return;
-            keptLabels.push(lab);
-            keptTimes.push(tStr || minutesToHHMMSS(st));
-          });
-          labels = keptLabels;
-          resolvedTimes = keptTimes;
+          const fallback = filterFutureSlots(rawLabels, rawTimes);
+          labels = fallback.keptLabels;
+          resolvedTimes = fallback.keptTimes;
         }
 
         setSlotLabels(labels);
@@ -368,7 +392,7 @@ export function AdminDeskBookFromSlotModal({
     return () => {
       cancelled = true;
     };
-  }, [open, options, serviceId, providerId, dateIso, seed]);
+  }, [open, options, serviceId, providerId, dateIso, seed, todayMinIso]);
 
   useEffect(() => {
     if (!open) return;
@@ -439,10 +463,11 @@ export function AdminDeskBookFromSlotModal({
     occurrenceCount,
   ]);
 
+  /** Recurring preview only applies when repeat is on; double-book skips repeat entirely. */
   const recurringReady =
-    !seed?.allowDoubleBook &&
-    (!repeatEnabled ||
-      (!recurringPreviewLoading && Boolean(recurringPreview?.ok) && Boolean(recurringPreview?.all_available)));
+    Boolean(seed?.allowDoubleBook) ||
+    !repeatEnabled ||
+    (!recurringPreviewLoading && Boolean(recurringPreview?.ok) && Boolean(recurringPreview?.all_available));
 
   const canSubmit =
     !saving &&
@@ -454,9 +479,36 @@ export function AdminDeskBookFromSlotModal({
     Boolean(selectedSlot) &&
     !slotsLoading &&
     slotLabels.length > 0 &&
-    fitsInClickedStrip &&
+    selectedSlotListed &&
     !selectedStartIsPast &&
     recurringReady;
+
+  const submitBlockedReason = useMemo(() => {
+    if (canSubmit || saving || optionsLoading || slotsLoading) return null;
+    if (!patientId) return "Select a patient from the search results.";
+    if (!serviceId || !providerId || !dateIso) return "Choose service, provider, and date.";
+    if (slotLabels.length === 0) {
+      return "No open times for this service on that day — try another service, provider, or date.";
+    }
+    if (!selectedSlot || !selectedSlotListed) return "Pick a start time from the list.";
+    if (selectedStartIsPast) return "That start time has already passed.";
+    if (!recurringReady) return "Finish the recurring visit preview or turn off Repeat.";
+    return null;
+  }, [
+    canSubmit,
+    saving,
+    optionsLoading,
+    slotsLoading,
+    patientId,
+    serviceId,
+    providerId,
+    dateIso,
+    slotLabels.length,
+    selectedSlot,
+    selectedSlotListed,
+    selectedStartIsPast,
+    recurringReady,
+  ]);
 
   const submit = async () => {
     if (!seed || !canSubmit || !patientId) return;
@@ -867,6 +919,11 @@ export function AdminDeskBookFromSlotModal({
             ) : null}
           </div>
         )}
+        {submitBlockedReason ? (
+          <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            {submitBlockedReason}
+          </p>
+        ) : null}
         <div className="mt-8 flex flex-wrap justify-end gap-3">
           <button
             type="button"

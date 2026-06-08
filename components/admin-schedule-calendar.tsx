@@ -1171,7 +1171,8 @@ function DayProviderColumn({
       : MIN_LANE_WIDTH_PX;
 
   const busyIntervals: TimeInterval[] = useMemo(() => {
-    const apptSource = onPickOpenSlot ? appointments : blockingAppointments;
+    /** Desk click-to-book: cancelled/no-show times are open (matches API availability). */
+    const apptSource = blockingAppointments;
     const visibleAppts =
       dragActive && drag?.appointment.provider === provider.id
         ? apptSource.filter((a) => a.id !== drag.appointment.id)
