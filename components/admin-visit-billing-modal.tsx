@@ -205,7 +205,7 @@ export function AdminVisitBillingModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] overflow-y-auto bg-slate-900/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[450] overflow-y-auto bg-slate-900/40 backdrop-blur-[2px]"
       role="presentation"
       onClick={onClose}
     >
