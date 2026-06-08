@@ -9,7 +9,7 @@ import { useScheduleAutoRefresh } from "@/hooks/use-schedule-auto-refresh";
 import { apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type RecentActivityKind = "check_in" | "completed" | "payment" | "other";
 
@@ -17,6 +17,27 @@ type RecentActivityItem = {
   text: string;
   kind: RecentActivityKind;
 };
+
+type TodayScheduleRow = {
+  id: number;
+  patient_name: string;
+  patient_payment_profile?: string;
+  provider_name?: string;
+  service_name?: string;
+  start_time: string;
+  end_time?: string;
+  start_minutes?: number;
+  status: string;
+  auto_no_show?: boolean;
+};
+
+type ScheduleDayPart = "morning" | "afternoon" | "evening";
+
+const DAY_PARTS: Array<{ id: ScheduleDayPart; label: string; fromMin: number; untilMin: number }> = [
+  { id: "morning", label: "Morning", fromMin: 0, untilMin: 12 * 60 },
+  { id: "afternoon", label: "Afternoon", fromMin: 12 * 60, untilMin: 17 * 60 },
+  { id: "evening", label: "Evening", fromMin: 17 * 60, untilMin: 24 * 60 },
+];
 
 /** Shape of the admin dashboard summary from the API. */
 type DashboardSummary = {
@@ -26,19 +47,9 @@ type DashboardSummary = {
   no_shows_today?: number;
   daily_revenue: string;
   unpaid_invoices: number;
-  today_schedule: Array<{
-    id: number;
-    patient_name: string;
-    patient_payment_profile?: string;
-    provider_name?: string;
-    start_time: string;
-    status: string;
-    auto_no_show?: boolean;
-  }>;
+  today_schedule: TodayScheduleRow[];
   recent_activity: RecentActivityItem[] | string[];
-  /** e.g. "Monday, May 11, 2026" — clinic-local calendar day */
   today_display?: string;
-  /** e.g. "3:45 PM" — when summary was built */
   as_of_display?: string;
 };
 
@@ -66,6 +77,73 @@ function activityKindStyles(kind: RecentActivityKind): { bar: string; dot: strin
     default:
       return { bar: "border-l-slate-300", dot: "bg-slate-400" };
   }
+}
+
+function scheduleRowMinutes(row: TodayScheduleRow): number {
+  if (typeof row.start_minutes === "number") return row.start_minutes;
+  const m = row.start_time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return 0;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = m[3].toUpperCase();
+  if (ap === "PM" && h !== 12) h += 12;
+  if (ap === "AM" && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+function groupScheduleByDayPart(rows: TodayScheduleRow[]): Array<{ part: (typeof DAY_PARTS)[number]; rows: TodayScheduleRow[] }> {
+  const buckets = new Map<ScheduleDayPart, TodayScheduleRow[]>();
+  for (const part of DAY_PARTS) buckets.set(part.id, []);
+  for (const row of rows) {
+    const min = scheduleRowMinutes(row);
+    const part = DAY_PARTS.find((p) => min >= p.fromMin && min < p.untilMin) ?? DAY_PARTS[DAY_PARTS.length - 1];
+    buckets.get(part.id)!.push(row);
+  }
+  return DAY_PARTS.map((part) => ({ part, rows: buckets.get(part.id) ?? [] })).filter((g) => g.rows.length > 0);
+}
+
+function scheduleRowStyles(status: string): string {
+  if (status === "no_show") {
+    return "border-red-400/90 bg-red-50/90 ring-1 ring-red-300/50 hover:border-red-500 hover:bg-red-50";
+  }
+  if (status === "cancelled") {
+    return "border-slate-200/80 bg-slate-100/70 opacity-75 hover:border-slate-300 hover:bg-slate-100";
+  }
+  return "border-slate-200/90 bg-white hover:border-[#16a349]/35 hover:bg-[#ecfdf5]/40";
+}
+
+function TodayScheduleRowLink({ a }: { a: TodayScheduleRow }) {
+  const isNoShow = a.status === "no_show";
+  const isCancelled = a.status === "cancelled";
+  const timeRange =
+    a.end_time && a.end_time !== a.start_time ? `${a.start_time} – ${a.end_time}` : a.start_time;
+
+  return (
+    <Link
+      href={`/admin/schedule?appointment=${a.id}`}
+      className={cn(
+        "grid grid-cols-1 items-center gap-x-4 gap-y-2 rounded-xl border px-4 py-3 text-left transition sm:grid-cols-[minmax(6.5rem,auto)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_auto]",
+        scheduleRowStyles(a.status),
+      )}
+    >
+      <span className="shrink-0 font-mono text-[13px] font-semibold tabular-nums text-slate-800">{timeRange}</span>
+      <span className={cn("min-w-0 font-semibold text-slate-900", isCancelled && "line-through decoration-slate-400")}>
+        <PatientNameWithProfile
+          name={<span className="truncate">{a.patient_name}</span>}
+          profile={a.patient_payment_profile}
+          compactBadge
+        />
+      </span>
+      <span className="min-w-0 truncate text-[13px] text-slate-600">{a.service_name || "—"}</span>
+      <span className="min-w-0 truncate text-[13px] text-slate-500">{a.provider_name || "—"}</span>
+      <span className="flex flex-col items-start gap-0.5 justify-self-start sm:items-end sm:justify-self-end">
+        <AppointmentStatusBadge status={a.status} size="sm" className="normal-case" />
+        {isNoShow && a.auto_no_show ? (
+          <span className="text-[10px] font-medium text-red-900/85">Automatic</span>
+        ) : null}
+      </span>
+    </Link>
+  );
 }
 
 export default function AdminDashboardPage() {
@@ -98,6 +176,11 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const scheduleGroups = useMemo(
+    () => (data ? groupScheduleByDayPart(data.today_schedule) : []),
+    [data],
+  );
 
   if (loading) {
     return (
@@ -142,6 +225,7 @@ export default function AdminDashboardPage() {
     : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(revenue);
 
   const activityItems = normalizeRecentActivity(data.recent_activity);
+  const scheduleCount = data.today_schedule.length;
   const todayLine =
     data.today_display && data.as_of_display
       ? `${data.today_display} · numbers as of ${data.as_of_display}`
@@ -160,17 +244,13 @@ export default function AdminDashboardPage() {
           pageHelp={
             <>
               All counts below are for <strong>today’s calendar date</strong> in the clinic’s time zone.{" "}
-              <strong>Pending invoices</strong> are unpaid balances — open Billing to collect or adjust. Click a visit to open it on the
-              schedule.
+              <strong>Today&apos;s schedule</strong> lists every visit for the day (including no-shows and cancelled). Click a row to open it on the full calendar.
             </>
           }
         />
-        {todayLine ? (
-          <p className="text-sm font-medium text-slate-600">{todayLine}</p>
-        ) : null}
+        {todayLine ? <p className="text-sm font-medium text-slate-600">{todayLine}</p> : null}
       </div>
 
-      {/* Quick links — first-time admins find primary workflows faster */}
       <nav
         className="flex flex-wrap gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/80 px-3 py-2.5 text-sm shadow-sm ring-1 ring-slate-100/80"
         aria-label="Quick links"
@@ -284,101 +364,99 @@ export default function AdminDashboardPage() {
         </Link>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[2fr_1fr] lg:items-stretch">
-        <section className="admin-panel flex min-h-[280px] flex-col">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <AdminSectionLabel help="Each line is a visit today. Status shows where the patient is in the workflow.">
+      <section className="admin-panel">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <AdminSectionLabel help="Every visit today, grouped by time of day. Cancelled visits appear faded; no-shows in red.">
               Today&apos;s schedule
             </AdminSectionLabel>
-            <Link
-              href="/admin/schedule"
-              className="text-[14px] font-medium leading-normal text-[#16a349] hover:text-[#13823d] hover:underline"
-            >
-              Full schedule →
-            </Link>
+            {scheduleCount > 0 ? (
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-slate-700">
+                {scheduleCount} visit{scheduleCount === 1 ? "" : "s"}
+              </span>
+            ) : null}
           </div>
-          <div className="min-h-0 flex-1 space-y-2">
-            {data.today_schedule.length === 0 ? (
-              <div className="flex flex-1 flex-col justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-5 py-8 text-center">
-                <p className="text-[15px] font-medium text-slate-800">No appointments on the calendar for today.</p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">Book from the schedule or confirm you picked the right date.</p>
-                <div className="mt-5 flex flex-wrap justify-center gap-2">
-                  <Link
-                    href="/admin/schedule"
-                    className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
-                  >
-                    Open schedule
-                  </Link>
-                  <Link
-                    href="/admin/patients"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Find a patient
-                  </Link>
+          <Link
+            href="/admin/schedule"
+            className="text-[14px] font-medium leading-normal text-[#16a349] hover:text-[#13823d] hover:underline"
+          >
+            Open day grid →
+          </Link>
+        </div>
+
+        {scheduleCount === 0 ? (
+          <div className="flex flex-col justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
+            <p className="text-[15px] font-medium text-slate-800">No appointments on the calendar for today.</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">Book from the schedule or confirm you picked the right date.</p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <Link
+                href="/admin/schedule"
+                className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+              >
+                Open schedule
+              </Link>
+              <Link
+                href="/admin/patients"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Find a patient
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="hidden rounded-lg border border-slate-200/80 bg-slate-50/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 sm:grid sm:grid-cols-[minmax(6.5rem,auto)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_auto] sm:gap-x-4">
+              <span>Time</span>
+              <span>Patient</span>
+              <span>Service</span>
+              <span>Provider</span>
+              <span className="text-right">Status</span>
+            </div>
+            {scheduleGroups.map(({ part, rows }) => (
+              <div key={part.id}>
+                <div className="mb-2 flex items-center gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">{part.label}</h3>
+                  <span className="text-xs tabular-nums text-slate-400">
+                    {rows.length} visit{rows.length === 1 ? "" : "s"}
+                  </span>
+                  <div className="h-px flex-1 bg-slate-200/80" aria-hidden />
+                </div>
+                <div className="space-y-2">
+                  {rows.map((a) => (
+                    <TodayScheduleRowLink key={a.id} a={a} />
+                  ))}
                 </div>
               </div>
-            ) : (
-              data.today_schedule.map((a) => {
-                const isNoShow = a.status === "no_show";
-                return (
-                <Link
-                  key={a.id}
-                  href={`/admin/schedule?appointment=${a.id}`}
-                  className={cn(
-                    "grid min-h-[3.25rem] grid-cols-1 items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-3 text-left transition sm:grid-cols-[minmax(5.5rem,auto)_1fr_minmax(0,auto)_auto] sm:gap-y-0",
-                    isNoShow
-                      ? "border-red-400/90 bg-red-50/90 ring-1 ring-red-300/50 hover:border-red-500 hover:bg-red-50"
-                      : "border-slate-200/90 bg-slate-50/50 hover:border-[#16a349]/35 hover:bg-[#ecfdf5]/40",
-                  )}
-                >
-                  <span className="shrink-0 font-mono text-[13px] font-semibold tabular-nums text-slate-800">{a.start_time}</span>
-                  <span className="min-w-0 font-semibold text-slate-900">
-                    <PatientNameWithProfile
-                      name={<span className="truncate">{a.patient_name}</span>}
-                      profile={a.patient_payment_profile}
-                      compactBadge
-                    />
-                  </span>
-                  <span className="min-w-0 truncate text-[13px] text-slate-500 sm:text-right">{a.provider_name || "—"}</span>
-                  <span className="flex flex-col items-start gap-0.5 justify-self-start sm:items-end sm:justify-self-end">
-                    <AppointmentStatusBadge status={a.status} size="sm" className="normal-case" />
-                    {isNoShow && a.auto_no_show ? (
-                      <span className="text-[10px] font-medium text-red-900/85">Automatic</span>
-                    ) : null}
-                  </span>
-                </Link>
-              );
-              })
-            )}
+            ))}
           </div>
-        </section>
+        )}
+      </section>
 
-        <section className="admin-panel flex min-h-[280px] flex-col">
-          <div className="mb-3 flex items-start justify-between gap-2">
-            <AdminSectionLabel help="Check-ins, completed visits, and payments recorded today. Newest updates first.">
-              Recent activity
-            </AdminSectionLabel>
-          </div>
-          <ul className="min-h-0 flex-1 space-y-0 divide-y divide-slate-100">
-            {activityItems.length === 0 ? (
-              <li className="flex flex-1 flex-col justify-center py-10 text-center">
-                <p className="text-sm font-medium text-slate-600">Nothing logged here yet today.</p>
-                <p className="mt-1 text-xs text-slate-500">Check-ins and payments will show as they happen.</p>
-              </li>
-            ) : (
-              activityItems.map((item, i) => {
-                const { bar, dot } = activityKindStyles(item.kind);
-                return (
-                  <li key={`${item.kind}-${i}`} className={cn("flex gap-3 border-l-4 py-3 pl-3 pr-1", bar)}>
-                    <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dot)} aria-hidden />
-                    <span className="min-w-0 text-[14px] leading-relaxed text-slate-700">{item.text}</span>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        </section>
-      </div>
+      <section className="admin-panel flex min-h-[200px] flex-col lg:max-w-2xl">
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <AdminSectionLabel help="Check-ins, completed visits, and payments recorded today. Newest updates first.">
+            Recent activity
+          </AdminSectionLabel>
+        </div>
+        <ul className="min-h-0 flex-1 space-y-0 divide-y divide-slate-100">
+          {activityItems.length === 0 ? (
+            <li className="flex flex-1 flex-col justify-center py-10 text-center">
+              <p className="text-sm font-medium text-slate-600">Nothing logged here yet today.</p>
+              <p className="mt-1 text-xs text-slate-500">Check-ins and payments will show as they happen.</p>
+            </li>
+          ) : (
+            activityItems.map((item, i) => {
+              const { bar, dot } = activityKindStyles(item.kind);
+              return (
+                <li key={`${item.kind}-${i}`} className={cn("flex gap-3 border-l-4 py-3 pl-3 pr-1", bar)}>
+                  <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dot)} aria-hidden />
+                  <span className="min-w-0 text-[14px] leading-relaxed text-slate-700">{item.text}</span>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      </section>
     </div>
   );
 }
