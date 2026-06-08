@@ -53,6 +53,20 @@ export function confirmNoShow(patientName: string): AppointmentConfirmOptions {
   );
 }
 
+export function confirmRestoreCancelledVisit(
+  patientName: string,
+  appointmentDate: string,
+  startTime: string,
+): AppointmentConfirmOptions {
+  const when = formatWeekdayMonthDayYear(appointmentDate);
+  const time = startTime.includes("M") ? startTime : startTime.slice(0, 5);
+  return base(
+    "Restore cancelled appointment?",
+    `${patientName}'s visit on ${when} at ${time} will return to Booked. The patient and doctor can receive a new confirmation if messaging is enabled. Only future visits that have not started can be restored.`,
+    "Restore appointment",
+  );
+}
+
 export function confirmCancelVisit(
   patientName: string,
   serviceType: string | undefined,

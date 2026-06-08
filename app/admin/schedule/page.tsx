@@ -60,6 +60,7 @@ import {
   confirmFormReschedule,
   confirmMarkCompleted,
   confirmNoShow,
+  confirmRestoreCancelledVisit,
   confirmUndoDrag,
 } from "@/lib/appointment-action-confirm-messages";
 import { useAppFeedback } from "@/components/app-feedback";
@@ -92,6 +93,7 @@ import {
   mondayOfWeekContaining,
   parseTimeToMinutes,
   providerColorForId,
+  slotStartIsInPastForClinic,
   SCHEDULE_DESK_DAY_END_MIN,
   scheduleRangeIncludesToday,
   startOfMonth,
@@ -208,6 +210,16 @@ function blockListRange(view: ScheduleViewMode, focusDate: Date): { from: string
 
 function appointmentUiStatus(row: { status: string; display_status?: string; invoice_kind?: string | null }): string {
   return row.display_status ?? effectiveAppointmentStatus(row.status, row.invoice_kind);
+}
+
+/** Cancelled visit whose start time is still in the future (clinic local). */
+function canAdminUncancelAppointment(row: {
+  status: string;
+  appointment_date: string;
+  start_time: string;
+}): boolean {
+  if (row.status !== "cancelled") return false;
+  return !slotStartIsInPastForClinic(row.appointment_date, parseTimeToMinutes(row.start_time));
 }
 
 function formatAppointmentDuration(start: string, end: string): string {
@@ -588,7 +600,7 @@ function AdminSchedulePageContent() {
       await apiPatch(`/appointments/${id}/`, body);
       await loadAppointments();
       const nextStatus = typeof body.status === "string" ? body.status : undefined;
-      if (nextStatus === "cancelled" || nextStatus === "no_show") {
+      if (nextStatus === "cancelled" || nextStatus === "no_show" || nextStatus === "booked") {
         setShowReschedule(false);
         setShowAdjustDuration(false);
         setSelected((prev) =>
@@ -596,8 +608,13 @@ function AdminSchedulePageContent() {
             ? {
                 ...prev,
                 status: nextStatus,
-                display_status: nextStatus,
-                invoice_kind: nextStatus === "no_show" ? prev.invoice_kind ?? "no_show_fee" : prev.invoice_kind,
+                display_status: nextStatus === "booked" ? "booked" : nextStatus,
+                invoice_kind:
+                  nextStatus === "no_show"
+                    ? prev.invoice_kind ?? "no_show_fee"
+                    : nextStatus === "booked"
+                      ? null
+                      : prev.invoice_kind,
               }
             : prev,
         );
@@ -1245,6 +1262,29 @@ function AdminSchedulePageContent() {
                         errorFallback: "Could not cancel.",
                       },
                     );
+                    })();
+                  }}
+                  canUncancel={canAdminUncancelAppointment(selected)}
+                  onUncancel={() => {
+                    void (async () => {
+                      const ok = await requestConfirm(
+                        confirmRestoreCancelledVisit(
+                          selected.patient_name,
+                          selected.appointment_date,
+                          selected.start_time,
+                        ),
+                      );
+                      if (!ok) return;
+                      await runWithFeedback(
+                        async () => {
+                          await patchAppointment(selected.id, { status: "booked" });
+                        },
+                        {
+                          loadingMessage: "Restoring…",
+                          successMessage: "Appointment restored to booked.",
+                          errorFallback: "Could not restore this appointment.",
+                        },
+                      );
                     })();
                   }}
                   onMarkCompleted={() => {

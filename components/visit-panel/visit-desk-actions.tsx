@@ -83,6 +83,8 @@ export function VisitDeskActions({
   onBookNext,
   onBookInOpenSlot,
   onBookAnotherInSlot,
+  canUncancel,
+  onUncancel,
 }: {
   appointment: DeskAppointmentActions;
   providers: DeskProviderOption[];
@@ -107,6 +109,9 @@ export function VisitDeskActions({
   onBookInOpenSlot?: () => void;
   /** Admin: book a second patient in the same time slot as this visit. */
   onBookAnotherInSlot?: () => void;
+  /** Admin: cancelled visit still in the future — restore to booked. */
+  canUncancel?: boolean;
+  onUncancel?: () => void;
 }) {
   const uiStatus =
     appointment.display_status ??
@@ -141,7 +146,8 @@ export function VisitDeskActions({
             <>
               <p className="font-semibold">Visit cancelled</p>
               <p className="mt-1 text-xs leading-relaxed text-rose-900/90">
-                This slot is cleared. Check-in and schedule changes are not available for this visit.
+                This slot is cleared. Check-in and schedule changes are not available unless you restore this visit
+                {canUncancel ? " (still before start time)." : " (start time has passed)."}
               </p>
             </>
           )}
@@ -201,6 +207,16 @@ export function VisitDeskActions({
               </p>
             ) : null}
           </div>
+        ) : null}
+        {canUncancel && onUncancel ? (
+          <button
+            type="button"
+            disabled={savingDesk}
+            onClick={onUncancel}
+            className="w-full rounded-xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-950 shadow-sm transition hover:bg-sky-100 disabled:opacity-50"
+          >
+            Restore appointment
+          </button>
         ) : null}
         {onBookInOpenSlot ? (
           <button
