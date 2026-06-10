@@ -821,7 +821,7 @@ export default function AdminPatientsPage() {
                   aria-label="Date of birth"
                 />
                 <p className="mt-1 text-xs text-slate-500">
-                  MM/DD/YYYY — paste OK. Used with name and phone to block duplicate profiles.
+                  Type numbers only — slashes added automatically. Paste OK. Used with name and phone to block duplicate profiles.
                 </p>
               </label>
 

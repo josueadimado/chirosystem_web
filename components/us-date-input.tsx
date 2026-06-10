@@ -1,7 +1,7 @@
 "use client";
 
 import { formatIsoAsUsSlash } from "@/lib/format-date";
-import { normalizeUsDateInput } from "@/lib/normalize-date-of-birth";
+import { formatUsDatePartial, normalizeUsDateInput } from "@/lib/normalize-date-of-birth";
 import { useEffect, useState } from "react";
 
 type UsDateInputProps = {
@@ -17,8 +17,8 @@ type UsDateInputProps = {
 };
 
 /**
- * Text field shown as MM/DD/YYYY (US). Paste or type dates like 5/9/1971 or 05/09/1971;
- * saves YYYY-MM-DD for the API.
+ * US date field (MM/DD/YYYY). Type digits only on mobile — slashes are added automatically.
+ * Paste works too (with or without separators). Saves YYYY-MM-DD for the API.
  */
 export function UsDateInput({
   value,
@@ -50,20 +50,30 @@ export function UsDateInput({
     }
   };
 
+  const applyPastedText = (pasted: string) => {
+    const formatted = formatUsDatePartial(pasted);
+    setText(formatted);
+    const iso = normalizeUsDateInput(formatted) ?? normalizeUsDateInput(pasted);
+    if (iso) {
+      onChange(iso);
+      setText(formatIsoAsUsSlash(iso));
+    }
+  };
+
   return (
     <input
       type="text"
       inputMode="numeric"
-      autoComplete="off"
+      autoComplete="bday"
       id={id}
       disabled={disabled}
       className={className}
       placeholder="MM/DD/YYYY"
       value={text}
       onFocus={onFocus}
-      title={title ?? "Month / day / year — paste e.g. 05/09/1971"}
+      title={title ?? "Type numbers only — slashes are added for you (e.g. 951971 → 9/5/1971)"}
       aria-label={ariaLabel}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => setText(formatUsDatePartial(e.target.value))}
       onBlur={() => commit(text)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
@@ -73,12 +83,8 @@ export function UsDateInput({
         }
       }}
       onPaste={(e) => {
-        const normalized = normalizeUsDateInput(e.clipboardData.getData("text/plain"));
-        if (normalized) {
-          e.preventDefault();
-          onChange(normalized);
-          setText(formatIsoAsUsSlash(normalized));
-        }
+        e.preventDefault();
+        applyPastedText(e.clipboardData.getData("text/plain"));
       }}
     />
   );

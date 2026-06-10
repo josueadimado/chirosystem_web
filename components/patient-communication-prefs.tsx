@@ -128,7 +128,7 @@ export function PatientCommunicationPrefsFields({
         <p className="mt-1 text-xs leading-relaxed text-slate-600">
           For each row, pick one: text only, email only, text and email (both), or{" "}
           <span className="font-medium text-slate-700">none</span> (no automated messages for that category). New patients
-          start with text for booking/reminders and email for bills until you change them.
+          start with text for booking/reminders, email for bills, and SMS reminders allowed until you change them.
         </p>
       </div>
       <PrefChannelPicker
@@ -163,12 +163,11 @@ export function PatientCommunicationPrefsFields({
         prefs.notify_reminders === "both") ? (
         <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs leading-relaxed text-amber-950">
           {smsConsent ? (
-            <>SMS consent is on file — text messages for reminders can be sent when preferences include text.</>
+            <>SMS reminders are allowed for this patient when preferences include text.</>
           ) : (
             <>
-              <span className="font-semibold">SMS consent is off.</span> Reminder texts still require the patient to
-              agree to SMS (check “SMS appointment reminders allowed” below for admin, or have them opt in when booking
-              online).
+              <span className="font-semibold">SMS reminders are off.</span> Check “SMS appointment reminders allowed”
+              below if the patient wants text reminders.
             </>
           )}
         </p>

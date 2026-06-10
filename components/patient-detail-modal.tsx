@@ -151,7 +151,7 @@ export function PatientDetailModal({
     date_established: "",
     marital_status: "",
     online_chiro_intake_waived: false,
-    sms_consent: false,
+    sms_consent: true,
     notify_booking: "sms" as NotifyChannel,
     notify_reminders: "sms" as NotifyChannel,
     notify_bills: "email" as NotifyChannel,
@@ -329,10 +329,10 @@ export function PatientDetailModal({
         notify_booking: intakeForm.notify_booking,
         notify_reminders: intakeForm.notify_reminders,
         notify_bills: intakeForm.notify_bills,
+        sms_consent: intakeForm.sms_consent,
         ...(isAdminChart
           ? {
               online_chiro_intake_waived: intakeForm.online_chiro_intake_waived,
-              sms_consent: intakeForm.sms_consent,
               date_established: intakeForm.date_established.trim() ? intakeForm.date_established : null,
             }
           : {}),
@@ -415,9 +415,8 @@ export function PatientDetailModal({
       intakeForm.notify_booking !== communicationPrefsFromDetail(detail).notify_booking ||
       intakeForm.notify_reminders !== communicationPrefsFromDetail(detail).notify_reminders ||
       intakeForm.notify_bills !== communicationPrefsFromDetail(detail).notify_bills ||
-      (isAdminChart &&
-        (intakeForm.online_chiro_intake_waived !== (detail.online_chiro_intake_waived === true) ||
-          intakeForm.sms_consent !== (detail.sms_consent === true))));
+      intakeForm.sms_consent !== (detail.sms_consent === true) ||
+      (isAdminChart && intakeForm.online_chiro_intake_waived !== (detail.online_chiro_intake_waived === true)));
 
   const intakeSectionButtonClass = (isActive: boolean) =>
     `rounded-full px-3 py-1.5 text-xs font-semibold transition ${
@@ -958,8 +957,8 @@ export function PatientDetailModal({
                         </label>
                       </div>
                       <p className="mt-2 text-xs text-slate-500">
-                        Use MM/DD/YYYY (e.g. 05/09/1971). You can paste from a spreadsheet or chart. Age and last seen
-                        update automatically from visits.
+                        Type numbers only — slashes are added automatically (e.g. 951971 → 9/5/1971). Paste works too.
+                        Age and last seen update automatically from visits.
                       </p>
                     </section>
 
@@ -987,7 +986,7 @@ export function PatientDetailModal({
                             ) : (
                               <>Override when the real start date differs from the first booked visit.</>
                             )}{" "}
-                            Format: MM/DD/YYYY — paste OK.
+                            Numbers only on phone — slashes added for you. Paste OK.
                           </p>
                         </div>
                       </section>
@@ -1000,9 +999,7 @@ export function PatientDetailModal({
                         notify_reminders: intakeForm.notify_reminders,
                         notify_bills: intakeForm.notify_bills,
                       }}
-                      smsConsent={
-                        isAdminChart ? intakeForm.sms_consent : detail.sms_consent === true
-                      }
+                      smsConsent={intakeForm.sms_consent}
                       showSmsConsentNote
                       onChange={(p) =>
                         setIntakeForm((f) => ({
@@ -1033,6 +1030,10 @@ export function PatientDetailModal({
                           </span>
                         </label>
                       </div>
+                    </section>
+                  ) : null}
+                  {canSaveIntake && !readOnlyChart ? (
+                    <section className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
                       <div className="flex gap-3">
                         <Checkbox
                           id="sms-consent"
@@ -1043,14 +1044,14 @@ export function PatientDetailModal({
                         <label htmlFor="sms-consent" className="cursor-pointer text-sm leading-relaxed text-slate-700">
                           <span className="font-semibold text-slate-900">SMS appointment reminders allowed</span>
                           <span className="mt-1 block font-normal text-slate-600">
-                            Turn on if the patient agreed to text reminders (required for TCPA).{" "}
+                            On by default. Uncheck if this patient should not get text reminders.{" "}
                             {detail.sms_consent_at ? (
                               <span className="text-slate-500">
-                                Last recorded: {formatMonthDayYear(detail.sms_consent_at.slice(0, 10))}
+                                Last turned on: {formatMonthDayYear(detail.sms_consent_at.slice(0, 10))}
                               </span>
-                            ) : (
-                              <span className="text-slate-500">Not yet recorded from online booking.</span>
-                            )}
+                            ) : intakeForm.sms_consent ? (
+                              <span className="text-slate-500">Using clinic default (on).</span>
+                            ) : null}
                           </span>
                         </label>
                       </div>
