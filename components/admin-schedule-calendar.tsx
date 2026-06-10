@@ -153,29 +153,26 @@ function AppointmentStatusBanner({ status }: { status: string }) {
   return null;
 }
 
-function AppointmentBlockDecor({ status }: { status: string }) {
-  if (status === "cancelled") return null;
-  if (status === "no_show") {
-    return (
-      <span
-        className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-[1.1rem] items-center justify-center rounded bg-red-900 px-0.5 text-[8px] font-black leading-none text-white shadow-sm ring-1 ring-white/40"
-        title="No-show"
-        aria-hidden
-      >
-        !
-      </span>
-    );
-  }
+/** Inline status mark beside payment badge (replaces overlapping absolute corner icons). */
+function ScheduleStatusMark({ status }: { status: string }) {
   if (status === "completed") {
     return (
-      <span className="pointer-events-none absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded bg-white/40 text-[10px] text-slate-800">
+      <span
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-white/50 text-[10px] font-bold leading-none text-slate-800 ring-1 ring-white/60"
+        title="Completed"
+        aria-hidden
+      >
         ✓
       </span>
     );
   }
   if (status === "checked_in" || status === "in_consultation" || status === "awaiting_payment") {
     return (
-      <span className="pointer-events-none absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded bg-black/15 text-[10px] text-white">
+      <span
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-black/20 text-[10px] font-bold leading-none text-white ring-1 ring-white/30"
+        title="Checked in"
+        aria-hidden
+      >
         ✓
       </span>
     );
@@ -301,7 +298,7 @@ function appointmentTooltipStatus(status: string): string {
   return key.replace(/_/g, " ");
 }
 
-/** Time row on calendar blocks — badge stays visible even on short appointments. */
+/** Time row — payment type + status check sit together on the right (no overlap). */
 function ScheduleAppointmentTimeRow({
   startShown,
   endShown,
@@ -326,11 +323,14 @@ function ScheduleAppointmentTimeRow({
         uiStatus !== "cancelled" && textClassName,
       )}
     >
-      <span className="flex min-w-0 items-center gap-1">
-        <span className="min-w-0 truncate">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 flex-1 truncate">
           {startShown} – {endShown}
         </span>
-        <PatientPaymentProfileBadge profile={paymentProfile} compact />
+        <span className="flex shrink-0 items-center gap-0.5">
+          <PatientPaymentProfileBadge profile={paymentProfile} compact />
+          <ScheduleStatusMark status={uiStatus} />
+        </span>
       </span>
     </div>
   );
@@ -338,12 +338,10 @@ function ScheduleAppointmentTimeRow({
 
 function PatientNameLine({
   fullName,
-  paymentProfile,
   textClassName,
   wrapperClassName,
 }: {
   fullName: string;
-  paymentProfile?: string;
   textClassName?: string;
   /** Outer row padding (e.g. tighter when a time line sits above the name). */
   wrapperClassName?: string;
@@ -376,9 +374,8 @@ function PatientNameLine({
       >
         {fullName}
       </span>
-      <span className={cn("flex min-w-0 items-center gap-1 font-semibold leading-snug text-[13px]", textClassName)}>
-        <span className="min-w-0 truncate">{display}</span>
-        <PatientPaymentProfileBadge profile={paymentProfile} compact />
+      <span className={cn("block min-w-0 truncate font-semibold leading-snug text-[13px]", textClassName)}>
+        {display}
       </span>
     </div>
   );
@@ -1400,7 +1397,6 @@ function DayProviderColumn({
                             : "rgb(148 163 184 / 0.9)",
                   }}
                 >
-                  <AppointmentBlockDecor status={uiStatus} />
                   <AppointmentBlockTooltip
                     patientName={a.patient_name}
                     patientPaymentProfile={a.patient_payment_profile}
@@ -1422,7 +1418,6 @@ function DayProviderColumn({
                       />
                       <PatientNameLine
                         fullName={a.patient_name}
-                        paymentProfile={a.patient_payment_profile}
                         textClassName={styles.text}
                         wrapperClassName="min-w-0 px-1.5 pb-1.5 pt-0.5"
                       />
@@ -2014,7 +2009,6 @@ function WeekDayStack({
                         : "rgb(148 163 184 / 0.9)",
               }}
             >
-              <AppointmentBlockDecor status={uiStatus} />
               <AppointmentBlockTooltip
                 patientName={a.patient_name}
                 patientPaymentProfile={a.patient_payment_profile}
@@ -2036,7 +2030,6 @@ function WeekDayStack({
                   />
                   <PatientNameLine
                     fullName={a.patient_name}
-                    paymentProfile={a.patient_payment_profile}
                     textClassName={styles.text}
                     wrapperClassName="min-w-0 px-1 pb-1 pt-0.5"
                   />
