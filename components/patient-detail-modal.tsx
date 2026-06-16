@@ -652,38 +652,13 @@ export function PatientDetailModal({
                           {formatDemographicsDate(detail.last_seen)}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm sm:col-span-2 lg:col-span-1">
+                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
                         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Card on file</p>
                         <p className="mt-1.5 font-semibold text-slate-900">
                           {detail.has_saved_card || detail.card_last4
                             ? `${(detail.card_brand || "Card").toUpperCase()} ·••• ${detail.card_last4}`
                             : "None on file"}
                         </p>
-                        {!readOnlyChart && patientId ? (
-                          <PatientCardSetup
-                            patientId={patientId}
-                            containerId={`patient-card-setup-${patientId}`}
-                            existingSavedCard={
-                              detail.has_saved_card || detail.card_last4
-                                ? { card_brand: detail.card_brand, card_last4: detail.card_last4 }
-                                : null
-                            }
-                            onSaved={(card) => {
-                              setDetail((prev) =>
-                                prev
-                                  ? {
-                                      ...prev,
-                                      card_brand: card.card_brand,
-                                      card_last4: card.card_last4,
-                                      has_saved_card: Boolean(card.card_last4),
-                                    }
-                                  : prev,
-                              );
-                            }}
-                          />
-                        ) : readOnlyChart ? (
-                          <p className="mt-2 text-xs text-slate-500">Front desk can add a card on file for this patient.</p>
-                        ) : null}
                       </div>
                       {detail.online_chiro_intake_waived ? (
                         <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 shadow-sm sm:col-span-2">
@@ -695,6 +670,37 @@ export function PatientDetailModal({
                       ) : null}
                     </div>
                   </div>
+
+                  {!readOnlyChart && patientId ? (
+                    <div>
+                      <DoctorSectionLabel>Payment card on file</DoctorSectionLabel>
+                      <PatientCardSetup
+                        patientId={patientId}
+                        containerId={`patient-card-setup-${patientId}`}
+                        existingSavedCard={
+                          detail.has_saved_card || detail.card_last4
+                            ? { card_brand: detail.card_brand, card_last4: detail.card_last4 }
+                            : null
+                        }
+                        onSaved={(card) => {
+                          setDetail((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  card_brand: card.card_brand,
+                                  card_last4: card.card_last4,
+                                  has_saved_card: Boolean(card.card_last4),
+                                }
+                              : prev,
+                          );
+                        }}
+                      />
+                    </div>
+                  ) : readOnlyChart ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-3">
+                      <p className="text-xs text-slate-500">Front desk can add a payment card on file for this patient.</p>
+                    </div>
+                  ) : null}
 
                   <div>
                     <DoctorSectionLabel>Contact & emergency</DoctorSectionLabel>
