@@ -106,12 +106,16 @@ function clearAuthAndRedirect(): void {
 /** Turn Django HTML debug pages (and other huge bodies) into a short, readable message. */
 function summarizeNonJsonError(body: string, status: number): string {
   const t = body.trim();
-  const looksHtml = t.startsWith("<!DOCTYPE") || t.startsWith("<html") || t.includes("ProgrammingError at");
+  const lower = t.toLowerCase();
+  const looksHtml =
+    lower.startsWith("<!doctype") ||
+    lower.startsWith("<html") ||
+    t.includes("ProgrammingError at");
 
   if (
     t === "Internal Server Error" ||
     /^Server Error \(\d+\)$/i.test(t) ||
-    (looksHtml && t.includes("Server Error"))
+    t.includes("Server Error")
   ) {
     return (
       `The server returned an error (HTTP ${status}). ` +
