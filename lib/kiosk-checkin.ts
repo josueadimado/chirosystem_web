@@ -22,21 +22,20 @@ export function assertKioskCheckInSucceeded(
   out: KioskCheckinResponse,
   expectedAppointmentId?: number,
 ): void {
-  if (out.status !== "checked_in") {
+  const ids = out.appointment_ids ?? [];
+  const count = out.checked_in_count ?? ids.length;
+  if (count < 1 && ids.length < 1) {
+    throw new Error(out.detail?.trim() || "Check-in did not save. Please see the front desk or try again.");
+  }
+  if (out.status && out.status !== "checked_in") {
     throw new Error(out.detail?.trim() || "Check-in did not complete. Please see the front desk.");
   }
-  const ids = out.appointment_ids ?? [];
-  if (!ids.length || (out.checked_in_count ?? 0) < 1) {
-    throw new Error("Check-in did not save. Please see the front desk or try again.");
-  }
-  if (expectedAppointmentId != null && !ids.includes(expectedAppointmentId)) {
+  if (expectedAppointmentId != null && ids.length > 0 && !ids.includes(expectedAppointmentId)) {
     throw new Error("Check-in did not match this appointment. Please see the front desk.");
   }
   const rows = out.appointments ?? [];
-  if (rows.length) {
-    const bad = rows.find(
-      (r) => r.status !== "checked_in" || !r.checked_in_at?.trim(),
-    );
+  if (rows.length > 0) {
+    const bad = rows.find((r) => r.status !== "checked_in" || !r.checked_in_at?.trim());
     if (bad) {
       throw new Error("Check-in could not be confirmed. Please see the front desk.");
     }
