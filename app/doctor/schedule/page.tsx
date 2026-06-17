@@ -551,7 +551,6 @@ function DoctorSchedulePageInner() {
       async () => {
         const out = await postDeskCheckIn(selected.id);
         await loadAppointments();
-        setSelected((prev) => (prev ? { ...prev, status: "checked_in" } : null));
         return out;
       },
       {

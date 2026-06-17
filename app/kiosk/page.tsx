@@ -5,6 +5,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { IconArrowRight, IconCheck } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { ApiError, apiPostPublic } from "@/lib/api";
+import { assertKioskCheckInSucceeded } from "@/lib/kiosk-checkin";
 import Link from "next/link";
 import { isValidPhoneNumber } from "react-phone-number-input";
 import { useState } from "react";
@@ -30,21 +31,12 @@ function toE164(phone: string): string {
   return "";
 }
 
-type KioskVisitToday = {
+type KioskAppointmentChoice = {
   appointment_id: number;
-  start_time_display: string;
-  provider: string;
-  service_name?: string;
-};
-
-type KioskPatientChoice = {
-  appointment_id: number;
-  appointment_ids?: number[];
   patient: string;
   provider: string;
   start_time_display: string;
-  visit_count?: number;
-  visits_today?: KioskVisitToday[];
+  service_name?: string;
   can_checkin: boolean;
   earliest_checkin_display?: string;
   early_checkin_minutes_before?: number;
@@ -52,22 +44,19 @@ type KioskPatientChoice = {
 
 type KioskLookupOk =
   | {
-      result: "choose_patient";
+      result: "choose_appointment";
       message: string;
-      choices: KioskPatientChoice[];
+      choices: KioskAppointmentChoice[];
     }
   | {
       result: "ready";
       appointment_id: number;
-      appointment_ids?: number[];
       patient: string;
       provider: string;
       time: string;
       start_time_display?: string;
+      service_name?: string;
       status: string;
-      visit_count?: number;
-      visits_today?: KioskVisitToday[];
-      message?: string;
     }
   | {
       result: "too_early";
@@ -103,10 +92,10 @@ type KioskLookupOk =
       message: string;
     };
 
-/** Lookup outcomes that show a notice card (not ready check-in or name picker). */
+/** Lookup outcomes that show a notice card (not ready check-in or appointment picker). */
 type KioskLookupNotice = Exclude<
   KioskLookupOk,
-  { result: "ready" } | { result: "choose_patient" }
+  { result: "ready" } | { result: "choose_appointment" }
 >;
 
 type NoticeTone = "amber" | "sky" | "rose";
@@ -118,8 +107,8 @@ function earlyCheckInDetail(
 ): string {
   const windowHint =
     minutesBefore != null && minutesBefore > 0
-      ? `You can check in up to ${minutesBefore} minutes before your appointment.`
-      : "Check-in opens shortly before your appointment.";
+      ? `You can check in up to ${minutesBefore} minutes before this appointment.`
+      : "Check-in opens shortly before this appointment.";
   const timeLine = earliestCheckinDisplay
     ? `Appointment at ${startTimeDisplay}. Kiosk check-in opens around ${earliestCheckinDisplay}.`
     : `Appointment at ${startTimeDisplay}.`;
@@ -130,7 +119,6 @@ type Notice = {
   tone: NoticeTone;
   icon: string;
   title: string;
-  /** One short sentence — what the patient should do next. */
   action: string;
   detail?: string;
 };
@@ -192,6 +180,14 @@ function lookupToNotice(data: KioskLookupNotice): Notice {
   }
 }
 
+function appointmentChoiceLabel(choice: KioskAppointmentChoice) {
+  const svc = (choice.service_name || "").trim();
+  if (svc) {
+    return `${choice.start_time_display} · ${svc}`;
+  }
+  return `${choice.start_time_display} · ${choice.provider}`;
+}
+
 function KioskNoticeCard({ notice }: { notice: Notice }) {
   const styles =
     notice.tone === "rose"
@@ -233,7 +229,7 @@ export default function KioskPage() {
   const [successPatientName, setSuccessPatientName] = useState("");
   const [successVisitSummary, setSuccessVisitSummary] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [patientChoices, setPatientChoices] = useState<KioskPatientChoice[] | null>(null);
+  const [appointmentChoices, setAppointmentChoices] = useState<KioskAppointmentChoice[] | null>(null);
   const [chooseMessage, setChooseMessage] = useState("");
 
   const append = (char: string) => {
@@ -264,81 +260,54 @@ export default function KioskPage() {
     setSuccessPatientName("");
     setSuccessVisitSummary("");
     setNotice(null);
-    setPatientChoices(null);
+    setAppointmentChoices(null);
     setChooseMessage("");
   };
 
-  const formatVisitSummary = (visits: KioskVisitToday[] | undefined, visitCount?: number) => {
-    const n = visitCount ?? visits?.length ?? 0;
-    if (n <= 1 || !visits?.length) return "";
-    const parts = visits.map((v) => {
-      const svc = (v.service_name || "").trim();
-      const label = svc ? `${svc} at ${v.start_time_display}` : `${v.start_time_display} with ${v.provider}`;
-      return label;
-    });
-    if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
-    return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
-  };
-
-  const completeCheckIn = async (
-    appointmentId: number,
-    patientName: string,
-    appointmentIds?: number[],
-    visitsToday?: KioskVisitToday[],
-    visitCount?: number,
-  ) => {
-    const ids =
-      appointmentIds && appointmentIds.length > 0 ? appointmentIds : [appointmentId];
+  const completeCheckIn = async (appointmentId: number, patientName: string, visitLabel?: string) => {
     const out = await apiPostPublic<{
       detail: string;
       checked_in_count?: number;
+      status?: string;
+      appointment_ids?: number[];
+      appointments?: { appointment_id: number; status: string; checked_in_at: string }[];
     }>("/kiosk/checkin/", {
-      appointment_ids: ids,
+      appointment_ids: [appointmentId],
       appointment_id: appointmentId,
       phone: e164,
     });
+    assertKioskCheckInSucceeded(out, appointmentId);
     setSuccessPatientName(patientName.trim());
-    const count = out.checked_in_count ?? ids.length;
-    if (count > 1) {
-      const summary = formatVisitSummary(visitsToday, count);
-      setSuccessVisitSummary(
-        summary
-          ? `You're checked in for ${count} visits today: ${summary}.`
-          : `You're checked in for all ${count} visits scheduled today.`,
-      );
-    } else {
-      setSuccessVisitSummary("");
-    }
+    setSuccessVisitSummary(
+      visitLabel ? `Checked in for ${visitLabel}.` : out.detail?.trim() || "Check-in complete.",
+    );
     setSuccessVisible(true);
-    setPatientChoices(null);
+    setAppointmentChoices(null);
     setChooseMessage("");
     toast.success(out.detail || "Check-in complete.");
   };
 
   const handleLookupResult = async (lookup: KioskLookupOk) => {
     if (lookup.result === "invalid_phone") {
-      setPatientChoices(null);
+      setAppointmentChoices(null);
       setChooseMessage("");
       setNotice(lookupToNotice(lookup));
       return;
     }
-    if (lookup.result === "choose_patient") {
-      setPatientChoices(lookup.choices);
+    if (lookup.result === "choose_appointment") {
+      setAppointmentChoices(lookup.choices);
       setChooseMessage(lookup.message);
       setNotice(null);
       return;
     }
     if (lookup.result === "ready") {
-      await completeCheckIn(
-        lookup.appointment_id,
-        lookup.patient,
-        lookup.appointment_ids,
-        lookup.visits_today,
-        lookup.visit_count,
-      );
+      const label = lookup.service_name
+        ? `${lookup.service_name} at ${lookup.start_time_display || lookup.time}`
+        : lookup.start_time_display || lookup.time;
+      await completeCheckIn(lookup.appointment_id, lookup.patient, label);
       return;
     }
-    setPatientChoices(null);
+    setAppointmentChoices(null);
     setChooseMessage("");
     setNotice(lookupToNotice(lookup));
   };
@@ -347,7 +316,7 @@ export default function KioskPage() {
     if (!canCheckIn) return;
     setCheckingIn(true);
     setNotice(null);
-    setPatientChoices(null);
+    setAppointmentChoices(null);
     setChooseMessage("");
     try {
       const lookup = await apiPostPublic<KioskLookupOk>("/kiosk/lookup/", { phone: e164 });
@@ -370,7 +339,7 @@ export default function KioskPage() {
     }
   };
 
-  const checkInAsChoice = async (choice: KioskPatientChoice) => {
+  const checkInAsChoice = async (choice: KioskAppointmentChoice) => {
     if (!e164 || checkingIn) return;
     setCheckingIn(true);
     setNotice(null);
@@ -380,7 +349,7 @@ export default function KioskPage() {
           tone: "amber",
           icon: "⏰",
           title: "A little early",
-          action: "Please wait until check-in opens, or see the front desk if they are ready for you.",
+          action: "Please wait until check-in opens for this visit, or see the front desk if they are ready for you.",
           detail: earlyCheckInDetail(
             choice.start_time_display,
             choice.earliest_checkin_display,
@@ -389,13 +358,7 @@ export default function KioskPage() {
         });
         return;
       }
-      await completeCheckIn(
-        choice.appointment_id,
-        choice.patient,
-        choice.appointment_ids,
-        choice.visits_today,
-        choice.visit_count,
-      );
+      await completeCheckIn(choice.appointment_id, choice.patient, appointmentChoiceLabel(choice));
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -413,6 +376,10 @@ export default function KioskPage() {
       setCheckingIn(false);
     }
   };
+
+  const showMultiplePatients = appointmentChoices
+    ? new Set(appointmentChoices.map((c) => c.patient)).size > 1
+    : false;
 
   return (
     <main className="relative flex min-h-[100dvh] min-h-screen flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-[#ecfdf5] via-background to-muted/50 px-[max(1rem,env(safe-area-inset-left))] py-10 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(2.5rem,env(safe-area-inset-top))] pb-[max(6.5rem,env(safe-area-inset-bottom))] sm:px-6">
@@ -470,10 +437,11 @@ export default function KioskPage() {
                   </p>
                 ) : null}
                 <p className="mt-3 text-base leading-relaxed text-muted-foreground sm:text-lg">
-                  The front desk has been notified. We&apos;ll call your name when it&apos;s time for your visit
-                  {successVisitSummary ? "s" : ""}.
+                  The front desk has been notified. We&apos;ll call your name when it&apos;s time for this visit.
                 </p>
-                <p className="mt-2 text-sm text-muted-foreground">Tap Start over when the next person checks in.</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Have another appointment later today? Tap Start over to check in for that visit when it&apos;s time.
+                </p>
                 <button
                   type="button"
                   onClick={resetKiosk}
@@ -490,10 +458,10 @@ export default function KioskPage() {
 
                 {notice ? <KioskNoticeCard notice={notice} /> : null}
 
-                {patientChoices && patientChoices.length > 0 ? (
+                {appointmentChoices && appointmentChoices.length > 0 ? (
                   <div className="space-y-3 text-left">
                     <p className="text-center text-base font-semibold text-foreground">{chooseMessage}</p>
-                    {patientChoices.map((choice) => (
+                    {appointmentChoices.map((choice) => (
                       <button
                         key={choice.appointment_id}
                         type="button"
@@ -501,31 +469,26 @@ export default function KioskPage() {
                         onClick={() => void checkInAsChoice(choice)}
                         className="flex w-full flex-col rounded-2xl border-2 border-primary/25 bg-white px-4 py-4 text-left shadow-sm transition hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50 sm:py-5"
                       >
-                        <span className="text-lg font-bold text-foreground">{choice.patient}</span>
-                        {(choice.visit_count ?? 0) > 1 && choice.visits_today?.length ? (
-                          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                            {choice.visits_today.map((v) => (
-                              <li key={v.appointment_id}>
-                                {v.start_time_display}
-                                {v.service_name ? ` · ${v.service_name}` : ""} · {v.provider}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="mt-1 text-sm text-muted-foreground">
-                            {choice.start_time_display} · {choice.provider}
-                          </span>
-                        )}
-                        {(choice.visit_count ?? 0) > 1 ? (
-                          <span className="mt-2 text-xs font-semibold text-[#0d5c2e]">
-                            One check-in covers all {choice.visit_count} visits today
-                          </span>
+                        {showMultiplePatients ? (
+                          <span className="text-lg font-bold text-foreground">{choice.patient}</span>
                         ) : null}
+                        <span
+                          className={
+                            showMultiplePatients
+                              ? "mt-1 text-sm font-semibold text-foreground"
+                              : "text-lg font-bold text-foreground"
+                          }
+                        >
+                          {appointmentChoiceLabel(choice)}
+                        </span>
+                        <span className="mt-1 text-sm text-muted-foreground">{choice.provider}</span>
                         {!choice.can_checkin ? (
                           <span className="mt-2 text-xs font-medium text-amber-800">
                             Check-in opens around {choice.earliest_checkin_display ?? "your appointment time"}
                           </span>
-                        ) : null}
+                        ) : (
+                          <span className="mt-2 text-xs font-semibold text-[#0d5c2e]">Tap to check in for this visit</span>
+                        )}
                       </button>
                     ))}
                     <button
@@ -540,7 +503,7 @@ export default function KioskPage() {
 
                 <div
                   className={
-                    patientChoices && patientChoices.length > 0 ? "hidden" : "grid grid-cols-3 gap-3 sm:gap-3.5"
+                    appointmentChoices && appointmentChoices.length > 0 ? "hidden" : "grid grid-cols-3 gap-3 sm:gap-3.5"
                   }
                 >
                   {"123456789".split("").map((digit) => (
@@ -580,9 +543,9 @@ export default function KioskPage() {
                 <button
                   type="button"
                   onClick={() => void checkIn()}
-                  disabled={!canCheckIn || (patientChoices != null && patientChoices.length > 0)}
+                  disabled={!canCheckIn || (appointmentChoices != null && appointmentChoices.length > 0)}
                   className={
-                    patientChoices && patientChoices.length > 0
+                    appointmentChoices && appointmentChoices.length > 0
                       ? "hidden"
                       : "flex w-full min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#16a349] px-4 text-lg font-semibold text-white shadow-lg shadow-[#16a349]/25 transition hover:bg-[#13823d] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-16 sm:text-xl"
                   }
