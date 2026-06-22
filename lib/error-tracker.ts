@@ -58,7 +58,9 @@ export function clearErrorTrackerToken(): void {
 }
 
 export async function fetchErrorTrackerStatus(): Promise<ErrorTrackerStatus> {
-  return apiGetAuth<ErrorTrackerStatus>("/admin/error_tracker_status/");
+  return apiGetAuth<ErrorTrackerStatus>("/admin/error_tracker_status/", {
+    headers: trackerHeaders(),
+  });
 }
 
 export async function unlockErrorTracker(password: string): Promise<{ token: string; expires_in: number }> {

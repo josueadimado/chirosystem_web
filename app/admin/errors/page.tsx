@@ -85,6 +85,9 @@ export default function AdminErrorsPage() {
       const status = await fetchErrorTrackerStatus();
       setConfigured(status.configured);
       setUnlocked(status.unlocked);
+      if (!status.unlocked) {
+        clearErrorTrackerToken();
+      }
       return status;
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) {
@@ -151,9 +154,15 @@ export default function AdminErrorsPage() {
     try {
       await unlockErrorTracker(password);
       setPassword("");
-      setUnlocked(true);
-      const status = await refreshStatus();
+      const status = await fetchErrorTrackerStatus();
       setConfigured(status.configured);
+      setUnlocked(status.unlocked);
+      if (!status.unlocked) {
+        clearErrorTrackerToken();
+        setUnlockError(
+          "Password was accepted but the session could not start. Redeploy the API with the error tracker update, then try again.",
+        );
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setUnlockError(err.message);
