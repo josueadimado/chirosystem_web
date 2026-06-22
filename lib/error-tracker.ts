@@ -5,6 +5,7 @@ const STORAGE_KEY = "chiroflow_error_tracker_token";
 export type ErrorTrackerStatus = {
   configured: boolean;
   unlocked: boolean;
+  password_source?: "env" | "database" | "none";
 };
 
 export type SystemErrorLogRow = {
@@ -60,6 +61,7 @@ export function clearErrorTrackerToken(): void {
 export async function fetchErrorTrackerStatus(): Promise<ErrorTrackerStatus> {
   return apiGetAuth<ErrorTrackerStatus>("/admin/error_tracker_status/", {
     headers: trackerHeaders(),
+    cache: "no-store",
   });
 }
 

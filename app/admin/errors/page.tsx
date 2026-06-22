@@ -55,7 +55,10 @@ function formatWhen(iso: string | null | undefined): string {
 
 export default function AdminErrorsPage() {
   const [isOwner, setIsOwner] = useState<boolean | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState("");
   const [configured, setConfigured] = useState(false);
+  const [usesEnvPassword, setUsesEnvPassword] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -84,22 +87,21 @@ export default function AdminErrorsPage() {
     setIsOwner(getRoleCookie() === "owner_admin");
   }, []);
 
-  const refreshStatus = useCallback(async () => {
-    try {
-      const status = await fetchErrorTrackerStatus();
-      setConfigured(status.configured);
-      setUnlocked(status.unlocked);
-      if (!status.unlocked) {
-        clearErrorTrackerToken();
-      }
-      return status;
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 403) {
-        setIsOwner(false);
-      }
-      throw e;
+  const applyStatus = useCallback((status: Awaited<ReturnType<typeof fetchErrorTrackerStatus>>) => {
+    const source = status.password_source ?? (status.configured ? "database" : "none");
+    setConfigured(Boolean(status.configured));
+    setUsesEnvPassword(source === "env");
+    setUnlocked(Boolean(status.unlocked));
+    if (!status.unlocked) {
+      clearErrorTrackerToken();
     }
   }, []);
+
+  const refreshStatus = useCallback(async () => {
+    const status = await fetchErrorTrackerStatus();
+    applyStatus(status);
+    return status;
+  }, [applyStatus]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -134,9 +136,21 @@ export default function AdminErrorsPage() {
 
   useEffect(() => {
     if (isOwner !== true) return;
-    void refreshStatus().catch(() => {
-      /* owner check failed */
-    });
+    setStatusLoading(true);
+    setStatusError("");
+    void refreshStatus()
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 403) {
+          setIsOwner(false);
+          return;
+        }
+        const message =
+          e instanceof ApiError
+            ? e.message
+            : "Could not reach the error tracker on the API. Redeploy the API and run migrations.";
+        setStatusError(message);
+      })
+      .finally(() => setStatusLoading(false));
   }, [isOwner, refreshStatus]);
 
   useEffect(() => {
@@ -159,11 +173,22 @@ export default function AdminErrorsPage() {
       await configureErrorTracker(password, confirmPassword);
       setPassword("");
       setConfirmPassword("");
-      const status = await fetchErrorTrackerStatus();
-      setConfigured(status.configured);
-      setUnlocked(status.unlocked);
+      const status = await refreshStatus();
+      applyStatus(status);
     } catch (err) {
       if (err instanceof ApiError) {
+        const envMsg =
+          err.message.includes("ERROR_TRACKER_PASSWORD") ||
+          err.message.includes("server environment");
+        if (envMsg) {
+          setConfigured(true);
+          setUsesEnvPassword(true);
+          setSetupError("");
+          setUnlockError("Use the password you set in the API server environment (ERROR_TRACKER_PASSWORD).");
+          setPassword("");
+          setConfirmPassword("");
+          return;
+        }
         setSetupError(err.message);
       } else {
         setSetupError("Could not save password. Make sure the API is updated and migrations have run.");
@@ -180,9 +205,8 @@ export default function AdminErrorsPage() {
     try {
       await unlockErrorTracker(password);
       setPassword("");
-      const status = await fetchErrorTrackerStatus();
-      setConfigured(status.configured);
-      setUnlocked(status.unlocked);
+      const status = await refreshStatus();
+      applyStatus(status);
       if (!status.unlocked) {
         clearErrorTrackerToken();
         setUnlockError(
@@ -251,7 +275,7 @@ export default function AdminErrorsPage() {
     setRows([]);
   };
 
-  if (isOwner === null) {
+  if (isOwner === null || statusLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <Loader />
@@ -276,86 +300,127 @@ export default function AdminErrorsPage() {
     );
   }
 
-  if (!configured) {
-    return (
-      <div className="mx-auto max-w-md space-y-6">
-        <AdminPageIntro
-          title="Error tracker"
-          description="Choose a password for this page. It is separate from your login — staff cannot see error logs even if they know your login password."
-        />
-        <form
-          onSubmit={handleConfigure}
-          className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
-          <div className="space-y-2">
-            <Label htmlFor="setup-password">Create error tracker password</Label>
-            <Input
-              id="setup-password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
-              required
-              minLength={8}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="setup-confirm">Confirm password</Label>
-            <Input
-              id="setup-confirm"
-              type="password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </div>
-          {setupError ? <p className="text-sm text-red-600">{setupError}</p> : null}
-          <Button type="submit" disabled={settingUp || password.length < 8 || !confirmPassword}>
-            {settingUp ? "Saving…" : "Save password and open error tracker"}
-          </Button>
-        </form>
-        <p className="text-xs text-slate-500">
-          Advanced: your host can instead set <code>ERROR_TRACKER_PASSWORD</code> on the{" "}
-          <strong>API</strong> server (not the booking website). If that env var is set, use it to unlock this page.
-        </p>
-      </div>
-    );
-  }
+  const needsSetup = !configured && !usesEnvPassword;
+  const showUnlockGate = !unlocked && (configured || usesEnvPassword || Boolean(statusError));
 
-  if (!unlocked) {
+  if (!unlocked && (showUnlockGate || needsSetup)) {
     return (
       <div className="mx-auto max-w-md space-y-6">
         <AdminPageIntro
           title="Error tracker"
-          description="This page is password-protected. Enter the error tracker password to view bug reports."
+          description={
+            usesEnvPassword
+              ? "Enter the password from your API server environment (ERROR_TRACKER_PASSWORD)."
+              : configured
+                ? "Enter your error tracker password to view bug reports."
+                : "Set up or unlock the error tracker. This is separate from your login password."
+          }
         />
-        <form
-          onSubmit={handleUnlock}
-          className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
-          <div className="space-y-2">
-            <Label htmlFor="error-tracker-password">Error tracker password</Label>
-            <Input
-              id="error-tracker-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Separate from your login password"
-              required
-            />
-            <p className="text-xs text-slate-500">
-              This is the password you chose when you set up the error tracker (not your login password).
+
+        {statusError ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-medium">Could not verify setup with the API</p>
+            <p className="mt-1">{statusError}</p>
+            <p className="mt-2">
+              If you already set <code>ERROR_TRACKER_PASSWORD</code> on the <strong>API</strong> server, try unlocking
+              below with that password.
             </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => {
+                setStatusLoading(true);
+                setStatusError("");
+                void refreshStatus()
+                  .catch((e) => {
+                    setStatusError(e instanceof ApiError ? e.message : "Still could not reach the API.");
+                  })
+                  .finally(() => setStatusLoading(false));
+              }}
+            >
+              Retry connection
+            </Button>
           </div>
-          {unlockError ? <p className="text-sm text-red-600">{unlockError}</p> : null}
-          <Button type="submit" disabled={unlocking || !password.trim()}>
-            {unlocking ? "Checking…" : "Unlock error tracker"}
-          </Button>
-        </form>
+        ) : null}
+
+        {showUnlockGate ? (
+          <form
+            onSubmit={handleUnlock}
+            className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="error-tracker-password">Error tracker password</Label>
+              <Input
+                id="error-tracker-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={usesEnvPassword ? "API ERROR_TRACKER_PASSWORD value" : "Your error tracker password"}
+                required
+              />
+              <p className="text-xs text-slate-500">
+                {usesEnvPassword
+                  ? "Use the exact value of ERROR_TRACKER_PASSWORD on your API server (not the booking website)."
+                  : "Staff and doctors cannot open this page even if they know your login password."}
+              </p>
+            </div>
+            {unlockError ? <p className="text-sm text-red-600">{unlockError}</p> : null}
+            <Button type="submit" disabled={unlocking || !password.trim()}>
+              {unlocking ? "Checking…" : "Unlock error tracker"}
+            </Button>
+          </form>
+        ) : null}
+
+        {needsSetup ? (
+          <>
+            {showUnlockGate ? (
+              <p className="text-center text-xs font-medium uppercase tracking-wide text-slate-400">or create a new password</p>
+            ) : null}
+            <form
+              onSubmit={handleConfigure}
+              className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+            >
+              <div className="space-y-2">
+                <Label htmlFor="setup-password">Create error tracker password</Label>
+                <Input
+                  id="setup-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  required={!showUnlockGate}
+                  minLength={8}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="setup-confirm">Confirm password</Label>
+                <Input
+                  id="setup-confirm"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required={!showUnlockGate}
+                  minLength={8}
+                />
+              </div>
+              {setupError ? <p className="text-sm text-red-600">{setupError}</p> : null}
+              <Button type="submit" disabled={settingUp || password.length < 8 || !confirmPassword}>
+                {settingUp ? "Saving…" : "Save password and open error tracker"}
+              </Button>
+            </form>
+            {!showUnlockGate ? (
+              <p className="text-xs text-slate-500">
+                Or set <code>ERROR_TRACKER_PASSWORD</code> on the <strong>API</strong> server and use that password
+                above after redeploying the API.
+              </p>
+            ) : null}
+          </>
+        ) : null}
       </div>
     );
   }
