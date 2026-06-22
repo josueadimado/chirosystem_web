@@ -58,9 +58,14 @@ export function clearErrorTrackerToken(): void {
   sessionStorage.removeItem(STORAGE_KEY);
 }
 
+export function hasErrorTrackerToken(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(sessionStorage.getItem(STORAGE_KEY)?.trim());
+}
+
 export async function fetchErrorTrackerStatus(): Promise<ErrorTrackerStatus> {
-  // No custom headers — avoids CORS preflight issues; unlocked is set after unlock POST.
   return apiGetAuth<ErrorTrackerStatus>("/admin/error_tracker_status/", {
+    headers: trackerHeaders(),
     cache: "no-store",
   });
 }

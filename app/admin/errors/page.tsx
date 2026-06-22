@@ -21,6 +21,7 @@ import {
   fetchErrorLogDetail,
   fetchErrorLogs,
   fetchErrorTrackerStatus,
+  hasErrorTrackerToken,
   reopenErrorLog,
   resolveErrorLog,
   unlockErrorTracker,
@@ -51,6 +52,12 @@ function sourceLabel(source: string): string {
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return "—";
   return formatInstantMonthDayYearTime(iso);
+}
+
+function isErrorTrackerSessionExpired(err: ApiError): boolean {
+  if (err.status !== 403) return false;
+  const m = err.message.toLowerCase();
+  return m.includes("error tracker password") || m.includes("enter the error tracker");
 }
 
 export default function AdminErrorsPage() {
@@ -91,9 +98,10 @@ export default function AdminErrorsPage() {
     const source = status.password_source ?? (status.configured ? "database" : "none");
     setConfigured(Boolean(status.configured));
     setUsesEnvPassword(source === "env");
-    setUnlocked(Boolean(status.unlocked));
-    if (!status.unlocked) {
-      clearErrorTrackerToken();
+    // Unlocked state is driven locally (unlock POST + sessionStorage), not status GET.
+    // Status often returns unlocked:false when the tracker header is omitted or still propagating.
+    if (status.unlocked) {
+      setUnlocked(true);
     }
   }, []);
 
@@ -119,7 +127,7 @@ export default function AdminErrorsPage() {
       setOpenCount(out.open_count);
     } catch (e) {
       if (e instanceof ApiError) {
-        if (e.status === 403) {
+        if (isErrorTrackerSessionExpired(e)) {
           setUnlocked(false);
           clearErrorTrackerToken();
           setListError("Session expired. Enter the password again.");
@@ -127,7 +135,7 @@ export default function AdminErrorsPage() {
           setListError(e.message);
         }
       } else {
-        setListError("Could not load errors.");
+        setListError("Could not load errors. The list may appear after you redeploy the API with the latest update.");
       }
     } finally {
       setLoading(false);
@@ -136,6 +144,9 @@ export default function AdminErrorsPage() {
 
   useEffect(() => {
     if (isOwner !== true) return;
+    if (hasErrorTrackerToken()) {
+      setUnlocked(true);
+    }
     setStatusLoading(true);
     setStatusError("");
     void refreshStatus()
@@ -175,6 +186,8 @@ export default function AdminErrorsPage() {
       await configureErrorTracker(password, confirmPassword);
       setPassword("");
       setConfirmPassword("");
+      setUnlocked(true);
+      setStatusError("");
       const status = await refreshStatus();
       applyStatus(status);
     } catch (err) {
@@ -211,9 +224,6 @@ export default function AdminErrorsPage() {
       setUsesEnvPassword(out.password_source === "env");
       setUnlocked(true);
       setStatusError("");
-      void refreshStatus().then(applyStatus).catch(() => {
-        /* unlock already succeeded; status refresh is best-effort */
-      });
     } catch (err) {
       if (err instanceof ApiError) {
         setUnlockError(err.message);
