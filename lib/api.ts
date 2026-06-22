@@ -248,8 +248,15 @@ export async function apiPostPublic<T>(path: string, payload: object): Promise<T
 }
 
 /** Authenticated GET. Pass `cache: "no-store"` when the response must always reflect the latest server data (e.g. bill preview). */
-export async function apiGetAuth<T>(path: string, init?: Pick<RequestInit, "cache">): Promise<T> {
-  const res = await fetchWithAuth(`${getApiBase()}${path}`, { method: "GET", ...init });
+export async function apiGetAuth<T>(
+  path: string,
+  init?: Pick<RequestInit, "cache"> & { headers?: Record<string, string> },
+): Promise<T> {
+  const res = await fetchWithAuth(`${getApiBase()}${path}`, {
+    method: "GET",
+    headers: init?.headers,
+    cache: init?.cache,
+  });
   return handleResponse<T>(res);
 }
 
@@ -277,10 +284,15 @@ export async function apiFetchBlobAuth(path: string): Promise<Blob> {
   return res.blob();
 }
 
-export async function apiPost<T>(path: string, payload: object): Promise<T> {
+export async function apiPost<T>(
+  path: string,
+  payload: object,
+  opts?: { headers?: Record<string, string> },
+): Promise<T> {
   const res = await fetchWithAuth(`${getApiBase()}${path}`, {
     method: "POST",
     body: payload,
+    headers: opts?.headers,
   });
   return handleResponse<T>(res);
 }
@@ -295,10 +307,15 @@ export async function apiPut<T>(path: string, payload: object): Promise<T> {
 }
 
 /** Authenticated PATCH. */
-export async function apiPatch<T>(path: string, payload: object): Promise<T> {
+export async function apiPatch<T>(
+  path: string,
+  payload: object,
+  opts?: { headers?: Record<string, string> },
+): Promise<T> {
   const res = await fetchWithAuth(`${getApiBase()}${path}`, {
     method: "PATCH",
     body: payload,
+    headers: opts?.headers,
   });
   return handleResponse<T>(res);
 }

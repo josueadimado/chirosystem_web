@@ -7,6 +7,7 @@ import { NotificationBell } from "@/components/notification-bell";
 import { InstallAppCallout } from "@/components/install-app-callout";
 import {
   IconBarChart,
+  IconAlertTriangle,
   IconBook,
   IconBot,
   IconCalendar,
@@ -40,7 +41,7 @@ const operationsItemsBase = [
   { label: "Booking blocks", href: "/admin/booking-blocks", icon: <IconFilter className="w-5 h-5" /> },
 ];
 
-const toolsItems = [
+const toolsItemsBase = [
   { label: "User guide", href: "/admin/manual", icon: <IconBook className="w-5 h-5" /> },
   { label: "AI Assistant", href: "/admin/ai", icon: <IconBot className="w-5 h-5" /> },
   { label: "Settings", href: "/admin/settings", icon: <IconSettings className="w-5 h-5" /> },
@@ -58,6 +59,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/team": "Team & logins",
   "/admin/booking-blocks": "Booking blocks",
   "/admin/ai": "AI Assistant",
+  "/admin/errors": "Error tracker",
   "/admin/settings": "Settings",
   "/admin/manual": "User guide",
 };
@@ -85,6 +87,19 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
       ? [{ label: "Team & logins", href: "/admin/team", icon: <IconUserPlus className="w-5 h-5" /> }]
       : []),
     ...operationsItemsBase.slice(3),
+  ];
+
+  const toolsItems = [
+    ...(isOwnerAdmin
+      ? [
+          {
+            label: "Error tracker",
+            href: "/admin/errors",
+            icon: <IconAlertTriangle className="w-5 h-5" />,
+          },
+        ]
+      : []),
+    ...toolsItemsBase,
   ];
 
   const sidebarGroups = [
