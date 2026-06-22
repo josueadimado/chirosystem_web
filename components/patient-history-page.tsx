@@ -952,6 +952,7 @@ export function PatientHistoryPage({
             { invoice_id: invoiceId },
           );
           await loadDetail();
+          setHandoffMsg(out.detail || "Card charged — invoice paid.");
           return out;
         },
         {
