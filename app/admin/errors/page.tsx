@@ -17,6 +17,7 @@ import { ApiError } from "@/lib/api";
 import { getRoleCookie } from "@/lib/auth";
 import {
   clearErrorTrackerToken,
+  configureErrorTracker,
   fetchErrorLogDetail,
   fetchErrorLogs,
   fetchErrorTrackerStatus,
@@ -57,6 +58,9 @@ export default function AdminErrorsPage() {
   const [configured, setConfigured] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [setupError, setSetupError] = useState("");
+  const [settingUp, setSettingUp] = useState(false);
   const [unlockError, setUnlockError] = useState("");
   const [unlocking, setUnlocking] = useState(false);
 
@@ -146,6 +150,28 @@ export default function AdminErrorsPage() {
     if (!unlocked) return "";
     return `${openCount} open · ${total} matching`;
   }, [openCount, total, unlocked]);
+
+  const handleConfigure = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSettingUp(true);
+    setSetupError("");
+    try {
+      await configureErrorTracker(password, confirmPassword);
+      setPassword("");
+      setConfirmPassword("");
+      const status = await fetchErrorTrackerStatus();
+      setConfigured(status.configured);
+      setUnlocked(status.unlocked);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setSetupError(err.message);
+      } else {
+        setSetupError("Could not save password. Make sure the API is updated and migrations have run.");
+      }
+    } finally {
+      setSettingUp(false);
+    }
+  };
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -252,19 +278,49 @@ export default function AdminErrorsPage() {
 
   if (!configured) {
     return (
-      <div className="mx-auto max-w-xl space-y-4">
+      <div className="mx-auto max-w-md space-y-6">
         <AdminPageIntro
           title="Error tracker"
-          description="Automatic log of server errors to help you find and fix bugs."
+          description="Choose a password for this page. It is separate from your login — staff cannot see error logs even if they know your login password."
         />
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          <p className="font-semibold">Setup required on the server</p>
-          <p className="mt-2">
-            Add <code className="rounded bg-white/80 px-1">ERROR_TRACKER_PASSWORD=your-secret-password</code> to
-            the API <code className="rounded bg-white/80 px-1">.env</code> file, then restart the API container.
-            You will use that password to unlock this page after signing in.
-          </p>
-        </div>
+        <form
+          onSubmit={handleConfigure}
+          className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="setup-password">Create error tracker password</Label>
+            <Input
+              id="setup-password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              required
+              minLength={8}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="setup-confirm">Confirm password</Label>
+            <Input
+              id="setup-confirm"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+            />
+          </div>
+          {setupError ? <p className="text-sm text-red-600">{setupError}</p> : null}
+          <Button type="submit" disabled={settingUp || password.length < 8 || !confirmPassword}>
+            {settingUp ? "Saving…" : "Save password and open error tracker"}
+          </Button>
+        </form>
+        <p className="text-xs text-slate-500">
+          Advanced: your host can instead set <code>ERROR_TRACKER_PASSWORD</code> on the{" "}
+          <strong>API</strong> server (not the booking website). If that env var is set, use it to unlock this page.
+        </p>
       </div>
     );
   }
@@ -292,8 +348,7 @@ export default function AdminErrorsPage() {
               required
             />
             <p className="text-xs text-slate-500">
-              Set on the server as <code>ERROR_TRACKER_PASSWORD</code>. Staff and doctors cannot open this page
-              even if they know your login.
+              This is the password you chose when you set up the error tracker (not your login password).
             </p>
           </div>
           {unlockError ? <p className="text-sm text-red-600">{unlockError}</p> : null}

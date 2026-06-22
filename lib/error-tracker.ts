@@ -71,6 +71,23 @@ export async function unlockErrorTracker(password: string): Promise<{ token: str
   return out;
 }
 
+export async function configureErrorTracker(
+  password: string,
+  confirm_password: string,
+): Promise<{ token: string; expires_in: number; configured: boolean; detail: string }> {
+  const out = await apiPost<{
+    token: string;
+    expires_in: number;
+    configured: boolean;
+    detail: string;
+  }>("/admin/error_tracker_configure/", {
+    password,
+    confirm_password,
+  });
+  saveErrorTrackerToken(out.token);
+  return out;
+}
+
 export async function fetchErrorLogs(params: {
   limit?: number;
   offset?: number;
