@@ -103,6 +103,8 @@ type PatientDetail = {
   card_brand: string;
   card_last4: string;
   has_saved_card?: boolean;
+  has_chargeable_saved_card?: boolean;
+  card_display_only?: boolean;
   /** When true, public booking skips “must book intake chiro first” for this patient (migrated / established). */
   online_chiro_intake_waived?: boolean;
   sms_consent?: boolean;
@@ -659,6 +661,11 @@ export function PatientDetailModal({
                             ? `${(detail.card_brand || "Card").toUpperCase()} ·••• ${detail.card_last4}`
                             : "None on file"}
                         </p>
+                        {detail.card_display_only ? (
+                          <p className="mt-2 text-xs font-medium text-amber-900">
+                            Card digits show on file but cannot be charged — save the card again below.
+                          </p>
+                        ) : null}
                       </div>
                       {detail.online_chiro_intake_waived ? (
                         <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 shadow-sm sm:col-span-2">
@@ -689,7 +696,9 @@ export function PatientDetailModal({
                                   ...prev,
                                   card_brand: card.card_brand,
                                   card_last4: card.card_last4,
-                                  has_saved_card: Boolean(card.card_last4),
+                                  has_saved_card: true,
+                                  has_chargeable_saved_card: true,
+                                  card_display_only: false,
                                 }
                               : prev,
                           );

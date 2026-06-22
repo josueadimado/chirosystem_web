@@ -202,6 +202,8 @@ type Appointment = {
   amount_due?: string;
   card_last4?: string;
   card_brand?: string;
+  has_chargeable_saved_card?: boolean;
+  card_display_only?: boolean;
   patient_payment_profile?: string;
   /** Total unpaid across all open invoices (visit + penalties). */
   patient_balance_due?: string;
@@ -324,6 +326,7 @@ type CompleteVisitPayment = {
   charged: boolean;
   checkout_url: string | null;
   charge_error: string | null;
+  charge_error_message?: string | null;
   payment_intent_id: string | null;
 };
 
@@ -2529,10 +2532,13 @@ export default function DoctorDashboardPage() {
                   <p className="text-sm text-slate-600">
                     Open this on a tablet or front-desk computer and let the patient complete checkout right there before
                     they walk out. You can still copy the link if you need to text it in a pinch.
-                    {paymentFollowUp.payment.charge_error && paymentFollowUp.payment.charge_error !== "no_saved_card" && (
+                    {paymentFollowUp.payment.charge_error &&
+                      paymentFollowUp.payment.charge_error !== "no_saved_card" &&
+                      paymentFollowUp.payment.charge_error !== "card_on_file_not_chargeable" && (
                       <span className="mt-1 block text-amber-800">
-                        Auto-charge did not go through ({paymentFollowUp.payment.charge_error}). Collect payment here or
-                        with the reader.
+                        Auto-charge did not go through:{" "}
+                        {paymentFollowUp.payment.charge_error_message || paymentFollowUp.payment.charge_error}. Collect
+                        payment here or with the reader.
                       </span>
                     )}
                   </p>
@@ -2570,8 +2576,14 @@ export default function DoctorDashboardPage() {
                   No pay link was created. Use the card reader button above or collect payment manually before they leave.
                 </p>
               )}
-              {!paymentFollowUp.payment.charged && paymentFollowUp.payment.charge_error === "no_saved_card" && paymentFollowUp.payment.status !== "checkout_link" && (
-                <p className="mt-2 text-sm text-slate-600">No card on file — use reader or desk pay screen.</p>
+              {!paymentFollowUp.payment.charged &&
+                (paymentFollowUp.payment.charge_error === "no_saved_card" ||
+                  paymentFollowUp.payment.charge_error === "card_on_file_not_chargeable") &&
+                paymentFollowUp.payment.status !== "checkout_link" && (
+                <p className="mt-2 text-sm text-amber-900">
+                  {paymentFollowUp.payment.charge_error_message ||
+                    "No chargeable card on file — use reader or desk pay screen."}
+                </p>
               )}
             </div>
             <div className="flex flex-col items-end gap-2">
@@ -3339,12 +3351,19 @@ export default function DoctorDashboardPage() {
               ) : (
                 <p className="mt-3 border-t border-slate-200/80 pt-3 text-xs text-slate-600">No card on file — use Terminal or desk checkout.</p>
               )}
+              {activeAppt.card_display_only ? (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  Card digits are on file but Square is not linked for charging. Open the patient chart and save the card
+                  again before using Charge saved card.
+                </p>
+              ) : null}
             </div>
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
               Clinic policy: the patient should know what they are paying before you run the charge or hand them the Terminal.
             </p>
             <div className="mt-5 flex flex-col gap-2">
-              {activeAppt.card_last4 ? (
+              {activeAppt.has_chargeable_saved_card ||
+              (Boolean(activeAppt.card_last4) && !activeAppt.card_display_only) ? (
                 <>
                   <button
                     type="button"
