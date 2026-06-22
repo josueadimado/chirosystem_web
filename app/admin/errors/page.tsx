@@ -175,7 +175,7 @@ export default function AdminErrorsPage() {
 
   const summaryText = useMemo(() => {
     if (!unlocked) return "";
-    return `${openCount} open · ${total} matching`;
+    return `${openCount} open issue type${openCount === 1 ? "" : "s"} · ${total} matching`;
   }, [openCount, total, unlocked]);
 
   const handleConfigure = async (e: React.FormEvent) => {
@@ -462,8 +462,9 @@ export default function AdminErrorsPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:col-span-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">How it works</p>
           <p className="mt-1 text-sm text-slate-600">
-            When the API crashes or returns a 500 error, a row is saved here with the full technical details.
-            Mark items resolved when fixed so you can focus on what is still broken.
+            Similar errors are grouped together by fingerprint. When the API crashes, a row is saved with stack traces
+            and request details. Mark a group resolved when fixed — if the same error happens again after that, it
+            reopens automatically so you know the fix did not hold.
           </p>
         </div>
       </div>
@@ -544,7 +545,8 @@ export default function AdminErrorsPage() {
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-100 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3">When</th>
+                <th className="px-4 py-3">Latest</th>
+                <th className="px-4 py-3">Times</th>
                 <th className="px-4 py-3">Level</th>
                 <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">Message</th>
@@ -561,6 +563,14 @@ export default function AdminErrorsPage() {
                   onClick={() => void openDetail(row)}
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatWhen(row.created_at)}</td>
+                  <td className="px-4 py-3 text-slate-700">
+                    <span className="font-semibold tabular-nums">{row.occurrence_count ?? 1}</span>
+                    {row.first_occurrence_at && (row.occurrence_count ?? 1) > 1 ? (
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        since {formatWhen(row.first_occurrence_at)}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={cn(
@@ -584,7 +594,14 @@ export default function AdminErrorsPage() {
                     {row.resolved_at ? (
                       <span className="text-emerald-700">Resolved</span>
                     ) : (
-                      <span className="text-red-700">Open</span>
+                      <span className="text-red-700">
+                        Open
+                        {row.auto_reopened ? (
+                          <span className="ml-1.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-900 ring-1 ring-amber-200">
+                            Reopened
+                          </span>
+                        ) : null}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -638,8 +655,17 @@ export default function AdminErrorsPage() {
             <div className="space-y-4 text-sm">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <p className="text-xs font-semibold uppercase text-slate-500">When</p>
+                  <p className="text-xs font-semibold uppercase text-slate-500">Latest occurrence</p>
                   <p>{formatWhen(detail.created_at)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-slate-500">Times seen</p>
+                  <p>
+                    {detail.occurrence_count}
+                    {detail.first_occurrence_at && detail.occurrence_count > 1
+                      ? ` · first ${formatWhen(detail.first_occurrence_at)}`
+                      : ""}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase text-slate-500">HTTP</p>
@@ -654,11 +680,40 @@ export default function AdminErrorsPage() {
                     {detail.user_role ? ` (${detail.user_role})` : ""}
                   </p>
                 </div>
-                <div>
+                <div className="sm:col-span-2">
                   <p className="text-xs font-semibold uppercase text-slate-500">Fingerprint</p>
                   <p className="break-all font-mono text-xs text-slate-600">{detail.fingerprint || "—"}</p>
                 </div>
               </div>
+
+              {detail.auto_reopened ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  This issue was marked resolved before, but the same error happened again — it was reopened
+                  automatically.
+                </div>
+              ) : null}
+
+              {detail.occurrence_history && detail.occurrence_history.length > 1 ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase text-slate-500">Recent occurrences</p>
+                  <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
+                    {detail.occurrence_history.map((hit) => (
+                      <li key={hit.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-slate-700">
+                        <span className="font-medium text-slate-900">{formatWhen(hit.created_at)}</span>
+                        <span className="font-mono text-slate-500">
+                          {hit.http_method} {hit.path}
+                        </span>
+                        {hit.user_display ? <span>{hit.user_display}</span> : null}
+                        {hit.auto_reopened ? (
+                          <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
+                            Reopened
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               <div>
                 <p className="text-xs font-semibold uppercase text-slate-500">Message</p>
@@ -697,7 +752,8 @@ export default function AdminErrorsPage() {
                 <div className="flex items-center gap-2">
                   <Label htmlFor="resolve-notes">Resolution notes</Label>
                   <HelpTip label="About resolution notes">
-                    Optional note for yourself — e.g. fixed in commit abc, redeployed API.
+                    Optional note for yourself — e.g. fixed in commit abc, redeployed API. Resolving marks every
+                    occurrence of this fingerprint as fixed.
                   </HelpTip>
                 </div>
                 <textarea

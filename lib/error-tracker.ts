@@ -25,6 +25,18 @@ export type SystemErrorLogRow = {
   resolved_at: string | null;
   resolved_by_id: number | null;
   fingerprint: string;
+  occurrence_count?: number;
+  first_occurrence_at?: string | null;
+  auto_reopened?: boolean;
+};
+
+export type SystemErrorLogOccurrence = {
+  id: number;
+  created_at: string | null;
+  path: string;
+  http_method: string;
+  user_display: string;
+  auto_reopened: boolean;
 };
 
 export type SystemErrorLogDetail = SystemErrorLogRow & {
@@ -33,6 +45,11 @@ export type SystemErrorLogDetail = SystemErrorLogRow & {
   request_body: string;
   extra: Record<string, unknown>;
   resolution_notes: string;
+  occurrence_count: number;
+  first_occurrence_at: string | null;
+  last_occurrence_at: string | null;
+  auto_reopened: boolean;
+  occurrence_history: SystemErrorLogOccurrence[];
 };
 
 export type ErrorLogsResponse = {
