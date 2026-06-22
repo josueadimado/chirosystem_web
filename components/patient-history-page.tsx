@@ -371,7 +371,7 @@ function VisitBillPanel({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {unpaid && onChargeSavedCard && hasChargeableSavedCard ? (
+          {unpaid && onChargeSavedCard && hasChargeableSavedCard && !cardDisplayOnly ? (
             <button
               type="button"
               disabled={chargingSavedCard}
@@ -1221,7 +1221,10 @@ export function PatientHistoryPage({
                         )
                     : undefined
                 }
-                hasChargeableSavedCard={detail.has_chargeable_saved_card ?? detail.has_saved_card}
+                hasChargeableSavedCard={Boolean(
+                  detail.has_chargeable_saved_card ??
+                    (detail.has_saved_card && !detail.card_display_only),
+                )}
                 cardLast4={detail.card_last4}
                 cardBrand={detail.card_brand}
                 cardDisplayOnly={detail.card_display_only}
