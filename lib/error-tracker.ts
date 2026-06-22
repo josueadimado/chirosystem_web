@@ -59,14 +59,18 @@ export function clearErrorTrackerToken(): void {
 }
 
 export async function fetchErrorTrackerStatus(): Promise<ErrorTrackerStatus> {
+  // No custom headers — avoids CORS preflight issues; unlocked is set after unlock POST.
   return apiGetAuth<ErrorTrackerStatus>("/admin/error_tracker_status/", {
-    headers: trackerHeaders(),
     cache: "no-store",
   });
 }
 
-export async function unlockErrorTracker(password: string): Promise<{ token: string; expires_in: number }> {
-  const out = await apiPost<{ token: string; expires_in: number }>("/admin/error_tracker_unlock/", {
+export async function unlockErrorTracker(password: string): Promise<
+  ErrorTrackerStatus & { token: string; expires_in: number }
+> {
+  const out = await apiPost<
+    ErrorTrackerStatus & { token: string; expires_in: number }
+  >("/admin/error_tracker_unlock/", {
     password,
   });
   saveErrorTrackerToken(out.token);

@@ -147,7 +147,9 @@ export default function AdminErrorsPage() {
         const message =
           e instanceof ApiError
             ? e.message
-            : "Could not reach the error tracker on the API. Redeploy the API and run migrations.";
+            : e instanceof Error
+              ? e.message
+              : "Could not reach the error tracker on the API. Redeploy the API and run migrations.";
         setStatusError(message);
       })
       .finally(() => setStatusLoading(false));
@@ -203,21 +205,20 @@ export default function AdminErrorsPage() {
     setUnlocking(true);
     setUnlockError("");
     try {
-      await unlockErrorTracker(password);
+      const out = await unlockErrorTracker(password);
       setPassword("");
-      const status = await refreshStatus();
-      applyStatus(status);
-      if (!status.unlocked) {
-        clearErrorTrackerToken();
-        setUnlockError(
-          "Password was accepted but the session could not start. Redeploy the API with the error tracker update, then try again.",
-        );
-      }
+      setConfigured(Boolean(out.configured ?? true));
+      setUsesEnvPassword(out.password_source === "env");
+      setUnlocked(true);
+      setStatusError("");
+      void refreshStatus().then(applyStatus).catch(() => {
+        /* unlock already succeeded; status refresh is best-effort */
+      });
     } catch (err) {
       if (err instanceof ApiError) {
         setUnlockError(err.message);
       } else {
-        setUnlockError("Could not verify password.");
+        setUnlockError("Network error — could not reach the API. Check your connection and try again.");
       }
     } finally {
       setUnlocking(false);
@@ -335,7 +336,13 @@ export default function AdminErrorsPage() {
                 setStatusError("");
                 void refreshStatus()
                   .catch((e) => {
-                    setStatusError(e instanceof ApiError ? e.message : "Still could not reach the API.");
+                    setStatusError(
+                      e instanceof ApiError
+                        ? e.message
+                        : e instanceof Error
+                          ? e.message
+                          : "Still could not reach the API.",
+                    );
                   })
                   .finally(() => setStatusLoading(false));
               }}
