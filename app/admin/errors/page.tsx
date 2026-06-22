@@ -3,7 +3,7 @@
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -234,9 +234,9 @@ export default function AdminErrorsPage() {
         <p className="text-sm text-slate-600">
           You are signed in as staff or doctor. Ask the owner if you need access to bug reports.
         </p>
-        <Button asChild variant="outline">
-          <Link href="/admin/dashboard">Back to dashboard</Link>
-        </Button>
+        <Link href="/admin/dashboard" className={buttonVariants({ variant: "outline" })}>
+          Back to dashboard
+        </Link>
       </div>
     );
   }
@@ -550,7 +550,9 @@ export default function AdminErrorsPage() {
               <div className="border-t border-slate-100 pt-4">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="resolve-notes">Resolution notes</Label>
-                  <HelpTip text="Optional note for yourself — e.g. fixed in commit abc, redeployed API." />
+                  <HelpTip label="About resolution notes">
+                    Optional note for yourself — e.g. fixed in commit abc, redeployed API.
+                  </HelpTip>
                 </div>
                 <textarea
                   id="resolve-notes"
