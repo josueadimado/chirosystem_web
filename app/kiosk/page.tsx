@@ -8,7 +8,10 @@ import { ApiError, apiPostPublic } from "@/lib/api";
 import { assertKioskCheckInSucceeded } from "@/lib/kiosk-checkin";
 import Link from "next/link";
 import { isValidPhoneNumber } from "react-phone-number-input";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+/** After check-in, return to the phone keypad so the next patient can use the kiosk. */
+const KIOSK_SUCCESS_RESET_MS = 10_000;
 
 /** Format phone display: US style for 10 digits, international for +prefix */
 function formatPhoneDisplay(phone: string) {
@@ -264,6 +267,12 @@ export default function KioskPage() {
     setChooseMessage("");
   };
 
+  useEffect(() => {
+    if (!successVisible) return;
+    const timer = window.setTimeout(resetKiosk, KIOSK_SUCCESS_RESET_MS);
+    return () => window.clearTimeout(timer);
+  }, [successVisible]);
+
   const completeCheckIn = async (appointmentId: number, patientName: string, visitLabel?: string) => {
     const out = await apiPostPublic<{
       detail: string;
@@ -438,9 +447,6 @@ export default function KioskPage() {
                 ) : null}
                 <p className="mt-3 text-base leading-relaxed text-muted-foreground sm:text-lg">
                   The front desk has been notified. We&apos;ll call your name when it&apos;s time for this visit.
-                </p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Have another appointment later today? Tap Start over to check in for that visit when it&apos;s time.
                 </p>
                 <button
                   type="button"

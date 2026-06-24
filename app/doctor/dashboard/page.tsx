@@ -501,6 +501,8 @@ export default function DoctorDashboardPage() {
   const [billingEditJustSaved, setBillingEditJustSaved] = useState(false);
   const billingEditSavedFingerprintRef = useRef<string | null>(null);
   const [consultPortalReady, setConsultPortalReady] = useState(false);
+  /** Avoid wiping procedure lines when the schedule refreshes the same in-consultation visit. */
+  const billLinesInitializedForApptRef = useRef<number | null>(null);
 
   useEffect(() => {
     setConsultPortalReady(true);
@@ -1033,13 +1035,20 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     if (!activeAppt?.id) return;
-    if (revisingBillingForAppointmentId === activeAppt.id) {
-      return;
-    }
-    // Post-visit SOAP edit loads notes via openSoapNotesEdit — do not wipe them here.
-    if (editingSoapAppointmentId === activeAppt.id) {
-      return;
-    }
+    if (revisingBillingForAppointmentId === activeAppt.id) return;
+    if (editingSoapAppointmentId === activeAppt.id) return;
+    setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
+  }, [
+    activeAppt?.id,
+    activeAppt?.clinical_handoff_notes,
+    revisingBillingForAppointmentId,
+    editingSoapAppointmentId,
+  ]);
+
+  useEffect(() => {
+    if (!activeAppt?.id) return;
+    if (revisingBillingForAppointmentId === activeAppt.id) return;
+    if (editingSoapAppointmentId === activeAppt.id) return;
     if (activeAppt.status !== "in_consultation") {
       setDoctorNotes("");
       setSoapNotesLoaded(false);
@@ -1055,6 +1064,7 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     if (!activeAppt) {
+      billLinesInitializedForApptRef.current = null;
       setBillLines([]);
       setDiagnosis("");
       setSelectedDiagnosisIds([]);
@@ -1066,28 +1076,27 @@ export default function DoctorDashboardPage() {
       return;
     }
     if (revisingBillingForAppointmentId === activeAppt.id) {
-      setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
       return;
     }
     if (editingSoapAppointmentId === activeAppt.id) {
       return;
     }
-    setHandoffNotes(activeAppt.clinical_handoff_notes ?? "");
+    if (billLinesInitializedForApptRef.current === activeAppt.id) {
+      return;
+    }
+    billLinesInitializedForApptRef.current = activeAppt.id;
+
     if (!activeAppt.booked_service_id) {
       setBillLines([]);
       setDiagnosis("");
       setSelectedDiagnosisIds([]);
       setDiagnosisPriorVisitHint(null);
       setDiagnosisSearch("");
-      setProfessionalDiscount("");
-      setProfessionalDiscountReason("");
       return;
     }
     setBillLines([{ service_id: activeAppt.booked_service_id, quantity: "1", unit_price: "" }]);
     setDiagnosis("");
     setDiagnosisSearch("");
-    setProfessionalDiscount("");
-    setProfessionalDiscountReason("");
 
     if (activeAppt.status !== "in_consultation") {
       setSelectedDiagnosisIds([]);
@@ -1124,10 +1133,7 @@ export default function DoctorDashboardPage() {
       cancelled = true;
     };
   }, [
-    activeAppt?.id,
-    activeAppt?.booked_service_id,
-    activeAppt?.clinical_handoff_notes,
-    activeAppt?.status,
+    activeAppt,
     revisingBillingForAppointmentId,
     editingSoapAppointmentId,
   ]);
@@ -1409,6 +1415,7 @@ export default function DoctorDashboardPage() {
         setProfessionalDiscount("");
         setProfessionalDiscountReason("");
         setBillLines([]);
+        billLinesInitializedForApptRef.current = null;
         await load({ skipReconnectBillingEdit: true });
         if (options?.autoTerminal && !result.payment.charged && result.invoice_id && !terminalId) {
           try {
@@ -1457,11 +1464,14 @@ export default function DoctorDashboardPage() {
       toast.error("Add at least one service line for this visit (adjust or add rows below).");
       return;
     }
-    if (appointmentHasChargeableSavedCard(activeAppt)) {
-      setPaymentConfirmOpen(true);
-      return;
-    }
     await doCompleteVisit(false);
+  };
+
+  const openConsultationForAppointment = (appt: Appointment) => {
+    const fresh = appointments.find((a) => a.id === appt.id) ?? appt;
+    billLinesInitializedForApptRef.current = null;
+    setConsultWorkspaceExpanded(true);
+    setActiveAppt(fresh);
   };
 
   const closeConsultWorkspace = () => {
@@ -2532,10 +2542,7 @@ export default function DoctorDashboardPage() {
             </p>
             <button
               type="button"
-              onClick={() => {
-                setConsultWorkspaceExpanded(true);
-                setActiveAppt(resumableConsultationAppt);
-              }}
+              onClick={() => openConsultationForAppointment(resumableConsultationAppt)}
               className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
             >
               Resume current visit
@@ -3219,10 +3226,7 @@ export default function DoctorDashboardPage() {
                       <div className="flex max-w-md flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            setConsultWorkspaceExpanded(true);
-                            setActiveAppt(appt);
-                          }}
+                          onClick={() => openConsultationForAppointment(appt)}
                           className="min-h-11 flex-1 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] sm:flex-none sm:px-6"
                         >
                           Resume visit
@@ -3499,9 +3503,10 @@ export default function DoctorDashboardPage() {
           </DoctorEmptyWell>
         )}
       </aside>
-      {paymentConfirmOpen && activeAppt && (
+      {paymentConfirmOpen && activeAppt && consultPortalReady
+        ? createPortal(
         <div
-          className="fixed inset-0 z-[170] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="payment-confirm-title"
@@ -3632,8 +3637,10 @@ export default function DoctorDashboardPage() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+        document.body,
+      )
+        : null}
       <ConfirmDialog />
       {RecordCashPaymentModal}
       <AdminDeskBookFromSlotModal
