@@ -342,7 +342,25 @@ type PaymentFollowUp = {
   terminal_checkout_id?: string | null;
   payment: CompleteVisitPayment;
   pending_payment?: PendingPaymentContext;
+  card_last4?: string;
+  card_brand?: string;
+  has_chargeable_saved_card?: boolean;
+  card_display_only?: boolean;
 };
+
+function appointmentHasChargeableSavedCard(appt: {
+  has_chargeable_saved_card?: boolean;
+  card_last4?: string;
+  card_display_only?: boolean;
+}): boolean {
+  return Boolean(
+    appt.has_chargeable_saved_card || (appt.card_last4 && !appt.card_display_only),
+  );
+}
+
+function paymentFollowUpHasChargeableSavedCard(pf: PaymentFollowUp): boolean {
+  return appointmentHasChargeableSavedCard(pf);
+}
 
 type PaymentCollectMode = "current" | "all";
 
@@ -377,6 +395,7 @@ export default function DoctorDashboardPage() {
   const [paymentFollowUp, setPaymentFollowUp] = useState<PaymentFollowUp | null>(null);
   /** Pay only today's visit invoice, or visit + open no-show / late-cancel fees. */
   const [paymentCollectMode, setPaymentCollectMode] = useState<PaymentCollectMode>("current");
+  const [chargingSavedCardBanner, setChargingSavedCardBanner] = useState(false);
   const [consultPendingPayment, setConsultPendingPayment] = useState<PendingPaymentContext | null>(null);
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [applyingCredit, setApplyingCredit] = useState(false);
@@ -1245,6 +1264,10 @@ export default function DoctorDashboardPage() {
           terminal_checkout_id?: string | null;
           payment: CompleteVisitPayment;
           pending_payment?: PendingPaymentContext;
+          card_last4?: string;
+          card_brand?: string;
+          has_chargeable_saved_card?: boolean;
+          card_display_only?: boolean;
         }>(endpoint, {
           doctor_notes: doctorNotes,
           diagnosis_ids: selectedDiagnosisIds,
@@ -1261,6 +1284,11 @@ export default function DoctorDashboardPage() {
           terminal_checkout_id: result.terminal_checkout_id,
           payment: result.payment,
           pending_payment: result.pending_payment,
+          card_last4: result.card_last4 ?? activeAppt.card_last4,
+          card_brand: result.card_brand ?? activeAppt.card_brand,
+          has_chargeable_saved_card:
+            result.has_chargeable_saved_card ?? activeAppt.has_chargeable_saved_card,
+          card_display_only: result.card_display_only ?? activeAppt.card_display_only,
         });
         setPaymentCollectMode("current");
         const terminalId = result.terminal_checkout_id ?? null;
@@ -1351,14 +1379,10 @@ export default function DoctorDashboardPage() {
       toast.error("Add at least one service line for this visit (adjust or add rows below).");
       return;
     }
-    const isRevisingAwaitingPayment =
-      revisingBillingForAppointmentId != null && revisingBillingForAppointmentId === activeAppt.id;
-    if (isRevisingAwaitingPayment) {
-      // In explicit edit mode, doctors already chose to update this invoice; submit immediately.
-      await doCompleteVisit(false);
+    if (appointmentHasChargeableSavedCard(activeAppt)) {
+      setPaymentConfirmOpen(true);
       return;
     }
-    // One-click finish: complete now, then collect payment from the green banner.
     await doCompleteVisit(false);
   };
 
@@ -1783,6 +1807,10 @@ export default function DoctorDashboardPage() {
           already_paid?: boolean;
           payment: CompleteVisitPayment;
           pending_payment?: PendingPaymentContext;
+          card_last4?: string;
+          card_brand?: string;
+          has_chargeable_saved_card?: boolean;
+          card_display_only?: boolean;
         }>("/doctor/prepare_invoice_payment/", {
           appointment_id: appt.id,
           try_saved_card: opts?.trySavedCard ?? false,
@@ -1798,6 +1826,10 @@ export default function DoctorDashboardPage() {
           patient_credit_balance: out.patient_credit_balance,
           payment: out.payment,
           pending_payment: out.pending_payment,
+          card_last4: out.card_last4 ?? appt.card_last4,
+          card_brand: out.card_brand ?? appt.card_brand,
+          has_chargeable_saved_card: out.has_chargeable_saved_card ?? appt.has_chargeable_saved_card,
+          card_display_only: out.card_display_only ?? appt.card_display_only,
         });
         setPaymentCollectMode("current");
         setSquareCheckoutId(null);
@@ -1813,6 +1845,48 @@ export default function DoctorDashboardPage() {
         errorFallback: "Could not load payment options.",
       },
     );
+  };
+
+  const chargeSavedCardOnBanner = async () => {
+    if (!paymentFollowUp || paymentFollowUp.payment.charged) return;
+    if (!paymentFollowUpHasChargeableSavedCard(paymentFollowUp)) return;
+    const ok = await requestConfirm({
+      title: "Charge saved card?",
+      description: `Charge the saved card on file for invoice ${paymentFollowUp.invoice_number ?? paymentFollowUp.invoice_id}?\n\nAmount due: ${formatMoneyUsd(paymentFollowUp.amount_due ?? paymentFollowUp.total_amount ?? "0")}\n\nOnly continue if the patient agreed to this charge.`,
+      confirmLabel: "Charge card",
+      tone: "default",
+    });
+    if (!ok) return;
+    setChargingSavedCardBanner(true);
+    await runWithFeedback(
+      async () => {
+        const out = await apiPost<{ detail: string; charged?: boolean }>("/doctor/charge-saved-card/", {
+          invoice_id: paymentFollowUp.invoice_id,
+        });
+        setPaymentFollowUp((prev) =>
+          prev
+            ? {
+                ...prev,
+                payment: {
+                  ...prev.payment,
+                  charged: true,
+                  status: "charged_saved_card",
+                  charge_error: null,
+                  charge_error_message: null,
+                },
+              }
+            : prev,
+        );
+        await load();
+        return out;
+      },
+      {
+        loadingMessage: "Charging saved card…",
+        successMessage: (o) => o?.detail ?? "Card charged — invoice paid.",
+        errorFallback: "Could not charge the saved card.",
+      },
+    );
+    setChargingSavedCardBanner(false);
   };
 
   const statusDisplay = (s: string) => {
@@ -2491,6 +2565,24 @@ export default function DoctorDashboardPage() {
               )}
               {!paymentFollowUp.payment.charged && (
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {paymentFollowUpHasChargeableSavedCard(paymentFollowUp) && !paymentFollowUp.card_display_only ? (
+                    <button
+                      type="button"
+                      onClick={() => void chargeSavedCardOnBanner()}
+                      disabled={chargingSavedCardBanner}
+                      className="rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#13823d] disabled:opacity-50"
+                    >
+                      {chargingSavedCardBanner
+                        ? "Charging card…"
+                        : `Charge saved card${paymentFollowUp.card_last4 ? ` (•••• ${paymentFollowUp.card_last4})` : ""}`}
+                    </button>
+                  ) : null}
+                  {paymentFollowUp.card_display_only ? (
+                    <p className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                      Card digits are on file but cannot be charged — open the patient chart, save the card again, then use{" "}
+                      <strong>Charge saved card</strong>.
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void applyPatientCredit()}
@@ -3363,7 +3455,7 @@ export default function DoctorDashboardPage() {
             </p>
             <div className="mt-5 flex flex-col gap-2">
               {activeAppt.has_chargeable_saved_card ||
-              (Boolean(activeAppt.card_last4) && !activeAppt.card_display_only) ? (
+              appointmentHasChargeableSavedCard(activeAppt) ? (
                 <>
                   <button
                     type="button"
