@@ -202,6 +202,7 @@ type Appointment = {
   amount_due?: string;
   card_last4?: string;
   card_brand?: string;
+  has_saved_card?: boolean;
   has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
   patient_payment_profile?: string;
@@ -344,22 +345,37 @@ type PaymentFollowUp = {
   pending_payment?: PendingPaymentContext;
   card_last4?: string;
   card_brand?: string;
+  has_saved_card?: boolean;
   has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
 };
 
-function appointmentHasChargeableSavedCard(appt: {
-  has_chargeable_saved_card?: boolean;
+type SavedCardOnFileHints = {
   card_last4?: string;
+  card_brand?: string;
+  has_saved_card?: boolean;
+  has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
-}): boolean {
-  return Boolean(
-    appt.has_chargeable_saved_card || (appt.card_last4 && !appt.card_display_only),
-  );
+};
+
+function mergeSavedCardHints(...sources: Array<SavedCardOnFileHints | null | undefined>): SavedCardOnFileHints {
+  const last4 = sources.map((s) => (s?.card_last4 ?? "").trim()).find(Boolean) ?? "";
+  const brand = sources.map((s) => (s?.card_brand ?? "").trim()).find(Boolean) ?? "";
+  const hasChargeable = sources.some((s) => s?.has_chargeable_saved_card);
+  const displayOnly = sources.some((s) => s?.card_display_only) || Boolean(last4 && !hasChargeable);
+  const hasSaved = sources.some((s) => s?.has_saved_card) || Boolean(last4);
+  return {
+    card_last4: last4 || undefined,
+    card_brand: brand || undefined,
+    has_saved_card: hasSaved,
+    has_chargeable_saved_card: hasChargeable,
+    card_display_only: displayOnly,
+  };
 }
 
-function paymentFollowUpHasChargeableSavedCard(pf: PaymentFollowUp): boolean {
-  return appointmentHasChargeableSavedCard(pf);
+function appointmentHasChargeableSavedCard(appt: SavedCardOnFileHints): boolean {
+  const merged = mergeSavedCardHints(appt);
+  return Boolean(merged.has_chargeable_saved_card || (merged.card_last4 && !merged.card_display_only));
 }
 
 type PaymentCollectMode = "current" | "all";
@@ -693,6 +709,18 @@ export default function DoctorDashboardPage() {
       null
     );
   }, [paymentFollowUp, paymentCollectMode]);
+
+  const paymentBannerAppointment = useMemo(() => {
+    if (!paymentFollowUp?.invoice_id) return null;
+    return appointments.find((a) => a.invoice_id === paymentFollowUp.invoice_id) ?? null;
+  }, [appointments, paymentFollowUp?.invoice_id]);
+
+  const paymentBannerSavedCard = useMemo(
+    () => mergeSavedCardHints(paymentFollowUp, paymentBannerAppointment),
+    [paymentFollowUp, paymentBannerAppointment],
+  );
+
+  const paymentBannerCanChargeSavedCard = appointmentHasChargeableSavedCard(paymentBannerSavedCard);
 
   const handlePaymentReceived = useCallback(
     async (invoiceId: number, message = "Payment received.") => {
@@ -1266,6 +1294,7 @@ export default function DoctorDashboardPage() {
           pending_payment?: PendingPaymentContext;
           card_last4?: string;
           card_brand?: string;
+          has_saved_card?: boolean;
           has_chargeable_saved_card?: boolean;
           card_display_only?: boolean;
         }>(endpoint, {
@@ -1284,11 +1313,7 @@ export default function DoctorDashboardPage() {
           terminal_checkout_id: result.terminal_checkout_id,
           payment: result.payment,
           pending_payment: result.pending_payment,
-          card_last4: result.card_last4 ?? activeAppt.card_last4,
-          card_brand: result.card_brand ?? activeAppt.card_brand,
-          has_chargeable_saved_card:
-            result.has_chargeable_saved_card ?? activeAppt.has_chargeable_saved_card,
-          card_display_only: result.card_display_only ?? activeAppt.card_display_only,
+          ...mergeSavedCardHints(result, activeAppt),
         });
         setPaymentCollectMode("current");
         const terminalId = result.terminal_checkout_id ?? null;
@@ -1809,6 +1834,7 @@ export default function DoctorDashboardPage() {
           pending_payment?: PendingPaymentContext;
           card_last4?: string;
           card_brand?: string;
+          has_saved_card?: boolean;
           has_chargeable_saved_card?: boolean;
           card_display_only?: boolean;
         }>("/doctor/prepare_invoice_payment/", {
@@ -1826,10 +1852,7 @@ export default function DoctorDashboardPage() {
           patient_credit_balance: out.patient_credit_balance,
           payment: out.payment,
           pending_payment: out.pending_payment,
-          card_last4: out.card_last4 ?? appt.card_last4,
-          card_brand: out.card_brand ?? appt.card_brand,
-          has_chargeable_saved_card: out.has_chargeable_saved_card ?? appt.has_chargeable_saved_card,
-          card_display_only: out.card_display_only ?? appt.card_display_only,
+          ...mergeSavedCardHints(out, appt),
         });
         setPaymentCollectMode("current");
         setSquareCheckoutId(null);
@@ -1849,7 +1872,7 @@ export default function DoctorDashboardPage() {
 
   const chargeSavedCardOnBanner = async () => {
     if (!paymentFollowUp || paymentFollowUp.payment.charged) return;
-    if (!paymentFollowUpHasChargeableSavedCard(paymentFollowUp)) return;
+    if (!paymentBannerCanChargeSavedCard) return;
     const ok = await requestConfirm({
       title: "Charge saved card?",
       description: `Charge the saved card on file for invoice ${paymentFollowUp.invoice_number ?? paymentFollowUp.invoice_id}?\n\nAmount due: ${formatMoneyUsd(paymentFollowUp.amount_due ?? paymentFollowUp.total_amount ?? "0")}\n\nOnly continue if the patient agreed to this charge.`,
@@ -2537,6 +2560,42 @@ export default function DoctorDashboardPage() {
                   Patient credit available: <span className="font-semibold">${paymentFollowUp.patient_credit_balance}</span>
                 </p>
               )}
+              {!paymentFollowUp.payment.charged && paymentBannerSavedCard.has_saved_card ? (
+                <div className="mt-4 rounded-xl border border-[#16a349]/30 bg-white/90 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-[#0f766e]">Card on file</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                        {paymentBannerSavedCard.card_brand || "Card"}
+                        {paymentBannerSavedCard.card_last4 ? ` · •••• ${paymentBannerSavedCard.card_last4}` : ""}
+                      </p>
+                      {paymentBannerCanChargeSavedCard ? (
+                        <p className="mt-1 text-xs text-slate-600">
+                          Charge the saved card after you confirm the amount with the patient.
+                        </p>
+                      ) : null}
+                    </div>
+                    {paymentBannerCanChargeSavedCard ? (
+                      <button
+                        type="button"
+                        onClick={() => void chargeSavedCardOnBanner()}
+                        disabled={chargingSavedCardBanner}
+                        className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                      >
+                        {chargingSavedCardBanner
+                          ? "Charging card…"
+                          : `Charge saved card${paymentBannerSavedCard.card_last4 ? ` (•••• ${paymentBannerSavedCard.card_last4})` : ""}`}
+                      </button>
+                    ) : null}
+                  </div>
+                  {paymentBannerSavedCard.card_display_only ? (
+                    <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                      Card digits are on file but cannot be charged — open the patient chart, save the card again, then use{" "}
+                      <strong>Charge saved card</strong>.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {paymentFollowUp.payment.charged && (
                 <p className="mt-2 font-semibold text-[#166534]">
                   Paid — use <strong>Print patient bill</strong> or <strong>Email bill</strong> on the right when you are
@@ -2545,9 +2604,10 @@ export default function DoctorDashboardPage() {
               )}
               {!paymentFollowUp.payment.charged && (
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
-                  <span className="font-semibold">Clinic rule:</span> payment is due before the patient leaves. Fastest
-                  path: charge a card on file (above), then card reader at the desk, or pay on a clinic tablet using the
-                  button below.
+                  <span className="font-semibold">Clinic rule:</span> payment is due before the patient leaves.
+                  {paymentBannerCanChargeSavedCard
+                    ? " Fastest path: charge the saved card above, then the card reader at the desk, or pay on a clinic tablet below."
+                    : " Use the card reader at the desk, or pay on a clinic tablet using the button below."}
                 </p>
               )}
               {!paymentFollowUp.payment.charged && (
@@ -2565,24 +2625,6 @@ export default function DoctorDashboardPage() {
               )}
               {!paymentFollowUp.payment.charged && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {paymentFollowUpHasChargeableSavedCard(paymentFollowUp) && !paymentFollowUp.card_display_only ? (
-                    <button
-                      type="button"
-                      onClick={() => void chargeSavedCardOnBanner()}
-                      disabled={chargingSavedCardBanner}
-                      className="rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#13823d] disabled:opacity-50"
-                    >
-                      {chargingSavedCardBanner
-                        ? "Charging card…"
-                        : `Charge saved card${paymentFollowUp.card_last4 ? ` (•••• ${paymentFollowUp.card_last4})` : ""}`}
-                    </button>
-                  ) : null}
-                  {paymentFollowUp.card_display_only ? (
-                    <p className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                      Card digits are on file but cannot be charged — open the patient chart, save the card again, then use{" "}
-                      <strong>Charge saved card</strong>.
-                    </p>
-                  ) : null}
                   <button
                     type="button"
                     onClick={() => void applyPatientCredit()}
