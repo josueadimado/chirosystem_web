@@ -203,6 +203,7 @@ type Appointment = {
   card_last4?: string;
   card_brand?: string;
   has_saved_card?: boolean;
+  has_card_on_file?: boolean;
   has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
   patient_payment_profile?: string;
@@ -334,6 +335,7 @@ type CompleteVisitPayment = {
 type PaymentFollowUp = {
   invoice_id: number;
   invoice_number?: string;
+  patient_id?: number;
   total_amount?: string;
   amount_paid?: string;
   amount_due?: string;
@@ -346,6 +348,7 @@ type PaymentFollowUp = {
   card_last4?: string;
   card_brand?: string;
   has_saved_card?: boolean;
+  has_card_on_file?: boolean;
   has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
 };
@@ -354,6 +357,7 @@ type SavedCardOnFileHints = {
   card_last4?: string;
   card_brand?: string;
   has_saved_card?: boolean;
+  has_card_on_file?: boolean;
   has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
 };
@@ -363,11 +367,12 @@ function mergeSavedCardHints(...sources: Array<SavedCardOnFileHints | null | und
   const brand = sources.map((s) => (s?.card_brand ?? "").trim()).find(Boolean) ?? "";
   const hasChargeable = sources.some((s) => s?.has_chargeable_saved_card);
   const displayOnly = sources.some((s) => s?.card_display_only) || Boolean(last4 && !hasChargeable);
-  const hasSaved = sources.some((s) => s?.has_saved_card) || Boolean(last4);
+  const hasSaved = sources.some((s) => s?.has_saved_card || s?.has_card_on_file) || Boolean(last4);
   return {
     card_last4: last4 || undefined,
     card_brand: brand || undefined,
     has_saved_card: hasSaved,
+    has_card_on_file: hasSaved,
     has_chargeable_saved_card: hasChargeable,
     card_display_only: displayOnly,
   };
@@ -376,6 +381,11 @@ function mergeSavedCardHints(...sources: Array<SavedCardOnFileHints | null | und
 function appointmentHasChargeableSavedCard(appt: SavedCardOnFileHints): boolean {
   const merged = mergeSavedCardHints(appt);
   return Boolean(merged.has_chargeable_saved_card || (merged.card_last4 && !merged.card_display_only));
+}
+
+function savedCardShowsOnPaymentBanner(appt: SavedCardOnFileHints): boolean {
+  const merged = mergeSavedCardHints(appt);
+  return Boolean(merged.has_card_on_file || merged.has_saved_card || merged.card_last4);
 }
 
 type PaymentCollectMode = "current" | "all";
@@ -711,9 +721,22 @@ export default function DoctorDashboardPage() {
   }, [paymentFollowUp, paymentCollectMode]);
 
   const paymentBannerAppointment = useMemo(() => {
-    if (!paymentFollowUp?.invoice_id) return null;
-    return appointments.find((a) => a.invoice_id === paymentFollowUp.invoice_id) ?? null;
-  }, [appointments, paymentFollowUp?.invoice_id]);
+    if (!paymentFollowUp) return null;
+    if (paymentFollowUp.invoice_id) {
+      const byInvoice = appointments.find((a) => a.invoice_id === paymentFollowUp.invoice_id);
+      if (byInvoice) return byInvoice;
+    }
+    if (paymentFollowUp.patient_id) {
+      return (
+        appointments.find(
+          (a) =>
+            a.patient_id === paymentFollowUp.patient_id &&
+            (a.status === "awaiting_payment" || a.invoice_id === paymentFollowUp.invoice_id),
+        ) ?? null
+      );
+    }
+    return null;
+  }, [appointments, paymentFollowUp]);
 
   const paymentBannerSavedCard = useMemo(
     () => mergeSavedCardHints(paymentFollowUp, paymentBannerAppointment),
@@ -721,6 +744,34 @@ export default function DoctorDashboardPage() {
   );
 
   const paymentBannerCanChargeSavedCard = appointmentHasChargeableSavedCard(paymentBannerSavedCard);
+  const paymentBannerShowsSavedCard = savedCardShowsOnPaymentBanner(paymentBannerSavedCard);
+
+  /** Load card-on-file from the invoice patient when the banner opens (covers stale schedule rows). */
+  useEffect(() => {
+    const invId = paymentFollowUp?.invoice_id;
+    if (!invId || paymentFollowUp?.payment.charged) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const st = await apiGetAuth<{
+          paid: boolean;
+          card_last4?: string;
+          card_brand?: string;
+          has_saved_card?: boolean;
+          has_card_on_file?: boolean;
+          has_chargeable_saved_card?: boolean;
+          card_display_only?: boolean;
+        }>(`/doctor/invoice_payment_status/?invoice_id=${invId}`);
+        if (cancelled || st.paid) return;
+        setPaymentFollowUp((prev) => (prev ? { ...prev, ...mergeSavedCardHints(st, prev) } : prev));
+      } catch {
+        /* banner still works without card hints */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentFollowUp?.invoice_id, paymentFollowUp?.payment.charged]);
 
   const handlePaymentReceived = useCallback(
     async (invoiceId: number, message = "Payment received.") => {
@@ -1295,6 +1346,7 @@ export default function DoctorDashboardPage() {
           card_last4?: string;
           card_brand?: string;
           has_saved_card?: boolean;
+          has_card_on_file?: boolean;
           has_chargeable_saved_card?: boolean;
           card_display_only?: boolean;
         }>(endpoint, {
@@ -1308,6 +1360,7 @@ export default function DoctorDashboardPage() {
         setPaymentFollowUp({
           invoice_id: result.invoice_id,
           invoice_number: result.invoice_number,
+          patient_id: activeAppt.patient_id,
           total_amount: result.total_amount,
           patient_credit_balance: result.patient_credit_balance,
           terminal_checkout_id: result.terminal_checkout_id,
@@ -1835,6 +1888,7 @@ export default function DoctorDashboardPage() {
           card_last4?: string;
           card_brand?: string;
           has_saved_card?: boolean;
+          has_card_on_file?: boolean;
           has_chargeable_saved_card?: boolean;
           card_display_only?: boolean;
         }>("/doctor/prepare_invoice_payment/", {
@@ -1848,6 +1902,7 @@ export default function DoctorDashboardPage() {
         setPaymentFollowUp({
           invoice_id: out.invoice_id,
           invoice_number: out.invoice_number,
+          patient_id: appt.patient_id,
           total_amount: out.total_amount,
           patient_credit_balance: out.patient_credit_balance,
           payment: out.payment,
@@ -2560,7 +2615,7 @@ export default function DoctorDashboardPage() {
                   Patient credit available: <span className="font-semibold">${paymentFollowUp.patient_credit_balance}</span>
                 </p>
               )}
-              {!paymentFollowUp.payment.charged && paymentBannerSavedCard.has_saved_card ? (
+              {!paymentFollowUp.payment.charged && paymentBannerShowsSavedCard ? (
                 <div className="mt-4 rounded-xl border border-[#16a349]/30 bg-white/90 p-4 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -2625,6 +2680,18 @@ export default function DoctorDashboardPage() {
               )}
               {!paymentFollowUp.payment.charged && (
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {paymentBannerCanChargeSavedCard ? (
+                    <button
+                      type="button"
+                      onClick={() => void chargeSavedCardOnBanner()}
+                      disabled={chargingSavedCardBanner}
+                      className="rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#13823d] disabled:opacity-50"
+                    >
+                      {chargingSavedCardBanner
+                        ? "Charging card…"
+                        : `Charge saved card${paymentBannerSavedCard.card_last4 ? ` (•••• ${paymentBannerSavedCard.card_last4})` : ""}`}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void applyPatientCredit()}
