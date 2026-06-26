@@ -24,6 +24,7 @@ export default function AdminPatientHistoryRoute() {
       invoiceChargeSavedCardPath="/admin/charge-saved-card"
       billingHref="/admin/billing"
       allowEditVisitBilling
+      allowRemoveFromChart
     />
   );
 }

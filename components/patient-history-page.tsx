@@ -21,7 +21,7 @@ import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { parseMoneyAmount } from "@/lib/record-cash-prompt";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
-import { CalendarClock, FileText, Printer, Receipt } from "lucide-react";
+import { CalendarClock, FileText, Printer, Receipt, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -272,6 +272,27 @@ function canEditVisitInvoice(a: AppointmentHistoryRow): boolean {
   if (inv.kind && inv.kind !== "visit") return false;
   if (!a.visit) return false;
   return a.status === "awaiting_payment" || a.status === "completed";
+}
+
+/** Admin may remove completed / no-show / cancelled rows without paid billing. */
+function canRemoveFromPatientChart(a: AppointmentHistoryRow): boolean {
+  if (!["completed", "no_show", "cancelled"].includes(a.status)) return false;
+  const inv = a.invoice;
+  if (!inv) return true;
+  if (inv.status === "paid") return false;
+  const paid = parseMoneyAmount(inv.payments_received_total ?? "0");
+  return paid <= 0.009;
+}
+
+function removeFromChartBlockedReason(a: AppointmentHistoryRow): string | null {
+  if (canRemoveFromPatientChart(a)) return null;
+  if (!["completed", "no_show", "cancelled"].includes(a.status)) {
+    return "Only completed, no-show, or cancelled visits can be removed.";
+  }
+  if (a.invoice?.status === "paid" || parseMoneyAmount(a.invoice?.payments_received_total ?? "0") > 0.009) {
+    return "This visit has a paid invoice or recorded payments and cannot be removed.";
+  }
+  return "This visit cannot be removed from the chart.";
 }
 
 function VisitBillPanel({
@@ -601,6 +622,8 @@ function VisitRecordCard({
   onRecordCashPayment,
   onChargeSavedCard,
   onEditBilling,
+  onRemoveFromChart,
+  removingFromChart,
   hasChargeableSavedCard,
   cardLast4,
   cardBrand,
@@ -627,6 +650,8 @@ function VisitRecordCard({
   onRecordCashPayment?: () => void;
   onChargeSavedCard?: () => void;
   onEditBilling?: () => void;
+  onRemoveFromChart?: () => void;
+  removingFromChart?: boolean;
   hasChargeableSavedCard?: boolean;
   cardLast4?: string;
   cardBrand?: string;
@@ -666,7 +691,20 @@ function VisitRecordCard({
             ) : null}
           </div>
           <div className="flex flex-col items-end gap-2">
-            <AppointmentStatusBadge status={a.status} size="sm" />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <AppointmentStatusBadge status={a.status} size="sm" />
+              {onRemoveFromChart ? (
+                <button
+                  type="button"
+                  disabled={removingFromChart}
+                  onClick={onRemoveFromChart}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 shadow-sm hover:bg-rose-50 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  {removingFromChart ? "Removing…" : "Remove from chart"}
+                </button>
+              ) : null}
+            </div>
             {isVisitToday(a.appointment_date) ? (
               <Link
                 href={`${scheduleHrefPrefix}?appointment=${a.id}`}
@@ -808,6 +846,7 @@ export function PatientHistoryPage({
   invoiceChargeSavedCardPath,
   billingHref,
   allowEditVisitBilling,
+  allowRemoveFromChart,
   billingEditApiMode,
 }: {
   patientId: number;
@@ -820,6 +859,8 @@ export function PatientHistoryPage({
   billingHref?: string;
   /** Open billing editor for completed or awaiting-payment visit invoices. */
   allowEditVisitBilling?: boolean;
+  /** Admin/staff — remove completed, no-show, or cancelled rows from this chart. */
+  allowRemoveFromChart?: boolean;
   /** Which API endpoints the billing editor uses (default admin desk). */
   billingEditApiMode?: "admin" | "doctor";
   scheduleHrefPrefix: string;
@@ -848,7 +889,8 @@ export function PatientHistoryPage({
   const [chargingSavedCardInvoiceId, setChargingSavedCardInvoiceId] = useState<number | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
   const [billingEditAppointment, setBillingEditAppointment] = useState<AppointmentHistoryRow | null>(null);
-  const { runWithFeedback } = useAppFeedback();
+  const [removingAppointmentId, setRemovingAppointmentId] = useState<number | null>(null);
+  const { runWithFeedback, toast } = useAppFeedback();
   const { requestCashAmount, RecordCashPaymentModal } = useRecordCashPayment();
 
   const loadDetail = async () => {
@@ -1059,6 +1101,41 @@ export function PatientHistoryPage({
     return detail.appointments.find((a) => a.id === selectedVisitId) ?? null;
   }, [detail, selectedVisitId]);
 
+  const removeFromChart = async (appointment: AppointmentHistoryRow) => {
+    if (!allowRemoveFromChart) return;
+    const blocked = removeFromChartBlockedReason(appointment);
+    if (blocked) {
+      toast.error(blocked);
+      return;
+    }
+    const dateLabel = formatWeekdayMonthDayYear(appointment.appointment_date);
+    const statusLabel = appointment.status.replace(/_/g, " ");
+    const billNote = appointment.invoice
+      ? `\n\nAny unpaid bill (${appointment.invoice.invoice_number}) will also be removed.`
+      : "";
+    const ok = window.confirm(
+      `Remove this ${statusLabel} visit from ${patientFullName(detail?.first_name ?? "", detail?.last_name ?? "")}'s chart?\n\n${dateLabel} at ${appointment.start_time}${billNote}\n\nThis cannot be undone.`,
+    );
+    if (!ok) return;
+    setRemovingAppointmentId(appointment.id);
+    setHandoffMsg("");
+    await runWithFeedback(
+      async () => {
+        await apiPost("/admin/remove_patient_history_appointment/", {
+          patient_id: patientId,
+          appointment_id: appointment.id,
+        });
+        await loadDetail();
+      },
+      {
+        loadingMessage: "Removing visit…",
+        successMessage: "Visit removed from patient chart.",
+        errorFallback: "Could not remove this visit.",
+      },
+    );
+    setRemovingAppointmentId(null);
+  };
+
   if (loading) {
     return (
       <div className="p-6">
@@ -1247,6 +1324,12 @@ export function PatientHistoryPage({
                     ? () => setBillingEditAppointment(selectedVisit)
                     : undefined
                 }
+                onRemoveFromChart={
+                  allowRemoveFromChart && canRemoveFromPatientChart(selectedVisit)
+                    ? () => void removeFromChart(selectedVisit)
+                    : undefined
+                }
+                removingFromChart={removingAppointmentId === selectedVisit.id}
               />
             ) : (
               <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
