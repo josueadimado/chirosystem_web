@@ -88,8 +88,11 @@ import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/
 import {
   confirmBookNextVisit,
   confirmCancelVisit,
+  confirmCheckIn,
+  confirmCheckInPastVisit,
   confirmDeskBook,
   confirmDragReschedule,
+  confirmReopenAndCheckIn,
   confirmRescheduleBySlots,
 } from "@/lib/appointment-action-confirm-messages";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
@@ -550,6 +553,15 @@ function DoctorSchedulePageInner() {
     if (appointmentBlocksDeskActions(selected.status, selected.invoice_kind) && uiStatus !== "no_show") {
       return;
     }
+    const isPastVisit = selected.appointment_date < todayStr;
+    const ok = await requestConfirm(
+      uiStatus === "no_show"
+        ? confirmReopenAndCheckIn(selected.patient_name)
+        : isPastVisit
+          ? confirmCheckInPastVisit(selected.patient_name, selected.appointment_date)
+          : confirmCheckIn(selected.patient_name),
+    );
+    if (!ok) return;
     setCheckingIn(true);
     await runWithFeedback(
       async () => {
@@ -1035,7 +1047,7 @@ function DoctorSchedulePageInner() {
                     start_time: selected.start_time,
                   }}
                   providers={[]}
-                  checkingIn={false}
+                  checkingIn={checkingIn}
                   savingDesk={appointmentSaving}
                   waiveLateCancelFee={false}
                   onWaiveLateCancelFeeChange={() => {}}
@@ -1073,7 +1085,10 @@ function DoctorSchedulePageInner() {
                         }
                       : undefined
                   }
-                  onCheckIn={() => {}}
+                  onCheckIn={() => void handleCheckIn()}
+                  canReopenMissed={
+                    effectiveAppointmentStatus(selected.status, selected.invoice_kind) === "no_show"
+                  }
                   onNoShow={() => {}}
                   onCancel={() => {}}
                   onMarkCompleted={() => {}}
