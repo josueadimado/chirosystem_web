@@ -79,6 +79,8 @@ import {
   confirmBookNextVisit,
   confirmCancelVisit,
   confirmCheckIn,
+  confirmCheckInPastVisit,
+  confirmReopenAndCheckIn,
   confirmDeskBook,
   confirmNoShow,
   confirmOpenBookNextPicker,
@@ -1488,7 +1490,14 @@ export default function DoctorDashboardPage() {
   };
 
   const checkInPatient = async (appt: Appointment) => {
-    const ok = await requestConfirm(confirmCheckIn(appt.patient));
+    const uiStatus = resolveAppointmentUiStatus(appt);
+    const confirmOpts =
+      uiStatus === "no_show"
+        ? confirmReopenAndCheckIn(appt.patient)
+        : appt.appointment_date < todayStr
+          ? confirmCheckInPastVisit(appt.patient, appt.appointment_date)
+          : confirmCheckIn(appt.patient);
+    const ok = await requestConfirm(confirmOpts);
     if (!ok) return;
     setIsCheckingIn(true);
     await runWithFeedback(
@@ -3205,6 +3214,16 @@ export default function DoctorDashboardPage() {
                         className="min-h-11 w-full max-w-md rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
                       >
                         {isCheckingIn ? "Completing check-in…" : "Check-in"}
+                      </button>
+                    )}
+                    {uiStatus === "no_show" && (
+                      <button
+                        type="button"
+                        onClick={() => void checkInPatient(appt)}
+                        disabled={isCheckingIn}
+                        className="min-h-11 w-full max-w-md rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
+                      >
+                        {isCheckingIn ? "Completing check-in…" : "Check-in (patient came)"}
                       </button>
                     )}
                     {uiStatus === "checked_in" && (

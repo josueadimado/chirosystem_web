@@ -54,12 +54,15 @@ import {
   confirmBookNextVisit,
   confirmCancelVisit,
   confirmCheckIn,
+  confirmCheckInPastVisit,
   confirmDeskBook,
   confirmDragReschedule,
   confirmExtendDuration,
   confirmFormReschedule,
   confirmMarkCompleted,
   confirmNoShow,
+  confirmReopenAndCheckIn,
+  confirmReopenMissedVisit,
   confirmRestoreCancelledVisit,
   confirmUndoDrag,
 } from "@/lib/appointment-action-confirm-messages";
@@ -220,6 +223,11 @@ function canAdminUncancelAppointment(row: {
 }): boolean {
   if (row.status !== "cancelled") return false;
   return !slotStartIsInPastForClinic(row.appointment_date, parseTimeToMinutes(row.start_time));
+}
+
+/** No-show (or awaiting payment on no-show fee) — admin may reopen for forgot check-in cleanup. */
+function canAdminReopenMissedVisit(row: { status: string; display_status?: string; invoice_kind?: string | null }): boolean {
+  return appointmentUiStatus(row) === "no_show";
 }
 
 function formatAppointmentDuration(start: string, end: string): string {
@@ -571,8 +579,17 @@ function AdminSchedulePageContent() {
   }, [selected, adjustEndTime]);
 
   const handleCheckIn = async () => {
-    if (!selected || appointmentBlocksDeskActions(selected.status, selected.invoice_kind)) return;
-    const ok = await requestConfirm(confirmCheckIn(selected.patient_name));
+    if (!selected) return;
+    const ui = appointmentUiStatus(selected);
+    if (appointmentBlocksDeskActions(selected.status, selected.invoice_kind) && ui !== "no_show") return;
+    const isPastVisit = selected.appointment_date < todayStr;
+    const ok = await requestConfirm(
+      ui === "no_show"
+        ? confirmReopenAndCheckIn(selected.patient_name)
+        : isPastVisit
+          ? confirmCheckInPastVisit(selected.patient_name, selected.appointment_date)
+          : confirmCheckIn(selected.patient_name),
+    );
     if (!ok) return;
     setCheckingIn(true);
     setError("");
@@ -589,6 +606,24 @@ function AdminSchedulePageContent() {
       },
     );
     setCheckingIn(false);
+  };
+
+  const handleReopenMissedVisit = async () => {
+    if (!selected || !canAdminReopenMissedVisit(selected)) return;
+    const ok = await requestConfirm(
+      confirmReopenMissedVisit(selected.patient_name, selected.appointment_date, selected.start_time),
+    );
+    if (!ok) return;
+    await runWithFeedback(
+      async () => {
+        await patchAppointment(selected.id, { status: "booked" });
+      },
+      {
+        loadingMessage: "Reopening visit…",
+        successMessage: "Visit reopened — you can check the patient in now.",
+        errorFallback: "Could not reopen this visit.",
+      },
+    );
   };
 
   /** Update one visit (status, time, or provider). Reloads the calendar and keeps the drawer in sync. */
@@ -1286,6 +1321,8 @@ function AdminSchedulePageContent() {
                       );
                     })();
                   }}
+                  canReopenMissed={canAdminReopenMissedVisit(selected)}
+                  onReopenMissed={() => void handleReopenMissedVisit()}
                   onMarkCompleted={() => {
                     void (async () => {
                       const ok = await requestConfirm(confirmMarkCompleted(selected.patient_name));

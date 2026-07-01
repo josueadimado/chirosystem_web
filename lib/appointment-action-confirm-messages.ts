@@ -67,6 +67,37 @@ export function confirmRestoreCancelledVisit(
   );
 }
 
+export function confirmReopenMissedVisit(
+  patientName: string,
+  appointmentDate: string,
+  startTime: string,
+): AppointmentConfirmOptions {
+  const when = formatWeekdayMonthDayYear(appointmentDate);
+  const time = startTime.includes("M") ? startTime : startTime.slice(0, 5);
+  return base(
+    "Reopen missed visit?",
+    `${patientName}'s visit on ${when} at ${time} was marked no-show. Reopen it so you can check the patient in and the doctor can complete the visit and bill. Any unpaid no-show fee will be cleared.`,
+    "Reopen visit",
+  );
+}
+
+export function confirmCheckInPastVisit(patientName: string, appointmentDate: string): AppointmentConfirmOptions {
+  const when = formatWeekdayMonthDayYear(appointmentDate);
+  return base(
+    "Check in for past visit?",
+    `Mark ${patientName} as checked in for their visit on ${when}? This is for patients who came but were never checked in. The doctor can then start and complete the visit.`,
+    "Check in",
+  );
+}
+
+export function confirmReopenAndCheckIn(patientName: string): AppointmentConfirmOptions {
+  return base(
+    "Check in patient who was marked no-show?",
+    `${patientName} was marked no-show but came to the clinic. Check them in, reopen the visit, and clear any unpaid no-show fee. You can then start and complete the visit with billing.`,
+    "Check in",
+  );
+}
+
 export function confirmCancelVisit(
   patientName: string,
   serviceType: string | undefined,

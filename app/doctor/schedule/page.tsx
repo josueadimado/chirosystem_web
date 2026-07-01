@@ -545,7 +545,11 @@ function DoctorSchedulePageInner() {
   }, [selected?.id]);
 
   const handleCheckIn = async () => {
-    if (!selected || appointmentBlocksDeskActions(selected.status)) return;
+    if (!selected) return;
+    const uiStatus = effectiveAppointmentStatus(selected.status, selected.invoice_kind);
+    if (appointmentBlocksDeskActions(selected.status, selected.invoice_kind) && uiStatus !== "no_show") {
+      return;
+    }
     setCheckingIn(true);
     await runWithFeedback(
       async () => {

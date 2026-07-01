@@ -85,6 +85,8 @@ export function VisitDeskActions({
   onBookAnotherInSlot,
   canUncancel,
   onUncancel,
+  canReopenMissed,
+  onReopenMissed,
 }: {
   appointment: DeskAppointmentActions;
   providers: DeskProviderOption[];
@@ -112,6 +114,9 @@ export function VisitDeskActions({
   /** Admin: cancelled visit still in the future — restore to booked. */
   canUncancel?: boolean;
   onUncancel?: () => void;
+  /** Admin: mistaken no-show — reopen so staff can check in and doctor can complete visit. */
+  canReopenMissed?: boolean;
+  onReopenMissed?: () => void;
 }) {
   const uiStatus =
     appointment.display_status ??
@@ -138,8 +143,14 @@ export function VisitDeskActions({
                 {autoNoShow
                   ? "This visit was marked no-show automatically after the scheduled start time plus the clinic grace period (usually 60 minutes). "
                   : "The patient did not attend this visit. "}
-                Check-in, extend period, reschedule, and the No-show button are not available.
-                {hasNoShowFee ? " A no-show fee was applied — use billing below or Admin → Billing." : ""}
+                {canReopenMissed
+                  ? "If the patient actually came (or check-in was forgotten), reopen the visit, check them in, then the doctor can complete the visit and bill."
+                  : "Check-in, extend period, reschedule, and the No-show button are not available."}
+                {hasNoShowFee && !canReopenMissed
+                  ? " A no-show fee was applied — use billing below or Admin → Billing."
+                  : hasNoShowFee && canReopenMissed
+                    ? " An unpaid no-show fee will be cleared when you reopen."
+                    : ""}
               </p>
             </>
           ) : (
@@ -207,6 +218,26 @@ export function VisitDeskActions({
               </p>
             ) : null}
           </div>
+        ) : null}
+        {canReopenMissed && onReopenMissed ? (
+          <button
+            type="button"
+            disabled={savingDesk}
+            onClick={onReopenMissed}
+            className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+          >
+            Reopen visit (patient came)
+          </button>
+        ) : null}
+        {canReopenMissed && onCheckIn ? (
+          <button
+            type="button"
+            disabled={checkingIn || savingDesk}
+            onClick={onCheckIn}
+            className="w-full rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+          >
+            {checkingIn ? "Completing check-in…" : "Check in (patient came)"}
+          </button>
         ) : null}
         {canUncancel && onUncancel ? (
           <button

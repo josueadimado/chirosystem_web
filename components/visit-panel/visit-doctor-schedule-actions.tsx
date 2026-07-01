@@ -4,9 +4,11 @@ import type { AppointmentConfirmOptions } from "@/hooks/use-appointment-action-c
 import {
   confirmCancelVisit,
   confirmCheckIn,
+  confirmCheckInPastVisit,
   confirmNoShow,
   confirmOpenBookNextPicker,
   confirmOpenReschedulePicker,
+  confirmReopenAndCheckIn,
 } from "@/lib/appointment-action-confirm-messages";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 
@@ -77,8 +79,16 @@ export function VisitDoctorScheduleActions({
                   ? "Marked automatically after the visit start time passed the clinic grace period. "
                   : "The patient did not attend. "}
                 Check-in, reschedule, and No-show are not available.
-                {hasNoShowFee ? " A no-show fee is on file for this visit." : ""}
+                {hasNoShowFee ? " An unpaid no-show fee will be cleared when you check them in." : ""}
               </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runConfirmed(confirmReopenAndCheckIn(patientName), onCheckIn)}
+                className="mt-3 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+              >
+                {checkingIn ? "Completing check-in…" : "Check in (patient came)"}
+              </button>
             </>
           ) : (
             <p className="font-semibold">This visit was cancelled.</p>
