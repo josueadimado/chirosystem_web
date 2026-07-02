@@ -46,6 +46,7 @@ function sourceLabel(source: string): string {
   if (source === "middleware") return "Server";
   if (source === "celery") return "Background job";
   if (source === "client") return "Browser";
+  if (source === "voice_ai") return "Voice AI";
   return source;
 }
 
@@ -499,6 +500,8 @@ export default function AdminErrorsPage() {
             <option value="api">API</option>
             <option value="middleware">Server</option>
             <option value="celery">Background job</option>
+            <option value="voice_ai">Voice AI</option>
+            <option value="client">Browser</option>
           </select>
         </div>
         <div className="min-w-[200px] flex-1">
