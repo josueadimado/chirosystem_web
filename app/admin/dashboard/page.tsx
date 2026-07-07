@@ -1,5 +1,6 @@
 "use client";
 
+import { AdminMaintenanceNotice } from "@/components/admin-maintenance-notice";
 import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
 import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { HelpTip } from "@/components/help-tip";
@@ -151,6 +152,7 @@ export default function AdminDashboardPage() {
   if (loading) {
     return (
       <div className="space-y-6">
+        <AdminMaintenanceNotice />
         <AdminPageIntro
           title="Overview"
           description="Today’s visits, revenue, and your full day schedule."
@@ -164,6 +166,7 @@ export default function AdminDashboardPage() {
   if (error) {
     return (
       <div className="space-y-6">
+        <AdminMaintenanceNotice />
         <AdminPageIntro
           title="Overview"
           description="Today’s visits, revenue, and your full day schedule."
@@ -202,6 +205,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-8">
+      <AdminMaintenanceNotice />
       <div className="space-y-2">
         <AdminPageIntro
           title="Overview"
