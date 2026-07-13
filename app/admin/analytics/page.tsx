@@ -95,10 +95,11 @@ type AttentionItem = {
   tone: "rose" | "amber";
   title: string;
   detail: string;
-  href?: string;
-  tab?: AnalyticsTab;
   cta: string;
-};
+} & (
+  | { href: string; tab?: never }
+  | { tab: AnalyticsTab; href?: never }
+);
 
 function formatMoney(amount: string | number): string {
   const n = typeof amount === "number" ? amount : parseFloat(amount);
@@ -372,7 +373,6 @@ export default function AdminAnalyticsPage() {
         title: `AI phone: ${voice.failed} failed / dropped vs ${voice.booked} booked`,
         detail: "More calls are ending without a booking — check AI assistant settings.",
         href: "/admin/ai",
-        tab: "ai",
         cta: "Review AI",
       });
     }
@@ -483,9 +483,6 @@ export default function AdminAnalyticsPage() {
                   {item.href ? (
                     <Link
                       href={item.href}
-                      onClick={() => {
-                        if (item.tab) setActiveTab(item.tab);
-                      }}
                       className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-[#ecfdf5]"
                     >
                       {item.cta} →

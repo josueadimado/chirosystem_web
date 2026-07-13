@@ -1,5 +1,6 @@
 "use client";
 
+import { AdminPageIntro } from "@/components/admin-shell";
 import { Loader } from "@/components/loader";
 import { PatientNoShowBadge } from "@/components/status-chip";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
@@ -49,13 +50,18 @@ type PatientListFilter =
   | "penalty_fees"
   | "no_show_history";
 
-const PATIENT_LIST_FILTER_OPTIONS: { value: PatientListFilter; label: string }[] = [
-  { value: "", label: "All patients" },
-  { value: "balance_due", label: "Has balance due" },
-  { value: "overdue", label: "Overdue payment" },
+/** Primary filters shown as one-click chips (less crowding than a long dropdown). */
+const PATIENT_QUICK_FILTERS: { value: PatientListFilter; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "balance_due", label: "Balance due" },
+  { value: "overdue", label: "Overdue" },
+  { value: "penalty_fees", label: "Penalty fees" },
+];
+
+/** Extra filters kept in “More…” so rarer cases stay available. */
+const PATIENT_MORE_FILTER_OPTIONS: { value: PatientListFilter; label: string }[] = [
   { value: "no_show_fee", label: "Owes no-show fee" },
   { value: "late_cancel_fee", label: "Owes cancellation fee" },
-  { value: "penalty_fees", label: "Owes penalty fee (any)" },
   { value: "no_show_history", label: "Has no-show on record" },
 ];
 
@@ -261,6 +267,21 @@ export default function AdminPatientsPage() {
     });
   }, [patients, search, listFilter]);
 
+  /** Roster-wide counts (not limited by current search) so money problems stay visible. */
+  const attentionCounts = useMemo(() => {
+    let overdue = 0;
+    let balanceDue = 0;
+    let penaltyFees = 0;
+    let noShowHistory = 0;
+    for (const p of patients) {
+      if (p.has_overdue) overdue += 1;
+      if (parseBalanceNum(p.balance) > 0.009) balanceDue += 1;
+      if (penaltyBalanceDue(p) > 0.009) penaltyFees += 1;
+      if ((p.no_show_count ?? 0) > 0) noShowHistory += 1;
+    }
+    return { overdue, balanceDue, penaltyFees, noShowHistory, total: patients.length };
+  }, [patients]);
+
   const sortedList = useMemo(() => {
     const list = [...filtered];
     switch (sortMode) {
@@ -395,69 +416,187 @@ export default function AdminPatientsPage() {
   return (
     <div className="space-y-4">
       <div className="card">
-        <h1 className="mb-3 text-2xl font-bold">All Patients</h1>
-        <p className="mb-4 text-sm text-slate-600">
-          Use <span className="font-medium text-slate-800">Filter</span> to find overdue bills, no-show fees, cancellation fees, or patients
-          with no-shows on record. Click a row or <span className="font-medium text-slate-800">View</span> to open the chart. Press{" "}
-          <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            Enter
-          </kbd>{" "}
-          on a highlighted row, or{" "}
-          <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            Esc
-          </kbd>{" "}
-          to close the chart.
-        </p>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <AdminPageIntro
+            title="Patients"
+            description="Find charts quickly, spot balances that need collection, and add new patients."
+            pageHelp={
+              <>
+                Use the chips to focus on overdue bills or fees. Click a row or <strong>View</strong> to open the chart.
+                Press <strong>Enter</strong> on a highlighted row, or <strong>Esc</strong> to close the chart.
+              </>
+            }
+          />
+          <Button
+            type="button"
+            onClick={openAddModal}
+            className="mt-1 h-10 shrink-0 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d] sm:mt-8"
+          >
+            Add patient
+          </Button>
+        </div>
+
         {error && (
           <p className="mb-3 rounded-lg bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>
         )}
 
-        <div className="sticky top-0 z-20 -mx-5 mb-4 space-y-3 border-b border-slate-100 bg-card/95 px-5 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/85">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-            <div className="relative w-full min-w-0 max-w-md">
-              <input
-                type="search"
-                placeholder="Search by name, phone, or email"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 py-2 pl-3 pr-10 text-sm"
-                aria-label="Search patients"
-              />
-              {search.trim() ? (
-                <button
-                  type="button"
-                  className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                  aria-label="Clear search"
-                  onClick={() => setSearch("")}
-                >
-                  <span aria-hidden className="text-lg leading-none">
-                    ×
-                  </span>
-                </button>
+        {!loading && attentionCounts.total > 0 ? (
+          <div className="mb-4 space-y-2">
+            {(attentionCounts.overdue > 0 ||
+              attentionCounts.balanceDue > 0 ||
+              attentionCounts.penaltyFees > 0) && (
+              <section
+                className="rounded-xl border border-amber-200/90 bg-amber-50/80 px-3.5 py-3"
+                aria-label="Needs attention"
+              >
+                <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {attentionCounts.overdue > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setListFilter("overdue")}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                        listFilter === "overdue"
+                          ? "border-rose-400 bg-rose-100 text-rose-900"
+                          : "border-rose-200 bg-white text-rose-800 hover:bg-rose-50",
+                      )}
+                    >
+                      Overdue ({attentionCounts.overdue})
+                    </button>
+                  ) : null}
+                  {attentionCounts.balanceDue > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setListFilter("balance_due")}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                        listFilter === "balance_due"
+                          ? "border-amber-400 bg-amber-100 text-amber-950"
+                          : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
+                      )}
+                    >
+                      Balance due ({attentionCounts.balanceDue})
+                    </button>
+                  ) : null}
+                  {attentionCounts.penaltyFees > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setListFilter("penalty_fees")}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                        listFilter === "penalty_fees"
+                          ? "border-amber-400 bg-amber-100 text-amber-950"
+                          : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
+                      )}
+                    >
+                      Penalty fees ({attentionCounts.penaltyFees})
+                    </button>
+                  ) : null}
+                </div>
+              </section>
+            )}
+            <p className="text-xs text-slate-500">
+              <span className="font-semibold tabular-nums text-slate-700">{attentionCounts.total}</span> patients
+              {attentionCounts.overdue > 0 ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="font-semibold tabular-nums text-rose-700">{attentionCounts.overdue}</span> overdue
+                </>
               ) : null}
-            </div>
-            <Button
-              type="button"
-              onClick={openAddModal}
-              className="h-10 w-full shrink-0 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d] sm:w-auto sm:min-w-[10.5rem]"
-            >
-              Add patient
-            </Button>
+              {attentionCounts.penaltyFees > 0 ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="font-semibold tabular-nums text-amber-800">{attentionCounts.penaltyFees}</span> with
+                  penalty fees
+                </>
+              ) : null}
+              {attentionCounts.noShowHistory > 0 ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="tabular-nums text-slate-600">{attentionCounts.noShowHistory}</span> with no-show on
+                  record
+                </>
+              ) : null}
+            </p>
           </div>
+        ) : null}
+
+        <div className="sticky top-0 z-20 -mx-5 mb-4 space-y-3 border-b border-slate-100 bg-card/95 px-5 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/85">
+          <div className="relative w-full min-w-0 max-w-md">
+            <input
+              type="search"
+              placeholder="Search by name, phone, or email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 py-2 pl-3 pr-10 text-sm"
+              aria-label="Search patients"
+            />
+            {search.trim() ? (
+              <button
+                type="button"
+                className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                aria-label="Clear search"
+                onClick={() => setSearch("")}
+              >
+                <span aria-hidden className="text-lg leading-none">
+                  ×
+                </span>
+              </button>
+            ) : null}
+          </div>
+
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="patient-list-filter" className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Filter
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Quick filters">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Filter</span>
+              {PATIENT_QUICK_FILTERS.map((chip) => {
+                const active = listFilter === chip.value;
+                const count =
+                  chip.value === "overdue"
+                    ? attentionCounts.overdue
+                    : chip.value === "balance_due"
+                      ? attentionCounts.balanceDue
+                      : chip.value === "penalty_fees"
+                        ? attentionCounts.penaltyFees
+                        : null;
+                return (
+                  <button
+                    key={chip.value || "all"}
+                    type="button"
+                    onClick={() => setListFilter(chip.value)}
+                    className={cn(
+                      "rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition",
+                      active
+                        ? "border-[#16a349]/50 bg-[#ecfdf5] text-[#0d5c2e]"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                    )}
+                  >
+                    {chip.label}
+                    {count != null && count > 0 ? (
+                      <span className="ml-1 tabular-nums text-slate-500">({count})</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+              <label className="sr-only" htmlFor="patient-list-more-filter">
+                More filters
               </label>
               <select
-                id="patient-list-filter"
-                value={listFilter}
-                onChange={(e) => setListFilter(e.target.value as PatientListFilter)}
-                className="max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
-                aria-label="Filter patients"
+                id="patient-list-more-filter"
+                value={PATIENT_MORE_FILTER_OPTIONS.some((o) => o.value === listFilter) ? listFilter : ""}
+                onChange={(e) => {
+                  const v = e.target.value as PatientListFilter;
+                  if (v) setListFilter(v);
+                }}
+                className="max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                aria-label="More patient filters"
               >
-                {PATIENT_LIST_FILTER_OPTIONS.map((o) => (
-                  <option key={o.value || "all"} value={o.value}>
+                <option value="">More…</option>
+                {PATIENT_MORE_FILTER_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
                 ))}
@@ -479,6 +618,18 @@ export default function AdminPatientsPage() {
               </select>
             </div>
           </div>
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setListFilter("");
+              }}
+              className="text-xs font-semibold text-[#0d5c2e] hover:underline"
+            >
+              Clear search & filters
+            </button>
+          ) : null}
         </div>
 
         {loading ? (
@@ -530,11 +681,11 @@ export default function AdminPatientsPage() {
                   <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
                     <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-3 py-3 pl-4 align-bottom">Patient</th>
-                      <th className="hidden px-3 py-3 align-bottom md:table-cell">Established</th>
+                      <th className="hidden px-3 py-3 align-bottom xl:table-cell">Established</th>
                       <th className="px-3 py-3 align-bottom">Last visit</th>
                       <th className="px-3 py-3 text-center align-bottom">Visits</th>
-                      <th className="hidden px-3 py-3 align-bottom lg:table-cell">Last service</th>
-                      <th className="hidden px-3 py-3 align-bottom xl:table-cell">Next appointment</th>
+                      <th className="hidden px-3 py-3 align-bottom xl:table-cell">Last service</th>
+                      <th className="hidden px-3 py-3 align-bottom lg:table-cell">Next appointment</th>
                       <th className="py-3 pr-2 text-right align-bottom">Balance</th>
                       <th className="w-[4.5rem] px-2 py-3 pr-4 text-right align-bottom" scope="col">
                         Open
@@ -547,7 +698,8 @@ export default function AdminPatientsPage() {
                       const phoneLine = formatPhoneCompact(p.phone);
                       const owed = parseBalanceNum(p.balance);
                       const hasBalance = owed > 0.009;
-                      const dueHints = hasBalance ? balanceDueHints(p) : [];
+                      const isOverdue = !!p.has_overdue;
+                      const dueHints = hasBalance ? balanceDueHints(p).filter((h) => h !== "Overdue") : [];
                       const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
                       const nextAppt = nextAppointmentLabel(p);
                       const service = (p.last_service || "").trim();
@@ -557,8 +709,13 @@ export default function AdminPatientsPage() {
                           key={p.id}
                           tabIndex={0}
                           className={cn(
-                            "group cursor-pointer border-t border-slate-100 transition hover:bg-emerald-50/50",
-                            "focus-visible:bg-emerald-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#16a349]",
+                            "group cursor-pointer border-t border-slate-100 transition",
+                            isOverdue
+                              ? "bg-rose-50/70 hover:bg-rose-50 focus-visible:bg-rose-50"
+                              : hasBalance
+                                ? "bg-amber-50/40 hover:bg-amber-50/70 focus-visible:bg-amber-50/70"
+                                : "hover:bg-emerald-50/50 focus-visible:bg-emerald-50/50",
+                            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#16a349]",
                           )}
                           onClick={() => openChart(p.id)}
                           onKeyDown={(e) => {
@@ -606,17 +763,17 @@ export default function AdminPatientsPage() {
                                   ) : null}
                                 </p>
                                 {nextAppt ? (
-                                  <p className="mt-1 text-xs font-medium text-[#047857] xl:hidden">
+                                  <p className="mt-1 text-xs font-medium text-[#047857] lg:hidden">
                                     Next: {nextAppt}
                                   </p>
                                 ) : null}
                                 {service ? (
-                                  <p className="mt-0.5 truncate text-xs text-slate-500 lg:hidden">{service}</p>
+                                  <p className="mt-0.5 truncate text-xs text-slate-500 xl:hidden">{service}</p>
                                 ) : null}
                               </div>
                             </div>
                           </td>
-                          <td className="hidden whitespace-nowrap px-3 py-3 align-middle tabular-nums text-slate-600 md:table-cell">
+                          <td className="hidden whitespace-nowrap px-3 py-3 align-middle tabular-nums text-slate-600 xl:table-cell">
                             {establishedLabel(p)}
                           </td>
                           <td className="max-w-[11rem] whitespace-normal px-3 py-3 align-middle text-slate-700">
@@ -639,10 +796,10 @@ export default function AdminPatientsPage() {
                               {visits}
                             </span>
                           </td>
-                          <td className="hidden max-w-[12rem] truncate px-3 py-3 align-middle text-slate-600 lg:table-cell">
+                          <td className="hidden max-w-[12rem] truncate px-3 py-3 align-middle text-slate-600 xl:table-cell">
                             {service || <span className="text-slate-400">—</span>}
                           </td>
-                          <td className="hidden px-3 py-3 align-middle xl:table-cell">
+                          <td className="hidden px-3 py-3 align-middle lg:table-cell">
                             {nextAppt ? (
                               <span className="text-sm font-medium text-[#047857]">{nextAppt}</span>
                             ) : (
@@ -652,7 +809,11 @@ export default function AdminPatientsPage() {
                           <td
                             className={cn(
                               "py-3 pr-2 text-right align-middle text-sm font-medium tabular-nums",
-                              hasBalance ? "font-semibold text-amber-900" : "text-slate-700",
+                              isOverdue
+                                ? "font-semibold text-rose-800"
+                                : hasBalance
+                                  ? "font-semibold text-amber-900"
+                                  : "text-slate-700",
                             )}
                           >
                             {hasBalance ? (
@@ -660,11 +821,13 @@ export default function AdminPatientsPage() {
                                 <span>{formatBalance(p.balance)}</span>
                                 <span
                                   className={cn(
-                                    "text-[10px] font-semibold uppercase tracking-wide",
-                                    p.has_overdue ? "text-rose-700" : "text-amber-700",
+                                    "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                                    isOverdue
+                                      ? "bg-rose-100 text-rose-800"
+                                      : "bg-amber-100 text-amber-800",
                                   )}
                                 >
-                                  {p.has_overdue ? "Overdue" : "Due"}
+                                  {isOverdue ? "Overdue" : "Due"}
                                 </span>
                                 {dueHints.length > 0 ? (
                                   <span className="max-w-[8.5rem] text-right text-[10px] font-medium leading-tight text-slate-500">
