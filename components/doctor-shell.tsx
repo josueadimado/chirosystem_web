@@ -1,6 +1,7 @@
 "use client";
 
 import { HelpTip } from "@/components/help-tip";
+import { cn } from "@/lib/utils";
 
 /**
  * Shared layout pieces for the doctor area — consistent typography, stats, and empty states.
@@ -56,33 +57,63 @@ export type DoctorStat = {
   tone?: "default" | "accent" | "amber";
   /** Short explanation behind the “i” next to the stat label */
   help?: React.ReactNode;
+  /** When set, the stat card becomes a button (e.g. filter the schedule list). */
+  onSelect?: () => void;
+  active?: boolean;
 };
 
 export function DoctorStatsRow({ stats }: { stats: DoctorStat[] }) {
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-5">
-      {stats.map((s) => (
-        <div
-          key={s.label}
-          className={`rounded-2xl border px-5 py-5 transition-shadow hover:shadow-sm ${
-            s.tone === "accent"
-              ? "border-primary/20 bg-gradient-to-br from-primary/[0.08] to-card"
-              : s.tone === "amber"
-                ? "border-amber-200/70 bg-gradient-to-br from-amber-50/90 to-card"
-                : "border-border/80 bg-card/90 shadow-sm shadow-black/[0.04]"
-          }`}
-        >
-          <p className="text-3xl font-bold tabular-nums leading-none tracking-tight text-foreground">{s.value}</p>
-          <div className="mt-2 flex items-center gap-1.5">
-            <p className="text-[13px] font-medium leading-normal text-muted-foreground">{s.label}</p>
-            {s.help ? (
-              <HelpTip label={s.label} tone="emerald">
-                {s.help}
-              </HelpTip>
+      {stats.map((s) => {
+        const panelClass = cn(
+          "rounded-2xl border px-5 py-5 text-left transition-shadow",
+          s.onSelect && "cursor-pointer hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#16a349]",
+          !s.onSelect && "hover:shadow-sm",
+          s.active && "ring-2 ring-[#16a349]/35",
+          s.tone === "accent"
+            ? "border-primary/20 bg-gradient-to-br from-primary/[0.08] to-card"
+            : s.tone === "amber"
+              ? "border-amber-200/70 bg-gradient-to-br from-amber-50/90 to-card"
+              : "border-border/80 bg-card/90 shadow-sm shadow-black/[0.04]",
+        );
+        const body = (
+          <>
+            <p className="text-3xl font-bold tabular-nums leading-none tracking-tight text-foreground">{s.value}</p>
+            <div className="mt-2 flex items-center gap-1.5">
+              <p className="text-[13px] font-medium leading-normal text-muted-foreground">{s.label}</p>
+              {s.help ? (
+                <span
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="inline-flex"
+                >
+                  <HelpTip label={s.label} tone="emerald">
+                    {s.help}
+                  </HelpTip>
+                </span>
+              ) : null}
+            </div>
+            {s.onSelect ? (
+              <p className="mt-2 text-[11px] font-semibold text-[#0d5c2e]">
+                {s.active ? "Showing these · tap again for all" : "Tap to show these"}
+              </p>
             ) : null}
+          </>
+        );
+        if (s.onSelect) {
+          return (
+            <button key={s.label} type="button" onClick={s.onSelect} className={panelClass}>
+              {body}
+            </button>
+          );
+        }
+        return (
+          <div key={s.label} className={panelClass}>
+            {body}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

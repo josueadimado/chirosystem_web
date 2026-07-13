@@ -162,8 +162,11 @@ import {
 } from "@/lib/doctor-dashboard-schedule-range";
 import { clinicTodayIso, formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+type DashboardListFilter = "all" | "checked_in" | "in_consultation" | "finished" | "no_show";
 
 /** Square Terminal API (hardware) — needs SQUARE_DEVICE_ID on the server. */
 type SquareTerminalConfig = {
@@ -404,6 +407,9 @@ export default function DoctorDashboardPage() {
   /** Day view = today only; week/month use scheduleFocusIso for navigation. */
   const [scheduleView, setScheduleView] = useState<DoctorDashboardScheduleView>("day");
   const [scheduleFocusIso, setScheduleFocusIso] = useState(todayStr);
+  const [listFilter, setListFilter] = useState<DashboardListFilter>("all");
+  const [showReprintBills, setShowReprintBills] = useState(false);
+  const [showPaymentHelp, setShowPaymentHelp] = useState(false);
   const [activeAppt, setActiveAppt] = useState<Appointment | null>(null);
   const [doctorNotes, setDoctorNotes] = useState("");
   const [diagnosisCatalog, setDiagnosisCatalog] = useState<DiagnosisCatalogEntry[]>([]);
@@ -867,6 +873,71 @@ export default function DoctorDashboardPage() {
     [sortedAppointments, todayStr, scheduleView],
   );
 
+  const matchesListFilter = useCallback(
+    (a: Appointment) => {
+      switch (listFilter) {
+        case "checked_in":
+          return a.status === "checked_in";
+        case "in_consultation":
+          return a.status === "in_consultation";
+        case "finished":
+          return a.status === "completed" || a.status === "awaiting_payment";
+        case "no_show":
+          return resolveAppointmentUiStatus(a) === "no_show";
+        default:
+          return true;
+      }
+    },
+    [listFilter],
+  );
+
+  const filteredScheduleListItems = useMemo(() => {
+    if (listFilter === "all") return scheduleListItems;
+    const out: typeof scheduleListItems = [];
+    let pendingHeader: (typeof scheduleListItems)[number] | null = null;
+    for (const item of scheduleListItems) {
+      if (item.kind === "day-header") {
+        pendingHeader = item;
+        continue;
+      }
+      if (matchesListFilter(item.appointment)) {
+        if (pendingHeader) {
+          out.push(pendingHeader);
+          pendingHeader = null;
+        }
+        out.push(item);
+      }
+    }
+    return out;
+  }, [scheduleListItems, listFilter, matchesListFilter]);
+
+  const toggleListFilter = useCallback((key: DashboardListFilter) => {
+    setListFilter((prev) => (prev === key ? "all" : key));
+  }, []);
+
+  const nextUpAppt = useMemo(() => {
+    const todayList = sortedAppointments.filter((a) => a.appointment_date === todayStr);
+    const checkedIn = todayList.find((a) => a.status === "checked_in");
+    if (checkedIn) return { appt: checkedIn, kind: "start" as const };
+    const booked = todayList.find((a) => a.status === "booked");
+    if (booked) return { appt: booked, kind: "waiting" as const };
+    return null;
+  }, [sortedAppointments, todayStr]);
+
+  const awaitingPaymentToday = useMemo(
+    () =>
+      appointments.filter((a) => a.status === "awaiting_payment" && a.appointment_date === todayStr),
+    [appointments, todayStr],
+  );
+
+  const noShowsToday = useMemo(
+    () =>
+      appointments.filter(
+        (a) => a.appointment_date === todayStr && resolveAppointmentUiStatus(a) === "no_show",
+      ),
+    [appointments, todayStr],
+  );
+
   const dayStats = useMemo(() => {
     const list = appointments;
     return [
@@ -877,32 +948,42 @@ export default function DoctorDashboardPage() {
           scheduleView === "day"
             ? "All of your visits today—not only people who have finished check-in yet."
             : "All visits in the week or month you are viewing.",
+        onSelect: () => setListFilter("all"),
+        active: listFilter === "all",
       },
       {
         label: "Checked-in",
         value: list.filter((a) => a.status === "checked_in").length,
         tone: "amber" as const,
-        help: "Check-in completed at the kiosk, front desk, or by you. Tap Start visit on their row when you are ready to see them.",
+        help: "Check-in completed at the kiosk, front desk, or by you. Tap to show only these, then Start visit on their row.",
+        onSelect: () => toggleListFilter("checked_in"),
+        active: listFilter === "checked_in",
       },
       {
         label: "In consultation",
         value: list.filter((a) => a.status === "in_consultation").length,
         tone: "accent" as const,
         help: "You started the visit; a large chart-and-bill workspace opens automatically (you can dock it to the narrow side panel if you prefer).",
+        onSelect: () => toggleListFilter("in_consultation"),
+        active: listFilter === "in_consultation",
       },
       {
         label: "Finished today",
         value: list.filter((a) => ["completed", "awaiting_payment"].includes(a.status)).length,
         help: "Visit is wrapped up or waiting on payment. Awaiting payment still counts as needing checkout at the desk.",
+        onSelect: () => toggleListFilter("finished"),
+        active: listFilter === "finished",
       },
       {
         label: "No-shows",
         value: list.filter((a) => resolveAppointmentUiStatus(a) === "no_show").length,
         tone: "accent" as const,
         help: "Patient did not attend (including automatic no-shows after the grace period). No-show fee may be on file.",
+        onSelect: () => toggleListFilter("no_show"),
+        active: listFilter === "no_show",
       },
     ];
-  }, [appointments, scheduleView]);
+  }, [appointments, scheduleView, listFilter, toggleListFilter]);
 
   const resumableConsultationAppt = useMemo(() => {
     const inConsult = appointments.filter(
@@ -2516,7 +2597,7 @@ export default function DoctorDashboardPage() {
       <DoctorPageIntro
         eyebrow="Clinical workspace"
         title={`${doctorGreeting()}, ${firstName}`}
-        description="While you add services for an active visit, you will see an estimated total. The printable patient bill opens only after payment is complete. If payment is still pending, you can edit billing from the schedule row."
+        description="Work today’s list: start visits, chart, finish, then collect payment before the patient leaves."
         pageHelp={
           <>
             This page is your <strong>daily command center</strong>: pick a date, work down the list. When you start a visit, a{" "}
@@ -2527,7 +2608,8 @@ export default function DoctorDashboardPage() {
             appointment <strong>awaiting payment</strong>, use <strong>Edit billing</strong> on that row if you need to add a service or fix
             the invoice before collecting. If someone does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
             <strong>Reschedule</strong> to move a booked visit. After a visit shows <strong>completed</strong>, use{" "}
-            <strong>Book next visit</strong> to add a new appointment with the same openings as online booking.
+            <strong>Book next visit</strong> to add a new appointment with the same openings as online booking. Prefer week or month planning? Use{" "}
+            <strong>My Schedule</strong> in the sidebar.
           </>
         }
       >
@@ -2542,23 +2624,101 @@ export default function DoctorDashboardPage() {
         )}
       </DoctorPageIntro>
 
-      {!activeAppt && resumableConsultationAppt && (
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-emerald-900">
-              You still have an active consultation for <strong>{resumableConsultationAppt.patient}</strong> at{" "}
-              <strong>{resumableConsultationAppt.start_time}</strong>.
-            </p>
-            <button
-              type="button"
-              onClick={() => openConsultationForAppointment(resumableConsultationAppt)}
-              className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
-            >
-              Resume current visit
-            </button>
-          </div>
+      {!loading &&
+      (resumableConsultationAppt ||
+        awaitingPaymentToday.length > 0 ||
+        noShowsToday.length > 0 ||
+        (nextUpAppt && !activeAppt)) ? (
+        <section className="space-y-3" aria-label="Today focus">
+          {!activeAppt && nextUpAppt ? (
+            <div className="rounded-2xl border border-[#16a349]/30 bg-gradient-to-br from-[#ecfdf5] to-white px-4 py-3.5 shadow-sm">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#0d5c2e]">
+                {nextUpAppt.kind === "start" ? "Next up — ready to see" : "Next on schedule"}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-lg font-bold text-slate-900">
+                    <PatientNameWithProfile
+                      name={nextUpAppt.appt.patient}
+                      profile={nextUpAppt.appt.patient_payment_profile}
+                      compactBadge
+                    />
+                  </p>
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    {nextUpAppt.appt.start_time}
+                    {nextUpAppt.appt.service ? ` · ${nextUpAppt.appt.service}` : ""}
+                    {nextUpAppt.kind === "waiting" ? " · waiting for check-in" : " · checked in"}
+                  </p>
+                </div>
+                {nextUpAppt.kind === "start" ? (
+                  <button
+                    type="button"
+                    disabled={isStarting}
+                    onClick={() => void startVisit(nextUpAppt.appt)}
+                    className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                  >
+                    {isStarting ? "Starting…" : "Start visit"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setListFilter("all");
+                      setScheduleView("day");
+                      setScheduleFocusIso(todayStr);
+                      document.getElementById("doctor-today-schedule")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                  >
+                    Jump to list
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {(resumableConsultationAppt || awaitingPaymentToday.length > 0 || noShowsToday.length > 0) && (
+            <div className="rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3.5 shadow-sm ring-1 ring-amber-100">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {!activeAppt && resumableConsultationAppt ? (
+                  <button
+                    type="button"
+                    onClick={() => openConsultationForAppointment(resumableConsultationAppt)}
+                    className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-50"
+                  >
+                    Resume {resumableConsultationAppt.patient} →
+                  </button>
+                ) : null}
+                {awaitingPaymentToday.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleListFilter("finished");
+                      document.getElementById("doctor-today-schedule")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50"
+                  >
+                    Awaiting payment ({awaitingPaymentToday.length})
+                  </button>
+                ) : null}
+                {noShowsToday.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleListFilter("no_show");
+                      document.getElementById("doctor-today-schedule")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50"
+                  >
+                    No-shows today ({noShowsToday.length})
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
         </section>
-      )}
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
       {paymentFollowUp && (
@@ -2674,26 +2834,42 @@ export default function DoctorDashboardPage() {
                 </p>
               )}
               {!paymentFollowUp.payment.charged && (
-                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
-                  <span className="font-semibold">Clinic rule:</span> payment is due before the patient leaves.
-                  {paymentBannerCanChargeSavedCard
-                    ? " Fastest path: charge the saved card above, then the card reader at the desk, or pay on a clinic tablet below."
-                    : " Use the card reader at the desk, or pay on a clinic tablet using the button below."}
+                <p className="mt-2 text-sm font-medium text-amber-950">
+                  Collect payment before the patient leaves.
                 </p>
               )}
-              {!paymentFollowUp.payment.charged && (
-                <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs leading-relaxed text-slate-700">
-                  <strong className="text-slate-900">Desk Square Terminal:</strong> the bill usually appears on the black reader
-                  automatically when you finish the visit. You can also tap <strong>Square Terminal device</strong> below to send it
-                  again. This page updates on its own when payment completes.
-                </p>
-              )}
-              {squareTerminalConfig && !squareTerminalConfig.device_id_configured && (
-                <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
-                  <strong>Terminal API not configured:</strong> set <code className="rounded bg-white px-1">SQUARE_DEVICE_ID</code> in the
-                  server environment (Square Dashboard → Devices) so the dark button can wake the physical reader.
-                </p>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowPaymentHelp((v) => !v)}
+                className="mt-2 text-xs font-semibold text-[#0d5c2e] hover:underline"
+              >
+                {showPaymentHelp ? "Hide payment tips" : "Payment tips & desk options"}
+              </button>
+              {showPaymentHelp ? (
+                <div className="mt-2 space-y-2">
+                  {!paymentFollowUp.payment.charged && (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
+                      <span className="font-semibold">Clinic rule:</span> payment is due before the patient leaves.
+                      {paymentBannerCanChargeSavedCard
+                        ? " Fastest path: charge the saved card above, then the card reader at the desk, or pay on a clinic tablet below."
+                        : " Use the card reader at the desk, or pay on a clinic tablet using the button below."}
+                    </p>
+                  )}
+                  {!paymentFollowUp.payment.charged && (
+                    <p className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                      <strong className="text-slate-900">Desk Square Terminal:</strong> the bill usually appears on the black reader
+                      automatically when you finish the visit. You can also tap <strong>Square Terminal device</strong> below to send it
+                      again. This page updates on its own when payment completes.
+                    </p>
+                  )}
+                  {squareTerminalConfig && !squareTerminalConfig.device_id_configured && (
+                    <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+                      <strong>Terminal API not configured:</strong> set <code className="rounded bg-white px-1">SQUARE_DEVICE_ID</code> in the
+                      server environment (Square Dashboard → Devices) so the dark button can wake the physical reader.
+                    </p>
+                  )}
+                </div>
+              ) : null}
               {!paymentFollowUp.payment.charged && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {paymentBannerCanChargeSavedCard ? (
@@ -2868,9 +3044,21 @@ export default function DoctorDashboardPage() {
         </section>
       )}
       <section className="doctor-panel lg:col-span-2">
-        <DoctorSectionLabel help="Search for any past invoice by patient name, invoice number, or date and reprint the bill.">
-          Search & reprint bills
-        </DoctorSectionLabel>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <DoctorSectionLabel help="Search for any past invoice by patient name, invoice number, or date and reprint the bill.">
+            Search & reprint bills
+          </DoctorSectionLabel>
+          <button
+            type="button"
+            onClick={() => setShowReprintBills((v) => !v)}
+            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-slate-50"
+            aria-expanded={showReprintBills || billSearchResults !== null}
+          >
+            {showReprintBills || billSearchResults !== null ? "Hide" : "Show"}
+          </button>
+        </div>
+        {showReprintBills || billSearchResults !== null ? (
+          <>
         <div className="flex flex-wrap items-end gap-2">
           <div className="min-w-0 flex-1">
             <label className="mb-1.5 block text-[13px] font-semibold leading-normal text-slate-600">Patient name, invoice #, or date</label>
@@ -2946,10 +3134,14 @@ export default function DoctorDashboardPage() {
             )}
           </div>
         )}
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">Tap Show when you need to find and reprint a past bill.</p>
+        )}
       </section>
-      <section className="doctor-panel">
+      <section id="doctor-today-schedule" className="doctor-panel scroll-mt-24">
         <DoctorSectionLabel
-          help="Day view shows today only. Switch to Week or Month to browse other days. Checked-in patients stay at the top of each day. Click a row to open the chart."
+          help="Day view shows today only. Switch to Week or Month to browse other days. Checked-in patients stay at the top of each day. Click a row to open the chart. Tap a stat above to filter this list."
         >
           {scheduleView === "day" ? "Today's schedule" : scheduleView === "week" ? "Week at a glance" : "Month at a glance"}
         </DoctorSectionLabel>
@@ -2959,18 +3151,33 @@ export default function DoctorDashboardPage() {
               <>
                 <span className="font-semibold text-slate-800">Today only</span> — {formatWeekdayMonthDayYear(todayStr)}
                 <span className="mt-1 block text-xs text-slate-500">
-                  Checked-in patients appear first, then upcoming visits, then past or finished visits at the bottom.
-                  Use Week or Month to see other days.
+                  Checked-in patients appear first. Prefer week or month planning?{" "}
+                  <Link href="/doctor/schedule" className="font-semibold text-[#0d5c2e] hover:underline">
+                    Open My Schedule
+                  </Link>
+                  .
                 </span>
               </>
             ) : (
               <>
                 Showing <span className="font-semibold text-slate-800">{scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}</span>
                 <span className="mt-1 block text-xs text-slate-500">
-                  Visits are grouped by day. Tap a day header’s date is for orientation — actions work on each row.
+                  Visits are grouped by day. For a fuller calendar, use{" "}
+                  <Link href="/doctor/schedule" className="font-semibold text-[#0d5c2e] hover:underline">
+                    My Schedule
+                  </Link>
+                  .
                 </span>
               </>
             )}
+            {listFilter !== "all" ? (
+              <span className="mt-2 block text-xs font-semibold text-[#0d5c2e]">
+                Filtered list —{" "}
+                <button type="button" className="underline" onClick={() => setListFilter("all")}>
+                  show all
+                </button>
+              </span>
+            ) : null}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5">
@@ -3100,19 +3307,15 @@ export default function DoctorDashboardPage() {
         ) : null}
         {scheduleLayout === "list" && loading ? (
           <Loader variant="page" label="Loading appointments" sublabel="Almost there…" />
-        ) : scheduleLayout === "list" && appointments.length === 0 ? (
+        ) : scheduleLayout === "list" && filteredScheduleListItems.length === 0 ? (
           <DoctorEmptyWell
-            title={
-              scheduleView === "day"
-                ? "Clear calendar today"
-                : scheduleView === "week"
-                  ? "No visits this week"
-                  : "No visits this month"
-            }
+            title={listFilter !== "all" ? "Nothing in this filter" : scheduleView === "day" ? "Clear calendar today" : scheduleView === "week" ? "No visits this week" : "No visits this month"}
             description={
-              scheduleView === "day"
-                ? "When patients book with you, they will show up here. Use Week or Month above to plan ahead."
-                : `Nothing on your schedule for ${scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}. Try another week or month.`
+              listFilter !== "all"
+                ? "Try another stat filter, or show all visits."
+                : scheduleView === "day"
+                  ? "When patients book with you, they will show up here. Use Week or Month above to plan ahead, or open My Schedule."
+                  : `Nothing on your schedule for ${scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}. Try another week or month.`
             }
           >
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100/80 text-[#16a349] shadow-inner">
@@ -3121,7 +3324,7 @@ export default function DoctorDashboardPage() {
           </DoctorEmptyWell>
         ) : scheduleLayout === "list" ? (
           <div className="stagger-children space-y-2.5">
-            {scheduleListItems.map((item) => {
+            {filteredScheduleListItems.map((item) => {
               if (item.kind === "day-header") {
                 return (
                   <div
