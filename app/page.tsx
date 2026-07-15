@@ -909,6 +909,27 @@ export default function BookingPage() {
     scrollToBookingSession();
   };
 
+  /** Reminder SMS links use ?manage=1 so patients land on cancel / reschedule, not a new booking. */
+  const manageDeepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (manageDeepLinkHandled.current) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const manage = (params.get("manage") || "").trim().toLowerCase();
+    if (manage !== "1" && manage !== "true" && manage !== "yes") return;
+    manageDeepLinkHandled.current = true;
+    activateRescheduleFlow();
+    // Clean the URL so refresh does not re-trigger; keep history tidy for patients.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("manage");
+      const next = url.pathname + (url.search || "") + url.hash;
+      window.history.replaceState({}, "", next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const loadMyAppointments = useCallback(async () => {
     if (!phone || !isValidPhoneNumber(phone)) {
       toast.error("Enter a valid cell number first.");
