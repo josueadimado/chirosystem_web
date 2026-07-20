@@ -73,7 +73,8 @@ type PatientListFilter =
   | "no_show_fee"
   | "late_cancel_fee"
   | "penalty_fees"
-  | "no_show_history";
+  | "no_show_history"
+  | "no_phone";
 
 /** Primary filters shown as one-click chips (less crowding than a long dropdown). */
 const PATIENT_QUICK_FILTERS: { value: PatientListFilter; label: string }[] = [
@@ -81,6 +82,7 @@ const PATIENT_QUICK_FILTERS: { value: PatientListFilter; label: string }[] = [
   { value: "balance_due", label: "Balance due" },
   { value: "overdue", label: "Overdue" },
   { value: "penalty_fees", label: "Penalty fees" },
+  { value: "no_phone", label: "No phone" },
 ];
 
 /** Extra filters kept in “More…” so rarer cases stay available. */
@@ -89,6 +91,12 @@ const PATIENT_MORE_FILTER_OPTIONS: { value: PatientListFilter; label: string }[]
   { value: "late_cancel_fee", label: "Owes cancellation fee" },
   { value: "no_show_history", label: "Has no-show on record" },
 ];
+
+function patientHasNoPhone(p: Patient): boolean {
+  // Fewer than 10 digits = missing / incomplete (imports may store blank).
+  const digits = String(p.phone || "").replace(/\D/g, "");
+  return digits.length < 10;
+}
 
 function penaltyBalanceDue(p: Patient): number {
   return parseBalanceNum(p.balance_no_show_fee) + parseBalanceNum(p.balance_late_cancel_fee);
@@ -109,9 +117,55 @@ function matchesPatientListFilter(p: Patient, filter: PatientListFilter): boolea
       return penaltyBalanceDue(p) > 0.009;
     case "no_show_history":
       return (p.no_show_count ?? 0) > 0;
+    case "no_phone":
+      return patientHasNoPhone(p);
     default:
       return true;
   }
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+/** Download the current filtered list as a CSV Excel can open. */
+function downloadPatientsSpreadsheet(rows: Patient[], filename: string) {
+  const headers = [
+    "Patient ID",
+    "First Name",
+    "Last Name",
+    "Phone",
+    "Email",
+    "Last Visit",
+    "Visits",
+    "Next Appointment",
+    "Balance",
+  ];
+  const lines = [headers.join(",")];
+  for (const p of rows) {
+    lines.push(
+      [
+        String(p.id),
+        csvEscape(p.first_name || ""),
+        csvEscape(p.last_name || ""),
+        csvEscape(p.phone || ""),
+        csvEscape(p.email || ""),
+        csvEscape(p.last_visit || ""),
+        String(typeof p.visit_count === "number" ? p.visit_count : 0),
+        csvEscape(nextAppointmentLabel(p) || ""),
+        csvEscape(p.balance || "0"),
+      ].join(","),
+    );
+  }
+  // BOM helps Excel open UTF-8 names correctly
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function balanceDueHints(p: Patient): string[] {
@@ -322,14 +376,28 @@ export default function AdminPatientsPage() {
     let balanceDue = 0;
     let penaltyFees = 0;
     let noShowHistory = 0;
+    let noPhone = 0;
     for (const p of patients) {
       if (p.has_overdue) overdue += 1;
       if (parseBalanceNum(p.balance) > 0.009) balanceDue += 1;
       if (penaltyBalanceDue(p) > 0.009) penaltyFees += 1;
       if ((p.no_show_count ?? 0) > 0) noShowHistory += 1;
+      if (patientHasNoPhone(p)) noPhone += 1;
     }
-    return { overdue, balanceDue, penaltyFees, noShowHistory, total: patients.length };
+    return { overdue, balanceDue, penaltyFees, noShowHistory, noPhone, total: patients.length };
   }, [patients]);
+
+  const exportCurrentList = () => {
+    if (sortedList.length === 0) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const tag =
+      listFilter === "no_phone"
+        ? "no-phone"
+        : listFilter
+          ? listFilter.replace(/_/g, "-")
+          : "all";
+    downloadPatientsSpreadsheet(sortedList, `patients-${tag}-${stamp}.csv`);
+  };
 
   const sortedList = useMemo(() => {
     const list = [...filtered];
@@ -645,6 +713,19 @@ export default function AdminPatientsPage() {
                 record
               </>
             ) : null}
+            {attentionCounts.noPhone > 0 ? (
+              <>
+                {" "}
+                ·{" "}
+                <button
+                  type="button"
+                  onClick={() => setListFilter("no_phone")}
+                  className="font-semibold tabular-nums text-slate-700 underline-offset-2 hover:underline"
+                >
+                  {attentionCounts.noPhone} missing phone
+                </button>
+              </>
+            ) : null}
           </p>
         </div>
       ) : null}
@@ -685,7 +766,9 @@ export default function AdminPatientsPage() {
                       ? attentionCounts.balanceDue
                       : chip.value === "penalty_fees"
                         ? attentionCounts.penaltyFees
-                        : null;
+                        : chip.value === "no_phone"
+                          ? attentionCounts.noPhone
+                          : null;
                 return (
                   <button
                     key={chip.value || "all"}
@@ -799,21 +882,32 @@ export default function AdminPatientsPage() {
                 of <span className="tabular-nums text-slate-600">{totalFiltered}</span>{" "}
                 {hasActiveFilters ? "matching patients" : "patients"}
               </p>
-              <label className="flex items-center gap-2 text-xs text-slate-600">
-                <span className="font-medium text-slate-500">Rows</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSizeAndRemember(Number(e.target.value) as PageSize)}
-                  className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-800 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
-                  aria-label="Rows per page"
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={sortedList.length === 0}
+                  onClick={exportCurrentList}
+                  className="h-9 rounded-lg border-slate-200 px-3 text-xs font-semibold text-slate-800"
                 >
-                  {PAGE_SIZE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  Export spreadsheet
+                </Button>
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <span className="font-medium text-slate-500">Rows</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSizeAndRemember(Number(e.target.value) as PageSize)}
+                    className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-800 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                    aria-label="Rows per page"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
