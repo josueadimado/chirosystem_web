@@ -7,7 +7,7 @@ import { PatientDetailModal } from "@/components/patient-detail-modal";
 import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { UsDateInput } from "@/components/us-date-input";
 import { Button } from "@/components/ui/button";
-import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
+import { ApiError, apiGetAuth, apiPost, apiUploadAuth } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -16,6 +16,31 @@ import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
 /** Must sit above admin chrome (`sticky` header ~ z-30). Portaling to `document.body` avoids ancestor stacking contexts. */
 const ADD_PATIENT_MODAL_Z = "z-[400]";
+
+type LegacyImportCounts = {
+  total_rows: number;
+  skip_existing: number;
+  skip_bad_row: number;
+  would_add: number;
+  added: number;
+  no_phone_add: number;
+  errors: number;
+};
+
+type LegacyImportResult = {
+  dry_run: boolean;
+  provider_id: number;
+  provider_name: string;
+  counts: LegacyImportCounts;
+  sample_rows?: Array<{
+    row: string;
+    first_name: string;
+    last_name: string;
+    action: string;
+    detail: string;
+  }>;
+  sample_note?: string;
+};
 
 type Patient = {
   id: number;
@@ -213,6 +238,14 @@ export default function AdminPatientsPage() {
   const [documentBodyReady, setDocumentBodyReady] = useState(false);
   const [page, setPage] = useState(1);
 
+  // Legacy Excel import (Admin → Patients → Import Excel)
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importPreview, setImportPreview] = useState<LegacyImportResult | null>(null);
+  const [importDone, setImportDone] = useState<LegacyImportResult | null>(null);
+
   useEffect(() => {
     setDocumentBodyReady(true);
   }, []);
@@ -361,6 +394,63 @@ export default function AdminPatientsPage() {
     setShowAddModal(true);
   };
 
+  const resetImportModal = useCallback(() => {
+    setImportFile(null);
+    setImportError("");
+    setImportPreview(null);
+    setImportDone(null);
+    setImportBusy(false);
+  }, []);
+
+  const openImportModal = () => {
+    resetImportModal();
+    setShowImportModal(true);
+  };
+
+  useEffect(() => {
+    if (!showImportModal || importBusy) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowImportModal(false);
+        resetImportModal();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showImportModal, importBusy, resetImportModal]);
+
+  const runLegacyImport = async (dryRun: boolean) => {
+    setImportError("");
+    if (!importFile) {
+      setImportError("Choose your Excel .xlsx file first.");
+      return;
+    }
+    if (!importFile.name.toLowerCase().endsWith(".xlsx")) {
+      setImportError("Please upload an .xlsx Excel file (not .xls or CSV).");
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", importFile);
+      form.append("dry_run", dryRun ? "1" : "0");
+      const result = await apiUploadAuth<LegacyImportResult>("/admin/patients/import_legacy/", form);
+      if (dryRun) {
+        setImportPreview(result);
+        setImportDone(null);
+      } else {
+        setImportDone(result);
+        setImportPreview(null);
+        await loadPatients();
+      }
+    } catch (e) {
+      setImportError(e instanceof ApiError ? e.message : "Import failed. Please try again.");
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   const openChart = (id: number) => {
     setDetailPatientId(id);
   };
@@ -427,13 +517,23 @@ export default function AdminPatientsPage() {
               </>
             }
           />
-          <Button
-            type="button"
-            onClick={openAddModal}
-            className="mt-1 h-10 shrink-0 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d] sm:mt-8"
-          >
-            Add patient
-          </Button>
+          <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openImportModal}
+              className="h-10 rounded-xl border-slate-200 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              Import Excel
+            </Button>
+            <Button
+              type="button"
+              onClick={openAddModal}
+              className="h-10 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d]"
+            >
+              Add patient
+            </Button>
+          </div>
         </div>
 
         {error && (
@@ -1136,6 +1236,140 @@ export default function AdminPatientsPage() {
         </div>,
         document.body,
       )}
+
+      {documentBodyReady &&
+        showImportModal &&
+        createPortal(
+          <div
+            className={`fixed inset-0 ${ADD_PATIENT_MODAL_Z} flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-patients-title"
+            onClick={() => {
+              if (!importBusy) {
+                setShowImportModal(false);
+                resetImportModal();
+              }
+            }}
+          >
+            <div
+              className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xl ring-1 ring-slate-200/60"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="border-b border-slate-100 px-5 pb-4 pt-5">
+                <h2 id="import-patients-title" className="text-lg font-semibold tracking-tight text-slate-900">
+                  Import Excel patient list
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Upload your spreadsheet (.xlsx). People already in the system are skipped. New people are added with
+                  their last visit date (time set to 9:00 AM). Always run <strong>Preview</strong> first.
+                </p>
+              </div>
+
+              <div className="space-y-4 px-5 py-4">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">Excel file (.xlsx)</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    disabled={importBusy}
+                    className="block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-emerald-800 hover:file:bg-emerald-100"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setImportFile(f);
+                      setImportPreview(null);
+                      setImportDone(null);
+                      setImportError("");
+                    }}
+                  />
+                  {importFile ? (
+                    <p className="mt-1.5 text-xs text-slate-500">Selected: {importFile.name}</p>
+                  ) : null}
+                </label>
+
+                {importError ? (
+                  <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{importError}</p>
+                ) : null}
+
+                {importPreview ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-sm text-amber-950">
+                    <p className="font-semibold">Preview (nothing saved yet)</p>
+                    <ul className="mt-2 space-y-1 text-xs leading-relaxed">
+                      <li>Rows in file: {importPreview.counts.total_rows}</li>
+                      <li>Already in system (skip): {importPreview.counts.skip_existing}</li>
+                      <li>Would add as new: {importPreview.counts.would_add}</li>
+                      <li>Of those, no phone number: {importPreview.counts.no_phone_add}</li>
+                      <li>Bad / skipped rows: {importPreview.counts.skip_bad_row}</li>
+                      <li>
+                        Historical visits → {importPreview.provider_name} (#{importPreview.provider_id})
+                      </li>
+                    </ul>
+                    <p className="mt-2 text-xs text-amber-900/80">
+                      If these numbers look right, click <strong>Import now</strong>.
+                    </p>
+                  </div>
+                ) : null}
+
+                {importDone ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-3.5 py-3 text-sm text-emerald-950">
+                    <p className="font-semibold">Import finished</p>
+                    <ul className="mt-2 space-y-1 text-xs leading-relaxed">
+                      <li>Added: {importDone.counts.added}</li>
+                      <li>Skipped (already existed): {importDone.counts.skip_existing}</li>
+                      <li>Bad rows skipped: {importDone.counts.skip_bad_row}</li>
+                      <li>Errors: {importDone.counts.errors}</li>
+                      <li>Added without phone: {importDone.counts.no_phone_add}</li>
+                    </ul>
+                  </div>
+                ) : null}
+
+                {importBusy ? (
+                  <p className="flex items-center gap-2 text-sm text-slate-600">
+                    <Loader className="h-4 w-4" />
+                    Working… large files can take up to a minute.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={importBusy}
+                  onClick={() => {
+                    setShowImportModal(false);
+                    resetImportModal();
+                  }}
+                  className="rounded-xl border-slate-200"
+                >
+                  {importDone ? "Close" : "Cancel"}
+                </Button>
+                {!importDone ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={importBusy || !importFile}
+                      onClick={() => void runLegacyImport(true)}
+                      className="rounded-xl border-slate-200 font-semibold"
+                    >
+                      {importBusy ? "Working…" : "Preview"}
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={importBusy || !importFile || !importPreview}
+                      onClick={() => void runLegacyImport(false)}
+                      className="rounded-xl bg-[#16a349] px-5 font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+                    >
+                      Import now
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
