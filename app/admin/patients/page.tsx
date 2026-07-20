@@ -198,8 +198,22 @@ function patientDirectoryName(p: Patient): { last: string; first: string } {
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm transition focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
 
-/** Rows per page — keeps the list scannable instead of one endless page */
-const PATIENTS_PAGE_SIZE = 25;
+/** Rows per page options for the large patient directory */
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+const DEFAULT_PAGE_SIZE: PageSize = 50;
+const PAGE_SIZE_STORAGE_KEY = "admin_patients_page_size";
+
+function readStoredPageSize(): PageSize {
+  if (typeof window === "undefined") return DEFAULT_PAGE_SIZE;
+  try {
+    const raw = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    if ((PAGE_SIZE_OPTIONS as readonly number[]).includes(raw)) return raw as PageSize;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PAGE_SIZE;
+}
 
 function compareName(a: Patient, b: Patient): number {
   const ln = a.last_name.trim().localeCompare(b.last_name.trim(), undefined, { sensitivity: "base" });
@@ -237,6 +251,7 @@ export default function AdminPatientsPage() {
   const [addOnlineChiroWaived, setAddOnlineChiroWaived] = useState(false);
   const [documentBodyReady, setDocumentBodyReady] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
   // Legacy Excel import (Admin → Patients → Import Excel)
   const [showImportModal, setShowImportModal] = useState(false);
@@ -248,6 +263,7 @@ export default function AdminPatientsPage() {
 
   useEffect(() => {
     setDocumentBodyReady(true);
+    setPageSize(readStoredPageSize());
   }, []);
   const [sortMode, setSortMode] = useState<SortMode>("name_asc");
   const [listFilter, setListFilter] = useState<PatientListFilter>("");
@@ -340,11 +356,11 @@ export default function AdminPatientsPage() {
   }, [filtered, sortMode]);
 
   const totalFiltered = sortedList.length;
-  const totalPages = Math.max(1, Math.ceil(totalFiltered / PATIENTS_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
 
   useEffect(() => {
     setPage(1);
-  }, [search, sortMode, listFilter]);
+  }, [search, sortMode, listFilter, pageSize]);
 
   const hasActiveFilters = search.trim().length > 0 || listFilter !== "";
 
@@ -353,12 +369,21 @@ export default function AdminPatientsPage() {
   }, [totalPages]);
 
   const pagePatients = useMemo(() => {
-    const start = (page - 1) * PATIENTS_PAGE_SIZE;
-    return sortedList.slice(start, start + PATIENTS_PAGE_SIZE);
-  }, [sortedList, page]);
+    const start = (page - 1) * pageSize;
+    return sortedList.slice(start, start + pageSize);
+  }, [sortedList, page, pageSize]);
 
-  const rangeStart = totalFiltered === 0 ? 0 : (page - 1) * PATIENTS_PAGE_SIZE + 1;
-  const rangeEnd = Math.min(page * PATIENTS_PAGE_SIZE, totalFiltered);
+  const rangeStart = totalFiltered === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, totalFiltered);
+
+  const setPageSizeAndRemember = (next: PageSize) => {
+    setPageSize(next);
+    try {
+      localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(next));
+    } catch {
+      /* ignore */
+    }
+  };
 
   const resetAddForm = useCallback(() => {
     setAddFirstName("");
@@ -504,128 +529,127 @@ export default function AdminPatientsPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <AdminPageIntro
-            title="Patients"
-            description="Find charts quickly, spot balances that need collection, and add new patients."
-            pageHelp={
-              <>
-                Use the chips to focus on overdue bills or fees. Click a row or <strong>View</strong> to open the chart.
-                Press <strong>Enter</strong> on a highlighted row, or <strong>Esc</strong> to close the chart.
-              </>
-            }
-          />
-          <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={openImportModal}
-              className="h-10 rounded-xl border-slate-200 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-            >
-              Import Excel
-            </Button>
-            <Button
-              type="button"
-              onClick={openAddModal}
-              className="h-10 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d]"
-            >
-              Add patient
-            </Button>
-          </div>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <AdminPageIntro
+          title="Patients"
+          description="Find charts quickly, spot balances that need collection, and add new patients."
+          pageHelp={
+            <>
+              Use the chips to focus on overdue bills or fees. Click a row or <strong>View</strong> to open the chart.
+              Press <strong>Enter</strong> on a highlighted row, or <strong>Esc</strong> to close the chart.
+            </>
+          }
+        />
+        <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={openImportModal}
+            className="h-10 rounded-xl border-slate-200 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          >
+            Import Excel
+          </Button>
+          <Button
+            type="button"
+            onClick={openAddModal}
+            className="h-10 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d]"
+          >
+            Add patient
+          </Button>
         </div>
+      </div>
 
-        {error && (
-          <p className="mb-3 rounded-lg bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>
-        )}
+      {error && (
+        <p className="rounded-lg bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>
+      )}
 
-        {!loading && attentionCounts.total > 0 ? (
-          <div className="mb-4 space-y-2">
-            {(attentionCounts.overdue > 0 ||
-              attentionCounts.balanceDue > 0 ||
-              attentionCounts.penaltyFees > 0) && (
-              <section
-                className="rounded-xl border border-amber-200/90 bg-amber-50/80 px-3.5 py-3"
-                aria-label="Needs attention"
-              >
-                <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {attentionCounts.overdue > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setListFilter("overdue")}
-                      className={cn(
-                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                        listFilter === "overdue"
-                          ? "border-rose-400 bg-rose-100 text-rose-900"
-                          : "border-rose-200 bg-white text-rose-800 hover:bg-rose-50",
-                      )}
-                    >
-                      Overdue ({attentionCounts.overdue})
-                    </button>
-                  ) : null}
-                  {attentionCounts.balanceDue > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setListFilter("balance_due")}
-                      className={cn(
-                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                        listFilter === "balance_due"
-                          ? "border-amber-400 bg-amber-100 text-amber-950"
-                          : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
-                      )}
-                    >
-                      Balance due ({attentionCounts.balanceDue})
-                    </button>
-                  ) : null}
-                  {attentionCounts.penaltyFees > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setListFilter("penalty_fees")}
-                      className={cn(
-                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                        listFilter === "penalty_fees"
-                          ? "border-amber-400 bg-amber-100 text-amber-950"
-                          : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
-                      )}
-                    >
-                      Penalty fees ({attentionCounts.penaltyFees})
-                    </button>
-                  ) : null}
-                </div>
-              </section>
-            )}
-            <p className="text-xs text-slate-500">
-              <span className="font-semibold tabular-nums text-slate-700">{attentionCounts.total}</span> patients
-              {attentionCounts.overdue > 0 ? (
-                <>
-                  {" "}
-                  ·{" "}
-                  <span className="font-semibold tabular-nums text-rose-700">{attentionCounts.overdue}</span> overdue
-                </>
-              ) : null}
-              {attentionCounts.penaltyFees > 0 ? (
-                <>
-                  {" "}
-                  ·{" "}
-                  <span className="font-semibold tabular-nums text-amber-800">{attentionCounts.penaltyFees}</span> with
-                  penalty fees
-                </>
-              ) : null}
-              {attentionCounts.noShowHistory > 0 ? (
-                <>
-                  {" "}
-                  ·{" "}
-                  <span className="tabular-nums text-slate-600">{attentionCounts.noShowHistory}</span> with no-show on
-                  record
-                </>
-              ) : null}
-            </p>
-          </div>
-        ) : null}
+      {!loading && attentionCounts.total > 0 ? (
+        <div className="space-y-2">
+          {(attentionCounts.overdue > 0 ||
+            attentionCounts.balanceDue > 0 ||
+            attentionCounts.penaltyFees > 0) && (
+            <section
+              className="rounded-xl border border-amber-200/90 bg-amber-50/80 px-3.5 py-3"
+              aria-label="Needs attention"
+            >
+              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {attentionCounts.overdue > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setListFilter("overdue")}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                      listFilter === "overdue"
+                        ? "border-rose-400 bg-rose-100 text-rose-900"
+                        : "border-rose-200 bg-white text-rose-800 hover:bg-rose-50",
+                    )}
+                  >
+                    Overdue ({attentionCounts.overdue})
+                  </button>
+                ) : null}
+                {attentionCounts.balanceDue > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setListFilter("balance_due")}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                      listFilter === "balance_due"
+                        ? "border-amber-400 bg-amber-100 text-amber-950"
+                        : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
+                    )}
+                  >
+                    Balance due ({attentionCounts.balanceDue})
+                  </button>
+                ) : null}
+                {attentionCounts.penaltyFees > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setListFilter("penalty_fees")}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                      listFilter === "penalty_fees"
+                        ? "border-amber-400 bg-amber-100 text-amber-950"
+                        : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
+                    )}
+                  >
+                    Penalty fees ({attentionCounts.penaltyFees})
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          )}
+          <p className="text-xs text-slate-500">
+            <span className="font-semibold tabular-nums text-slate-700">{attentionCounts.total}</span> patients
+            {attentionCounts.overdue > 0 ? (
+              <>
+                {" "}
+                ·{" "}
+                <span className="font-semibold tabular-nums text-rose-700">{attentionCounts.overdue}</span> overdue
+              </>
+            ) : null}
+            {attentionCounts.penaltyFees > 0 ? (
+              <>
+                {" "}
+                ·{" "}
+                <span className="font-semibold tabular-nums text-amber-800">{attentionCounts.penaltyFees}</span> with
+                penalty fees
+              </>
+            ) : null}
+            {attentionCounts.noShowHistory > 0 ? (
+              <>
+                {" "}
+                ·{" "}
+                <span className="tabular-nums text-slate-600">{attentionCounts.noShowHistory}</span> with no-show on
+                record
+              </>
+            ) : null}
+          </p>
+        </div>
+      ) : null}
 
-        <div className="sticky top-0 z-20 -mx-5 mb-4 space-y-3 border-b border-slate-100 bg-card/95 px-5 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/85">
+      <div className="sticky top-0 z-20 space-y-3 border-b border-slate-200/80 bg-background/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/90">
           <div className="relative w-full min-w-0 max-w-md">
             <input
               type="search"
@@ -766,28 +790,45 @@ export default function AdminPatientsPage() {
           </div>
         ) : (
           <div className="animate-fade-in space-y-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Showing{" "}
-              <span className="font-semibold tabular-nums text-slate-600">
-                {rangeStart}&ndash;{rangeEnd}
-              </span>{" "}
-              of <span className="tabular-nums text-slate-600">{totalFiltered}</span>{" "}
-              {hasActiveFilters ? "matching patients" : "patients"}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Showing{" "}
+                <span className="font-semibold tabular-nums text-slate-600">
+                  {rangeStart}&ndash;{rangeEnd}
+                </span>{" "}
+                of <span className="tabular-nums text-slate-600">{totalFiltered}</span>{" "}
+                {hasActiveFilters ? "matching patients" : "patients"}
+              </p>
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="font-medium text-slate-500">Rows</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSizeAndRemember(Number(e.target.value) as PageSize)}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-800 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                  aria-label="Rows per page"
+                >
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
-              <div className="max-h-[min(520px,65vh)] overflow-y-auto overscroll-contain">
+            <div className="overflow-x-auto">
+              <div className="max-h-[min(70vh,860px)] overflow-y-auto overscroll-contain">
                 <table className="w-full min-w-[880px] border-collapse text-sm">
-                  <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
+                  <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90">
                     <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-3 pl-4 align-bottom">Patient</th>
+                      <th className="px-3 py-3 pl-1 align-bottom">Patient</th>
                       <th className="hidden px-3 py-3 align-bottom xl:table-cell">Established</th>
                       <th className="px-3 py-3 align-bottom">Last visit</th>
                       <th className="px-3 py-3 text-center align-bottom">Visits</th>
                       <th className="hidden px-3 py-3 align-bottom xl:table-cell">Last service</th>
                       <th className="hidden px-3 py-3 align-bottom lg:table-cell">Next appointment</th>
                       <th className="py-3 pr-2 text-right align-bottom">Balance</th>
-                      <th className="w-[4.5rem] px-2 py-3 pr-4 text-right align-bottom" scope="col">
+                      <th className="w-[4.5rem] px-2 py-3 pr-1 text-right align-bottom" scope="col">
                         Open
                       </th>
                     </tr>
@@ -826,7 +867,7 @@ export default function AdminPatientsPage() {
                           }}
                           aria-label={`Open chart for ${last}, ${first}`}
                         >
-                          <td className="px-3 py-3 pl-4 align-middle">
+                          <td className="px-3 py-3 pl-1 align-middle">
                             <div className="flex items-center gap-3">
                               <div
                                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] text-[10px] font-bold uppercase tracking-[0.08em] text-[#065f46] shadow-inner ring-1 ring-[#16a349]/15 md:h-10 md:w-10 md:rounded-xl md:text-[11px]"
@@ -939,7 +980,7 @@ export default function AdminPatientsPage() {
                               formatBalance(p.balance)
                             )}
                           </td>
-                          <td className="px-2 py-3 pr-4 text-right align-middle">
+                          <td className="px-2 py-3 pr-1 text-right align-middle">
                             <button
                               type="button"
                               className="text-xs font-semibold text-[#16a349] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#16a349]"
@@ -959,16 +1000,31 @@ export default function AdminPatientsPage() {
               </div>
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            {(totalPages > 1 || totalFiltered > PAGE_SIZE_OPTIONS[0]) && (
+              <div className="flex flex-col gap-3 border-t border-slate-200/80 pt-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-slate-500">
                   Page{" "}
                   <span className="font-semibold tabular-nums text-slate-700">{page}</span> of{" "}
                   <span className="tabular-nums">{totalPages}</span>
                   <span className="mx-2 text-slate-300">·</span>
-                  <span className="text-slate-400">{PATIENTS_PAGE_SIZE} per page</span>
+                  <span className="text-slate-400">{pageSize} per page</span>
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="mr-1 flex items-center gap-2 text-xs text-slate-600 sm:hidden">
+                    <span>Rows</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => setPageSizeAndRemember(Number(e.target.value) as PageSize)}
+                      className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold"
+                      aria-label="Rows per page"
+                    >
+                      {PAGE_SIZE_OPTIONS.map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <Button
                     type="button"
                     variant="outline"
@@ -994,7 +1050,7 @@ export default function AdminPatientsPage() {
             )}
           </div>
         )}
-      </div>
+
       {detailPatientId && (
         <PatientDetailModal
           patientId={detailPatientId}
