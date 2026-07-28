@@ -209,11 +209,29 @@ export default function AdminBillingPage() {
   const [visitDateTo, setVisitDateTo] = useState("");
   const [insuranceOnly, setInsuranceOnly] = useState(false);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<{
+    ready: boolean;
+    summary: string;
+  } | null>(null);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(searchQuery), 350);
     return () => window.clearTimeout(t);
   }, [searchQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGetAuth<{ ready: boolean; summary: string }>("/admin/email_status/")
+      .then((data) => {
+        if (!cancelled) setEmailStatus({ ready: !!data.ready, summary: data.summary || "" });
+      })
+      .catch(() => {
+        if (!cancelled) setEmailStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -457,6 +475,13 @@ export default function AdminBillingPage() {
         description="Collect what patients owe, clear overdue invoices, and open any row to record payment or print a bill."
         pageHelp="Search by patient or invoice #. Use status chips for open or overdue. More filters cover invoice type, visit dates, and insurance lines."
       />
+
+      {emailStatus && !emailStatus.ready ? (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900">
+          <span className="font-bold">Bill email is not ready. </span>
+          {emailStatus.summary}
+        </p>
+      ) : null}
 
       {error && (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
