@@ -35,10 +35,12 @@ export function communicationPrefsFromDetail(d: {
   notify_reminders?: string;
   notify_bills?: string;
 }): PatientCommunicationPrefs {
+  // SMS-only for paid bills isn't supported; old UI showed Email while DB stayed "sms".
+  const billsRaw = normalizeChannel(d.notify_bills, "email");
   return {
     notify_booking: normalizeChannel(d.notify_booking, "sms"),
     notify_reminders: normalizeChannel(d.notify_reminders, "sms"),
-    notify_bills: normalizeChannel(d.notify_bills, "email"),
+    notify_bills: billsRaw === "sms" ? "email" : billsRaw,
   };
 }
 
@@ -151,7 +153,7 @@ export function PatientCommunicationPrefsFields({
         groupId="notify-bills"
         label="Paid bills / receipts"
         hint="Receipts are sent by email today. Pick email only, or both (email now; text later when we add it)."
-        value={prefs.notify_bills === "sms" ? "email" : prefs.notify_bills}
+        value={prefs.notify_bills}
         disabled={disabled}
         options={NOTIFY_BILLS_OPTIONS}
         onValueChange={(notify_bills) => onChange({ ...prefs, notify_bills })}
