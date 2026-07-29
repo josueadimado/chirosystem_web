@@ -39,6 +39,18 @@ export default function PortalStartPage() {
           </li>
           <li>
             <Link
+              href="/intake"
+              className="block rounded-2xl border-2 border-[#0d5c2e]/20 bg-card p-5 shadow-sm ring-1 ring-emerald-100/80 transition hover:border-[#0d5c2e]/45 hover:bg-primary/[0.04] hover:shadow-md sm:p-6"
+            >
+              <span className="text-lg font-bold text-foreground">Fill intake forms</span>
+              <span className="mt-2 block text-sm leading-relaxed text-muted-foreground">
+                Complete paperwork before your visit — massage, kids, or adult chiropractic forms.
+              </span>
+              <span className="mt-3 inline-flex text-sm font-semibold text-[#16a349]">Open forms →</span>
+            </Link>
+          </li>
+          <li>
+            <Link
               href="/kiosk"
               className="block rounded-2xl border-2 border-[#16a349]/35 bg-gradient-to-br from-[#ecfdf5]/80 to-card p-5 shadow-sm transition hover:border-[#16a349] hover:shadow-md sm:p-6"
             >
