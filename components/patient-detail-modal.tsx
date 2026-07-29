@@ -26,6 +26,7 @@ import {
   type NotifyChannel,
 } from "@/components/patient-communication-prefs";
 import { PatientDocumentsPanel } from "@/components/patient-documents-panel";
+import { PatientDigitalIntakePanel } from "@/components/patient-digital-intake-panel";
 import { PatientCardSetup } from "@/components/patient-card-setup";
 import {
   PatientNameWithProfile,
@@ -116,7 +117,7 @@ type PatientDetail = {
   appointments: AppointmentHistoryRow[];
 };
 
-type Tab = "overview" | "intake" | "history" | "documents";
+type Tab = "overview" | "intake" | "history" | "documents" | "forms";
 
 export function PatientDetailModal({
   patientId,
@@ -432,6 +433,7 @@ export function PatientDetailModal({
     ? [
         { id: "overview", label: "Overview", shortLabel: "Info", hint: "Summary & contacts" },
         { id: "intake", label: "Demographics", shortLabel: "Form", hint: "Name, phone, address, DOB" },
+        { id: "forms", label: "Intake forms", shortLabel: "Intake", hint: "Digital paperwork the patient filled online" },
         { id: "documents", label: "Documents", shortLabel: "Docs", hint: "Insurance cards, X-rays & uploaded files" },
       ]
     : [
@@ -442,6 +444,7 @@ export function PatientDetailModal({
           shortLabel: "Edit",
           hint: "Name, phone, address, DOB, preferences",
         },
+        { id: "forms", label: "Intake forms", shortLabel: "Intake", hint: "Digital paperwork + send link" },
         { id: "history", label: "Visit history", shortLabel: "Visits", hint: "Notes & billing by visit" },
         { id: "documents", label: "Documents", shortLabel: "Docs", hint: "Insurance cards, X-rays & uploaded files" },
       ];
@@ -1361,6 +1364,12 @@ export function PatientDetailModal({
                     </div>
                   )}
                 </div>
+              )}
+              {tab === "forms" && (
+                <PatientDigitalIntakePanel
+                  patientId={detail.id}
+                  basePath={isAdminChart ? "/admin" : "/doctor"}
+                />
               )}
               {tab === "documents" && (
                 <PatientDocumentsPanel

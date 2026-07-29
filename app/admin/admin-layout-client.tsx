@@ -31,6 +31,7 @@ const mainItems = [
   { label: "Analytics", href: "/admin/analytics", icon: <IconBarChart className="w-5 h-5" /> },
   { label: "Schedule", href: "/admin/schedule", icon: <IconCalendar className="w-5 h-5" /> },
   { label: "Patients", href: "/admin/patients", icon: <IconUsers className="w-5 h-5" /> },
+  { label: "Intake forms", href: "/admin/intake", icon: <IconFileText className="w-5 h-5" /> },
 ];
 
 const operationsItemsBase = [
@@ -52,6 +53,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/analytics": "Analytics",
   "/admin/schedule": "Schedule",
   "/admin/patients": "Patients",
+  "/admin/intake": "Intake forms",
   "/admin/billing": "Invoices & Billing",
   "/admin/services": "Services & Codes",
   "/admin/diagnoses": "Diagnoses & codes",
