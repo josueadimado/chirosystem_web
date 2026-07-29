@@ -59,7 +59,7 @@ export function StaffIntakeBrowser({ basePath }: Props) {
     setSendMsg("");
     const patientId = Number(sendPatientId);
     if (!Number.isFinite(patientId) || patientId <= 0) {
-      setSendMsg("Enter a valid patient ID (open the patient chart to find it, or search forms after they submit).");
+      setSendMsg("Enter a valid patient ID.");
       return;
     }
     setSending(true);
@@ -88,20 +88,10 @@ export function StaffIntakeBrowser({ basePath }: Props) {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Intake forms</h1>
-        <p className="mt-1 max-w-2xl text-sm text-slate-600">
-          Search forms clients completed online. Send a personal link so they can fill paperwork before
-          their visit (info we already have is prefilled; they can edit it).
-        </p>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Intake forms</h1>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-slate-900">Send intake link</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Uses the patient&apos;s phone on file. Leave form types empty to auto-pick from age and upcoming
-          appointments.
-        </p>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="block flex-1 space-y-1">
             <span className="text-xs font-medium text-slate-600">Patient ID</span>

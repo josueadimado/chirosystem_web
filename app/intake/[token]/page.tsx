@@ -45,7 +45,9 @@ export default function PublicIntakePage() {
     signature_name: string;
     save_as_draft: boolean;
   }) => {
-    if (!token || !activeType) return;
+    if (!token || !activeType) {
+      throw new Error("This form is not ready to submit. Refresh the page or ask the clinic for a new link.");
+    }
     setBusy(true);
     setSuccess("");
     try {

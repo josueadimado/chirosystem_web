@@ -41,7 +41,7 @@ export type IntakeSubmissionRow = {
 export const FORM_TYPE_OPTIONS: { value: IntakeFormType; label: string }[] = [
   { value: "massage", label: "Massage intake" },
   { value: "pediatric", label: "Children / pediatric intake" },
-  { value: "adult_chiropractic", label: "Adult chiropractic paperwork" },
+  { value: "adult_chiropractic", label: "Adult chiropractic new-patient paperwork" },
 ];
 
 export function strVal(answers: Record<string, unknown>, key: string): string {

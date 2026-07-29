@@ -67,16 +67,12 @@ export function PatientDigitalIntakePanel({ patientId, basePath }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
-        <p className="text-sm text-slate-700">
-          Send a personal link so this client can complete intake online. Existing chart info is prefilled;
-          they can edit anything.
-        </p>
+      <div>
         <button
           type="button"
           disabled={sending}
           onClick={() => void sendLink()}
-          className="mt-3 rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4a25] disabled:opacity-60"
+          className="rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4a25] disabled:opacity-60"
         >
           {sending ? "Sending…" : "Text intake link"}
         </button>
