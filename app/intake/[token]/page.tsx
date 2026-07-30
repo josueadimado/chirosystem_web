@@ -5,11 +5,13 @@ import { DigitalIntakeFormEditor } from "@/components/digital-intake-form-editor
 import { Loader } from "@/components/loader";
 import { ApiError, apiGet, apiPostPublic } from "@/lib/api";
 import type { IntakeFormPack, IntakeFormPackItem } from "@/lib/digital-intake";
-import { useParams } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 export default function PublicIntakePage() {
   const params = useParams();
+  const router = useRouter();
   const token = typeof params.token === "string" ? params.token : "";
   const [pack, setPack] = useState<IntakeFormPack | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,12 +46,16 @@ export default function PublicIntakePage() {
     answers: Record<string, unknown>;
     signature_name: string;
     save_as_draft: boolean;
+    auto?: boolean;
   }) => {
     if (!token || !activeType) {
       throw new Error("This form is not ready to submit. Refresh the page or ask the clinic for a new link.");
     }
-    setBusy(true);
-    setSuccess("");
+    const isAuto = Boolean(payload.auto);
+    if (!isAuto) {
+      setBusy(true);
+      setSuccess("");
+    }
     try {
       const res = await apiPostPublic<{
         detail: string;
@@ -60,12 +66,15 @@ export default function PublicIntakePage() {
         signature_name: payload.signature_name,
         save_as_draft: payload.save_as_draft,
       });
+      // Keep pack metadata in sync, but do not remount the editor on every draft save.
       setPack(res.pack);
-      setSuccess(res.detail);
+      if (!payload.save_as_draft) {
+        setSuccess(res.detail);
+      }
     } catch (e) {
       throw new Error(e instanceof ApiError ? e.message : "Submit failed.");
     } finally {
-      setBusy(false);
+      if (!isAuto) setBusy(false);
     }
   };
 
@@ -74,7 +83,17 @@ export default function PublicIntakePage() {
       <header className="border-b border-emerald-100/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <BrandLogo variant="full" className="max-h-12 sm:max-h-14" priority />
-          <p className="text-right text-xs font-medium text-slate-500 sm:text-sm">Patient intake</p>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/intake"
+              className="text-sm font-semibold text-[#0d5c2e] underline-offset-4 hover:underline"
+            >
+              ← Back
+            </Link>
+            <p className="hidden text-right text-xs font-medium text-slate-500 sm:block sm:text-sm">
+              Patient intake
+            </p>
+          </div>
         </div>
       </header>
 
@@ -97,7 +116,7 @@ export default function PublicIntakePage() {
               </h1>
               <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600">
                 Please complete your intake before your visit. Fields we already know are filled in —
-                you can change anything that looks wrong.
+                you can change anything that looks wrong. Your progress is saved as you go.
               </p>
             </div>
 
@@ -118,7 +137,7 @@ export default function PublicIntakePage() {
                     }
                   >
                     {f.label}
-                    {f.status === "submitted" ? " ✓" : ""}
+                    {f.status === "submitted" ? " ✓" : f.status === "draft" ? " (in progress)" : ""}
                   </button>
                 ))}
               </div>
@@ -134,11 +153,12 @@ export default function PublicIntakePage() {
               <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-emerald-900/5 sm:p-6">
                 <h2 className="mb-4 text-lg font-semibold text-slate-900">{active.label}</h2>
                 <DigitalIntakeFormEditor
-                  key={`${active.form_type}-${active.submitted_at || active.status}`}
+                  key={active.form_type}
                   formType={active.form_type}
                   initial={active.answers}
                   alreadySubmitted={active.status === "submitted"}
                   busy={busy}
+                  onExit={() => router.push("/intake")}
                   onSubmit={onSubmit}
                 />
               </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { strVal } from "@/lib/digital-intake";
 import { cn } from "@/lib/utils";
 
@@ -9,10 +9,12 @@ type Props = {
   initial: Record<string, unknown>;
   alreadySubmitted?: boolean;
   busy?: boolean;
+  onExit?: () => void;
   onSubmit: (payload: {
     answers: Record<string, unknown>;
     signature_name: string;
     save_as_draft: boolean;
+    auto?: boolean;
   }) => Promise<void>;
 };
 
@@ -171,12 +173,17 @@ export function DigitalIntakeFormEditor({
   initial,
   alreadySubmitted,
   busy,
+  onExit,
   onSubmit,
 }: Props) {
   const [answers, setAnswers] = useState<Record<string, unknown>>(() => ({ ...initial }));
   const [signature, setSignature] = useState(strVal(initial, "signature_name"));
   const [error, setError] = useState("");
   const [step, setStep] = useState(0);
+  const [autoSaveNote, setAutoSaveNote] = useState("");
+  const [autoSaving, setAutoSaving] = useState(false);
+  const skipAutoSave = useRef(true);
+  const autoSaveSeq = useRef(0);
 
   const set = (key: string, value: unknown) => {
     setAnswers((prev) => ({ ...prev, [key]: value }));
@@ -193,17 +200,81 @@ export function DigitalIntakeFormEditor({
     return ["About you", "History", "Today", "Policies", "Sign"];
   }, [formType]);
 
-  const handleSave = async (draft: boolean) => {
-    setError("");
+  const handleSave = async (draft: boolean, auto = false) => {
+    if (!auto) setError("");
     try {
+      if (auto) setAutoSaving(true);
       await onSubmit({
         answers: { ...answers, signature_name: signature },
         signature_name: signature,
         save_as_draft: draft,
+        auto,
       });
+      if (auto || draft) {
+        setAutoSaveNote("Progress saved — you can leave and come back later.");
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save.");
+      if (!auto) {
+        setError(e instanceof Error ? e.message : "Could not save.");
+      } else {
+        setAutoSaveNote("Could not auto-save right now. Tap Save draft if you leave.");
+      }
+    } finally {
+      if (auto) setAutoSaving(false);
     }
+  };
+
+  // Auto-save drafts to the server shortly after the person types.
+  useEffect(() => {
+    if (skipAutoSave.current) {
+      skipAutoSave.current = false;
+      return;
+    }
+    const seq = ++autoSaveSeq.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          setAutoSaving(true);
+          await onSubmit({
+            answers: { ...answers, signature_name: signature },
+            signature_name: signature,
+            save_as_draft: true,
+            auto: true,
+          });
+          if (autoSaveSeq.current === seq) {
+            setAutoSaveNote("Progress saved — you can leave and come back later.");
+          }
+        } catch {
+          if (autoSaveSeq.current === seq) {
+            setAutoSaveNote("Could not auto-save right now. Tap Save draft if you leave.");
+          }
+        } finally {
+          if (autoSaveSeq.current === seq) setAutoSaving(false);
+        }
+      })();
+    }, 1600);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: save when answers/signature change
+  }, [answers, signature]);
+
+  const goBack = () => {
+    if (step > 0) {
+      setStep((s) => Math.max(0, s - 1));
+      return;
+    }
+    void (async () => {
+      try {
+        await onSubmit({
+          answers: { ...answers, signature_name: signature },
+          signature_name: signature,
+          save_as_draft: true,
+          auto: true,
+        });
+      } catch {
+        // Still leave — auto-save may have already stored recent progress.
+      }
+      onExit?.();
+    })();
   };
 
   return (
@@ -213,6 +284,19 @@ export function DigitalIntakeFormEditor({
           You already submitted this form. You can update answers and submit again if something changed.
         </p>
       ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={goBack}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          ← Back
+        </button>
+        <p className="text-xs text-slate-500" aria-live="polite">
+          {autoSaving ? "Saving progress…" : autoSaveNote}
+        </p>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {steps.map((label, i) => (
@@ -636,15 +720,13 @@ export function DigitalIntakeFormEditor({
       {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
-        {step > 0 ? (
-          <button
-            type="button"
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Back
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={goBack}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          ← Back
+        </button>
         {step < steps.length - 1 ? (
           <button
             type="button"
@@ -665,7 +747,7 @@ export function DigitalIntakeFormEditor({
         )}
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || autoSaving}
           onClick={() => void handleSave(true)}
           className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         >

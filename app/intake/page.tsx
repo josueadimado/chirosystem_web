@@ -94,6 +94,7 @@ export default function PublicIntakeStartPage() {
       } else {
         setError("Could not open your form.");
       }
+    } finally {
       setStarting(false);
     }
   };
