@@ -1445,15 +1445,15 @@ export default function BookingPage() {
                 </>
               )}
             </p>
-            <div className="mt-4 flex w-full max-w-lg flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <div className="mt-4 w-full max-w-lg">
               <Link
                 href="/intake"
-                className="flex min-h-11 w-full items-center justify-center rounded-xl border border-[#0d5c2e]/25 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] transition hover:bg-[#d1fae5] sm:min-h-0 sm:w-auto sm:flex-1 sm:max-w-xs"
+                className="flex min-h-14 w-full items-center justify-center rounded-2xl border-2 border-[#0d5c2e]/35 bg-[#ecfdf5] px-5 py-4 text-base font-semibold text-[#0d5c2e] shadow-sm shadow-emerald-900/5 transition hover:border-[#0d5c2e]/55 hover:bg-[#d1fae5] sm:min-h-16 sm:text-lg"
               >
                 Fill intake forms
               </Link>
             </div>
-            <div className="mt-2 flex w-full max-w-lg flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <div className="mt-3 flex w-full max-w-lg flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => activateNewBookingFlow()}
