@@ -101,6 +101,14 @@ type PatientDetail = {
   city_state_zip: string;
   emergency_contact_name: string;
   emergency_contact_phone: string;
+  /** CMS-1500 claim demographics */
+  sex?: string;
+  insurance_payer_name?: string;
+  insurance_member_id?: string;
+  insurance_group_number?: string;
+  insurance_plan_type?: string;
+  insurance_relationship?: string;
+  insured_name?: string;
   card_brand: string;
   card_last4: string;
   has_saved_card?: boolean;
@@ -116,6 +124,19 @@ type PatientDetail = {
   payment_profile?: string;
   appointments: AppointmentHistoryRow[];
 };
+
+/** Defaults for insurance claim fields on the patient chart form. */
+function insuranceFieldsFromDetail(d: Partial<PatientDetail> | null | undefined) {
+  return {
+    sex: d?.sex || "",
+    insurance_payer_name: d?.insurance_payer_name || "",
+    insurance_member_id: d?.insurance_member_id || "",
+    insurance_group_number: d?.insurance_group_number || "",
+    insurance_plan_type: d?.insurance_plan_type || "group",
+    insurance_relationship: d?.insurance_relationship || "self",
+    insured_name: d?.insured_name || "",
+  };
+}
 
 type Tab = "overview" | "intake" | "history" | "documents" | "forms";
 
@@ -154,6 +175,13 @@ export function PatientDetailModal({
     date_of_birth: "",
     date_established: "",
     marital_status: "",
+    sex: "",
+    insurance_payer_name: "",
+    insurance_member_id: "",
+    insurance_group_number: "",
+    insurance_plan_type: "group",
+    insurance_relationship: "self",
+    insured_name: "",
     online_chiro_intake_waived: false,
     sms_consent: true,
     notify_booking: "sms" as NotifyChannel,
@@ -168,7 +196,9 @@ export function PatientDetailModal({
   const [savingHandoffId, setSavingHandoffId] = useState<number | null>(null);
   const [handoffMsg, setHandoffMsg] = useState("");
   const [activeHistoryAppointmentId, setActiveHistoryAppointmentId] = useState<number | null>(null);
-  const [activeIntakeSection, setActiveIntakeSection] = useState<"contact" | "address" | "emergency" | "dob">("contact");
+  const [activeIntakeSection, setActiveIntakeSection] = useState<
+    "contact" | "address" | "emergency" | "dob" | "insurance"
+  >("contact");
 
   useEffect(() => {
     setPortalReady(true);
@@ -235,6 +265,7 @@ export function PatientDetailModal({
           date_of_birth: d.date_of_birth || "",
           date_established: d.date_established_override || "",
           marital_status: d.marital_status || "",
+          ...insuranceFieldsFromDetail(d),
           online_chiro_intake_waived: d.online_chiro_intake_waived === true,
           sms_consent: d.sms_consent === true,
           ...communicationPrefsFromDetail(d),
@@ -322,6 +353,13 @@ export function PatientDetailModal({
         emergency_contact_phone: intakeForm.emergency_contact_phone,
         date_of_birth: intakeForm.date_of_birth || null,
         marital_status: intakeForm.marital_status || "",
+        sex: intakeForm.sex || "",
+        insurance_payer_name: intakeForm.insurance_payer_name,
+        insurance_member_id: intakeForm.insurance_member_id,
+        insurance_group_number: intakeForm.insurance_group_number,
+        insurance_plan_type: intakeForm.insurance_plan_type || "group",
+        insurance_relationship: intakeForm.insurance_relationship || "self",
+        insured_name: intakeForm.insured_name,
         ...(canEditContact
           ? {
               first_name: intakeForm.first_name.trim(),
@@ -357,6 +395,7 @@ export function PatientDetailModal({
         date_of_birth: refreshed.date_of_birth || "",
         date_established: refreshed.date_established_override || "",
         marital_status: refreshed.marital_status || "",
+        ...insuranceFieldsFromDetail(refreshed),
         online_chiro_intake_waived: refreshed.online_chiro_intake_waived === true,
         sms_consent: refreshed.sms_consent === true,
         ...communicationPrefsFromDetail(refreshed),
@@ -412,6 +451,13 @@ export function PatientDetailModal({
       intakeForm.date_of_birth !== (detail.date_of_birth || "") ||
       intakeForm.date_established !== (detail.date_established_override || "") ||
       intakeForm.marital_status !== (detail.marital_status || "") ||
+      intakeForm.sex !== (detail.sex || "") ||
+      intakeForm.insurance_payer_name !== (detail.insurance_payer_name || "") ||
+      intakeForm.insurance_member_id !== (detail.insurance_member_id || "") ||
+      intakeForm.insurance_group_number !== (detail.insurance_group_number || "") ||
+      intakeForm.insurance_plan_type !== (detail.insurance_plan_type || "group") ||
+      intakeForm.insurance_relationship !== (detail.insurance_relationship || "self") ||
+      intakeForm.insured_name !== (detail.insured_name || "") ||
       intakeForm.first_name !== (detail.first_name || "") ||
       intakeForm.last_name !== (detail.last_name || "") ||
       intakeForm.phone !== (detail.phone?.trim() ? detail.phone : undefined) ||
@@ -670,6 +716,17 @@ export function PatientDetailModal({
                           </p>
                         ) : null}
                       </div>
+                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/60 to-white p-4 shadow-sm">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Insurance payer</p>
+                        <p className="mt-1.5 font-semibold text-slate-900">
+                          {(detail.insurance_payer_name || "").trim() || "—"}
+                        </p>
+                        {(detail.insurance_member_id || "").trim() ? (
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            ID: {detail.insurance_member_id}
+                          </p>
+                        ) : null}
+                      </div>
                       {detail.online_chiro_intake_waived ? (
                         <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 shadow-sm sm:col-span-2">
                           <p className="text-[11px] font-bold uppercase tracking-wide text-amber-800">Online booking</p>
@@ -811,6 +868,13 @@ export function PatientDetailModal({
                       className={intakeSectionButtonClass(activeIntakeSection === "dob")}
                     >
                       Date of birth
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveIntakeSection("insurance")}
+                      className={intakeSectionButtonClass(activeIntakeSection === "insurance")}
+                    >
+                      Insurance
                     </button>
                   </div>
 
@@ -1006,6 +1070,133 @@ export function PatientDetailModal({
                       </p>
                     </section>
 
+                    <section
+                      className={`rounded-2xl border p-4 transition ${
+                        activeIntakeSection === "insurance"
+                          ? "border-emerald-200 bg-emerald-50/30 ring-1 ring-emerald-100"
+                          : "border-slate-200/80 bg-white"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Insurance (CMS-1500)
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Used when staff generate an insurance claim from Billing or the doctor dashboard. Enter what is on
+                        the patient&apos;s insurance card.
+                      </p>
+                      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Sex (claim box 3)
+                          </span>
+                          <select
+                            className={inputClass}
+                            value={intakeForm.sex}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, sex: e.target.value }))}
+                          >
+                            <option value="">— Not set —</option>
+                            <option value="M">M — Male</option>
+                            <option value="F">F — Female</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Plan type (box 1)
+                          </span>
+                          <select
+                            className={inputClass}
+                            value={intakeForm.insurance_plan_type}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) =>
+                              setIntakeForm((f) => ({ ...f, insurance_plan_type: e.target.value }))
+                            }
+                          >
+                            <option value="group">Group health plan</option>
+                            <option value="medicare">Medicare</option>
+                            <option value="medicaid">Medicaid</option>
+                            <option value="tricare">TRICARE</option>
+                            <option value="champva">CHAMPVA</option>
+                            <option value="feca">FECA</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Insurance company / payer
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.insurance_payer_name}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) =>
+                              setIntakeForm((f) => ({ ...f, insurance_payer_name: e.target.value }))
+                            }
+                            placeholder="e.g. Blue Cross Blue Shield"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Member / ID # (box 1a)
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.insurance_member_id}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) =>
+                              setIntakeForm((f) => ({ ...f, insurance_member_id: e.target.value }))
+                            }
+                            placeholder="ID number on card"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Group # (box 11)
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.insurance_group_number}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) =>
+                              setIntakeForm((f) => ({ ...f, insurance_group_number: e.target.value }))
+                            }
+                            placeholder="optional"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Relationship to insured (box 6)
+                          </span>
+                          <select
+                            className={inputClass}
+                            value={intakeForm.insurance_relationship}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) =>
+                              setIntakeForm((f) => ({ ...f, insurance_relationship: e.target.value }))
+                            }
+                          >
+                            <option value="self">Self</option>
+                            <option value="spouse">Spouse</option>
+                            <option value="child">Child</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Insured&apos;s name (if not self)
+                          </span>
+                          <input
+                            className={inputClass}
+                            value={intakeForm.insured_name}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) => setIntakeForm((f) => ({ ...f, insured_name: e.target.value }))}
+                            placeholder="Leave blank when Self"
+                            disabled={intakeForm.insurance_relationship === "self"}
+                          />
+                        </label>
+                      </div>
+                    </section>
+
                     {isAdminChart && !readOnlyChart ? (
                       <section className="rounded-2xl border border-slate-200/80 bg-white p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date established</p>
@@ -1125,6 +1316,7 @@ export function PatientDetailModal({
                                 date_of_birth: detail.date_of_birth || "",
                                 date_established: detail.date_established_override || "",
                                 marital_status: detail.marital_status || "",
+                                ...insuranceFieldsFromDetail(detail),
                                 online_chiro_intake_waived: detail.online_chiro_intake_waived === true,
                                 sms_consent: detail.sms_consent === true,
                                 ...communicationPrefsFromDetail(detail),

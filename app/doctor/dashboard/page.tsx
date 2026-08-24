@@ -145,10 +145,18 @@ const PatientBillPortalModal = dynamic(
     })),
   { ssr: false },
 );
+const Cms1500PortalModal = dynamic(
+  () =>
+    import("@/components/cms1500-portal-modal").then((m) => ({
+      default: m.Cms1500PortalModal,
+    })),
+  { ssr: false },
+);
 import { EmailBillButton } from "@/components/email-bill-button";
 import { emailPatientBillDoctor } from "@/lib/patient-bill-email";
 import { usePatientBillEmail } from "@/hooks/use-patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import type { Cms1500ClaimPayload } from "@/lib/cms1500-print";
 import {
   doctorDashboardScheduleListItems,
   sortDoctorDashboardAppointments,
@@ -1885,7 +1893,9 @@ export default function DoctorDashboardPage() {
 
   const [printingBill, setPrintingBill] = useState(false);
   const [previewingBill, setPreviewingBill] = useState(false);
+  const [claimBusy, setClaimBusy] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+  const [insuranceClaimModal, setInsuranceClaimModal] = useState<Cms1500ClaimPayload | null>(null);
   const billEmail = usePatientBillEmail(emailPatientBillDoctor);
 
   /** Preview bill layout while invoice is still unpaid (?preview=1 on the API). */
@@ -1902,6 +1912,21 @@ export default function DoctorDashboardPage() {
       toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
     } finally {
       setPreviewingBill(false);
+    }
+  };
+
+  const openInsuranceClaim = async (invoiceId: number) => {
+    setClaimBusy(true);
+    try {
+      const claim = await apiGetAuth<Cms1500ClaimPayload>(
+        `/doctor/insurance_claim/?invoice_id=${invoiceId}`,
+      );
+      setInsuranceClaimModal(claim);
+      toast.success("Insurance claim opened — print or email when ready.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not build insurance claim.");
+    } finally {
+      setClaimBusy(false);
     }
   };
 
@@ -3014,6 +3039,14 @@ export default function DoctorDashboardPage() {
               ) : null}
               <button
                 type="button"
+                disabled={claimBusy}
+                onClick={() => void openInsuranceClaim(paymentFollowUp.invoice_id)}
+                className="rounded-lg border border-[#0d5c2e]/30 bg-[#ecfdf5] px-4 py-2 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-[#d1fae5] disabled:opacity-50"
+              >
+                {claimBusy ? "Loading…" : "Insurance claim (CMS-1500)"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void dismissPaymentBanner()}
                 className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
               >
@@ -3907,6 +3940,11 @@ export default function DoctorDashboardPage() {
             ? () => void billEmail.send(patientBillModal.invoice_id!)
             : undefined
         }
+      />
+      <Cms1500PortalModal
+        claim={insuranceClaimModal}
+        onClose={() => setInsuranceClaimModal(null)}
+        basePath="/doctor"
       />
       {patientDetailId && (
         <PatientDetailModal patientId={patientDetailId} onClose={() => setPatientDetailId(null)} />

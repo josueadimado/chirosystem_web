@@ -12,8 +12,10 @@ import { EmailBillButton } from "@/components/email-bill-button";
 import { emailPatientBillAdmin } from "@/lib/patient-bill-email";
 import { usePatientBillEmail } from "@/hooks/use-patient-bill-email";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
+import type { Cms1500ClaimPayload } from "@/lib/cms1500-print";
 import { AdminVisitBillingModal } from "@/components/admin-visit-billing-modal";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
+import { Cms1500PortalModal } from "@/components/cms1500-portal-modal";
 import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import {
   Dialog,
@@ -198,7 +200,9 @@ export default function AdminBillingPage() {
   const [creditTerminalCheckoutId, setCreditTerminalCheckoutId] = useState<string | null>(null);
   const [printBusy, setPrintBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [claimBusy, setClaimBusy] = useState(false);
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
+  const [insuranceClaimModal, setInsuranceClaimModal] = useState<Cms1500ClaimPayload | null>(null);
   const billEmail = usePatientBillEmail(emailPatientBillAdmin);
   const [billingEditAppointmentId, setBillingEditAppointmentId] = useState<number | null>(null);
   const [listFilter, setListFilter] = useState<ListFilter>("all");
@@ -299,6 +303,21 @@ export default function AdminBillingPage() {
       toast.error(e instanceof ApiError ? e.message : "Could not load bill preview.");
     } finally {
       setPreviewBusy(false);
+    }
+  };
+
+  const openInsuranceClaim = async (invoiceId: number) => {
+    setClaimBusy(true);
+    try {
+      const claim = await apiGetAuth<Cms1500ClaimPayload>(
+        `/admin/insurance_claim/?invoice_id=${invoiceId}`,
+      );
+      setInsuranceClaimModal(claim);
+      toast.success("Insurance claim opened — print or email when ready.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not build insurance claim.");
+    } finally {
+      setClaimBusy(false);
     }
   };
 
@@ -978,6 +997,14 @@ export default function AdminBillingPage() {
                   >
                     {previewBusy ? "Loading…" : "Preview patient bill (before payment)"}
                   </button>
+                  <button
+                    type="button"
+                    disabled={claimBusy}
+                    onClick={() => void openInsuranceClaim(selected.id)}
+                    className="w-full rounded-xl border border-[#0d5c2e]/30 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-[#d1fae5] disabled:opacity-50"
+                  >
+                    {claimBusy ? "Loading…" : "Generate insurance claim (CMS-1500)"}
+                  </button>
                   {canEditVisitBilling && (
                     <button
                       type="button"
@@ -1066,6 +1093,14 @@ export default function AdminBillingPage() {
                       {printBusy ? "Loading…" : "Print patient bill"}
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    disabled={claimBusy}
+                    onClick={() => void openInsuranceClaim(selected.id)}
+                    className="w-full rounded-xl border border-[#0d5c2e]/30 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-[#d1fae5] disabled:opacity-50"
+                  >
+                    {claimBusy ? "Loading…" : "Generate insurance claim (CMS-1500)"}
+                  </button>
                   {canEditVisitBilling ? (
                     <button
                       type="button"
@@ -1186,6 +1221,11 @@ export default function AdminBillingPage() {
             ? () => void billEmail.send(patientBillModal.invoice_id!)
             : undefined
         }
+      />
+      <Cms1500PortalModal
+        claim={insuranceClaimModal}
+        onClose={() => setInsuranceClaimModal(null)}
+        basePath="/admin"
       />
       {billingEditRow ? (
         <AdminVisitBillingModal
