@@ -26,9 +26,13 @@ export type PatientBillPayload = {
   address_line1: string;
   city_state_zip: string;
   phone: string;
-  /** Clinic-wide or per-doctor billing provider ID (e.g. NPI) — shown on every bill. */
+  /** Clinic-wide or per-doctor NPI — shown on every bill. */
   provider_billing_id?: string;
-  /** Printed next to provider block when set in Admin → Settings. */
+  /** Explicit NPI field (same as provider_billing_id when present). */
+  provider_npi?: string;
+  /** Provider/Office Employer ID# from clinic settings (separate from NPI). */
+  office_employer_id?: string;
+  /** Legacy alias for office employer ID (Admin → Settings). */
   employer_tax_id?: string;
   email?: string;
   pos_default?: string;
@@ -150,7 +154,9 @@ function billDensityScore(b: PatientBillPayload): number {
   const lineCount = b.lines.length;
   const totalDescriptionChars = b.lines.reduce((sum, line) => sum + (line.description || "").length, 0);
   const diagnosisLines = (b.diagnosis || "").split(/\n/).filter((s) => s.trim()).length;
-  const hasProviderBlock = Boolean(b.provider_name?.trim()) || Boolean(b.provider_billing_id || b.employer_tax_id);
+  const hasProviderBlock =
+    Boolean(b.provider_name?.trim()) ||
+    Boolean(b.provider_npi || b.provider_billing_id || b.office_employer_id || b.employer_tax_id);
   return (
     lineCount * 1.65 +
     totalDescriptionChars / 150 +
@@ -324,8 +330,10 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
       ? `${esc(b.patient_name)} #${b.patient_id}`
       : esc(b.patient_name);
 
-  /** Printed as Provider/Office Employer ID# (clinic or per-doctor provider billing id). */
-  const providerOfficeEmployerId = (b.provider_billing_id || b.employer_tax_id || "").trim();
+  /** Printed as Provider/Office Employer ID# (clinic settings). */
+  const officeEmployerId = (b.office_employer_id || b.employer_tax_id || "").trim();
+  /** Printed as NPI (per-doctor override, else clinic NPI). */
+  const providerNpi = (b.provider_npi || b.provider_billing_id || "").trim();
   const discountAmt = parseFloat((b.discount || "0").replace(/,/g, "")) || 0;
 
   const rows = b.lines
@@ -344,17 +352,22 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
     .join("");
 
   const providerCred = b.provider_credential ? `, ${esc(b.provider_credential)}` : "";
+  const providerIdLines = `
+    <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${officeEmployerId ? esc(officeEmployerId) : "—"}</p>
+    <p class="prov-line"><strong>NPI:</strong> ${providerNpi ? esc(providerNpi) : "—"}</p>`;
   const providerBlock =
     b.provider_name?.trim() !== ""
       ? `<section class="prov">
     <h2 class="sec-title">Provider</h2>
-    <p class="prov-line"><strong>Provider:</strong> ${esc(b.provider_name!)}${providerCred} — ${esc(clinicStreetCity)}</p>
-    <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${providerOfficeEmployerId ? esc(providerOfficeEmployerId) : "—"}</p>
+    <p class="prov-line"><strong>Provider:</strong> ${esc(b.provider_name!)}${providerCred}</p>
+    <p class="prov-line"><strong>Office address:</strong> ${clinicStreetCity ? esc(clinicStreetCity) : "—"}</p>
+    ${providerIdLines}
   </section>`
-      : providerOfficeEmployerId
+      : officeEmployerId || providerNpi || clinicStreetCity
         ? `<section class="prov">
     <h2 class="sec-title">Provider</h2>
-    <p class="prov-line"><strong>Provider/Office Employer ID#:</strong> ${esc(providerOfficeEmployerId)}</p>
+    <p class="prov-line"><strong>Office address:</strong> ${clinicStreetCity ? esc(clinicStreetCity) : "—"}</p>
+    ${providerIdLines}
   </section>`
         : "";
 
@@ -579,7 +592,8 @@ export function getPatientBillDocumentHtml(b: PatientBillPayload): string {
 
   <div class="meta-lines">
     <p><span class="lbl">Billing Date:</span> ${esc(billingDate)}</p>
-    <p><span class="lbl">Provider/Office Employer ID#:</span> ${providerOfficeEmployerId ? esc(providerOfficeEmployerId) : "—"}</p>
+    <p><span class="lbl">Provider/Office Employer ID#:</span> ${officeEmployerId ? esc(officeEmployerId) : "—"}</p>
+    <p><span class="lbl">NPI:</span> ${providerNpi ? esc(providerNpi) : "—"}</p>
     <p><span class="lbl">Patient:</span> ${patientLine}</p>
     <p><span class="lbl">Address:</span> ${esc(patientAddressForPrint)}</p>
   </div>

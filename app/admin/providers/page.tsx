@@ -656,9 +656,9 @@ export default function AdminProvidersPage() {
 
                     <div>
                       <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Provider ID (on bills)
-                        <HelpTip label="Provider ID">
-                          Optional. Overrides the clinic-wide Provider ID from Settings for this doctor&apos;s bills only (e.g. NPI).
+                        NPI (on bills)
+                        <HelpTip label="Provider NPI">
+                          Optional. Overrides the clinic-wide NPI from Settings for this doctor&apos;s bills only.
                         </HelpTip>
                       </label>
                       <input
@@ -671,9 +671,9 @@ export default function AdminProvidersPage() {
                             ),
                           )
                         }
-                        placeholder="Leave blank to use clinic default"
+                        placeholder="e.g. 1700186277"
                         className="admin-input max-w-[14rem] py-2.5 font-mono text-sm"
-                        aria-label={`Provider ID for ${editorProvider.provider_name}`}
+                        aria-label={`NPI for ${editorProvider.provider_name}`}
                       />
                     </div>
 

@@ -401,25 +401,28 @@ export default function AdminSettingsPage() {
               <p className="text-sm text-slate-600">Defaults for patient bills and no-show rules.</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <SettingsField
-                  label="Provider ID (all bills)"
-                  help="Billing provider ID on every patient bill (e.g. NPI)."
+                  label="Clinic NPI"
+                  help="National Provider Identifier printed on every patient bill and emailed receipt. Doctors can override this on their provider profile."
                 >
                   <input
                     className={cn(inputClass, "font-mono")}
                     value={draft.provider_billing_id}
                     onChange={(e) => updateField("provider_billing_id", e.target.value)}
                     disabled={!canSave}
-                    placeholder="e.g. 453798678"
+                    placeholder="e.g. 1700186277"
                     autoComplete="off"
                   />
                 </SettingsField>
-                <SettingsField label="Employer / office tax ID" help="Optional EIN on printed bills.">
+                <SettingsField
+                  label="Provider / Office Employer ID#"
+                  help="Office employer / employee ID printed on patient bills (separate from NPI)."
+                >
                   <input
                     className={cn(inputClass, "font-mono")}
                     value={draft.employer_tax_id}
                     onChange={(e) => updateField("employer_tax_id", e.target.value)}
                     disabled={!canSave}
-                    placeholder="optional"
+                    placeholder="e.g. 453798678"
                     autoComplete="off"
                   />
                 </SettingsField>
