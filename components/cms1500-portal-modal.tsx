@@ -29,9 +29,9 @@ export function Cms1500PortalModal({ claim, onClose, basePath }: Props) {
 
   useEffect(() => {
     if (!claim) return;
-    setEmailTo("");
+    setEmailTo((claim.payer_email || "").trim());
     setEmailMsg("");
-  }, [claim?.invoice_id]);
+  }, [claim?.invoice_id, claim?.payer_email]);
 
   useEffect(() => {
     if (typeof document === "undefined" || !claim) return;

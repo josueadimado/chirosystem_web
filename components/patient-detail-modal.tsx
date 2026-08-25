@@ -103,6 +103,9 @@ type PatientDetail = {
   emergency_contact_phone: string;
   /** CMS-1500 claim demographics */
   sex?: string;
+  insurance_company_id?: number | null;
+  insurance_company_name?: string;
+  insurance_company_claim_email?: string;
   insurance_payer_name?: string;
   insurance_member_id?: string;
   insurance_group_number?: string;
@@ -129,6 +132,7 @@ type PatientDetail = {
 function insuranceFieldsFromDetail(d: Partial<PatientDetail> | null | undefined) {
   return {
     sex: d?.sex || "",
+    insurance_company_id: d?.insurance_company_id ?? null,
     insurance_payer_name: d?.insurance_payer_name || "",
     insurance_member_id: d?.insurance_member_id || "",
     insurance_group_number: d?.insurance_group_number || "",
@@ -137,6 +141,14 @@ function insuranceFieldsFromDetail(d: Partial<PatientDetail> | null | undefined)
     insured_name: d?.insured_name || "",
   };
 }
+
+type InsuranceCompanyOption = {
+  id: number;
+  name: string;
+  claim_email?: string;
+  default_plan_type?: string;
+  is_active?: boolean;
+};
 
 type Tab = "overview" | "intake" | "history" | "documents" | "forms";
 
@@ -176,6 +188,7 @@ export function PatientDetailModal({
     date_established: "",
     marital_status: "",
     sex: "",
+    insurance_company_id: null as number | null,
     insurance_payer_name: "",
     insurance_member_id: "",
     insurance_group_number: "",
@@ -199,9 +212,16 @@ export function PatientDetailModal({
   const [activeIntakeSection, setActiveIntakeSection] = useState<
     "contact" | "address" | "emergency" | "dob" | "insurance"
   >("contact");
+  const [insuranceCompanies, setInsuranceCompanies] = useState<InsuranceCompanyOption[]>([]);
 
   useEffect(() => {
     setPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    apiGetAuth<InsuranceCompanyOption[]>("/insurance-companies/?active_only=1")
+      .then((list) => setInsuranceCompanies((list || []).filter((c) => c.is_active !== false)))
+      .catch(() => setInsuranceCompanies([]));
   }, []);
 
   useEffect(() => {
@@ -354,6 +374,7 @@ export function PatientDetailModal({
         date_of_birth: intakeForm.date_of_birth || null,
         marital_status: intakeForm.marital_status || "",
         sex: intakeForm.sex || "",
+        insurance_company_id: intakeForm.insurance_company_id,
         insurance_payer_name: intakeForm.insurance_payer_name,
         insurance_member_id: intakeForm.insurance_member_id,
         insurance_group_number: intakeForm.insurance_group_number,
@@ -452,6 +473,7 @@ export function PatientDetailModal({
       intakeForm.date_established !== (detail.date_established_override || "") ||
       intakeForm.marital_status !== (detail.marital_status || "") ||
       intakeForm.sex !== (detail.sex || "") ||
+      (intakeForm.insurance_company_id ?? null) !== (detail.insurance_company_id ?? null) ||
       intakeForm.insurance_payer_name !== (detail.insurance_payer_name || "") ||
       intakeForm.insurance_member_id !== (detail.insurance_member_id || "") ||
       intakeForm.insurance_group_number !== (detail.insurance_group_number || "") ||
@@ -1123,7 +1145,53 @@ export function PatientDetailModal({
                         </label>
                         <label className="sm:col-span-2">
                           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Insurance company / payer
+                            Insurance company
+                          </span>
+                          <select
+                            className={inputClass}
+                            value={intakeForm.insurance_company_id ?? ""}
+                            onFocus={() => setActiveIntakeSection("insurance")}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (!raw) {
+                                setIntakeForm((f) => ({
+                                  ...f,
+                                  insurance_company_id: null,
+                                }));
+                                return;
+                              }
+                              const id = Number(raw);
+                              const company = insuranceCompanies.find((c) => c.id === id);
+                              setIntakeForm((f) => ({
+                                ...f,
+                                insurance_company_id: id,
+                                insurance_payer_name: company?.name || f.insurance_payer_name,
+                                insurance_plan_type:
+                                  company?.default_plan_type || f.insurance_plan_type || "group",
+                              }));
+                            }}
+                          >
+                            <option value="">— Not assigned —</option>
+                            {insuranceCompanies.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                          {isAdminChart ? (
+                            <p className="mt-1.5 text-xs text-slate-500">
+                              Manage the list under{" "}
+                              <span className="font-medium text-slate-700">Operations → Insurance companies</span>.
+                            </p>
+                          ) : (
+                            <p className="mt-1.5 text-xs text-slate-500">
+                              Ask front desk / admin to add a company if it is missing from this list.
+                            </p>
+                          )}
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Payer name on claim (optional override)
                           </span>
                           <input
                             className={inputClass}
@@ -1132,7 +1200,7 @@ export function PatientDetailModal({
                             onChange={(e) =>
                               setIntakeForm((f) => ({ ...f, insurance_payer_name: e.target.value }))
                             }
-                            placeholder="e.g. Blue Cross Blue Shield"
+                            placeholder="Usually filled from the company above"
                           />
                         </label>
                         <label>

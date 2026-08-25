@@ -184,61 +184,83 @@ export function StaffInsuranceClaimsBrowser({ basePath }: Props) {
         </p>
       ) : null}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-100/80">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5">
           <h2 className="text-sm font-semibold text-slate-900">
             {isAdmin ? "Recent visit invoices" : "Matching invoices"}
           </h2>
-          {loading ? <Loader className="h-4 w-4" /> : null}
+          {loading ? <Loader variant="spinner" label="Loading" /> : null}
         </div>
 
-        {!loading && rows.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-500 sm:px-5">
-            {isAdmin
-              ? searchDebounced
-                ? "No visit invoices match that search."
-                : "No visit invoices found yet."
-              : "No matching invoices."}
-          </p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {rows.map((row) => {
-              const busy = claimBusyId === row.id;
-              const missingVisit = row.visit_id === null;
-              return (
-                <li
-                  key={row.id}
-                  className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900">{row.patient_name}</p>
-                    <p className="mt-0.5 text-sm text-slate-600">
-                      Invoice {row.invoice_number}
-                      {row.appointment_date ? ` · ${formatMonthDayYear(row.appointment_date)}` : ""}
-                      {` · ${formatMoney(row.total_amount)}`}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <StatusChipView status={row.status} />
-                      {missingVisit ? (
-                        <span className="text-xs font-medium text-amber-800">
-                          Needs visit documentation for a claim
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy || missingVisit}
-                    onClick={() => void openClaim(row.id)}
-                    className="shrink-0 rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0a4a25] disabled:opacity-50"
-                  >
-                    {busy ? "Opening…" : "Generate claim"}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
+              <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3">Patient</th>
+                <th className="px-4 py-3">Invoice #</th>
+                <th className="px-4 py-3">Visit date</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Amount</th>
+                <th className="px-4 py-3 text-right">Claim</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loading && rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                    {isAdmin
+                      ? searchDebounced
+                        ? "No visit invoices match that search."
+                        : "No visit invoices found yet."
+                      : "No matching invoices."}
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
+                  const busy = claimBusyId === row.id;
+                  const missingVisit = row.visit_id === null;
+                  return (
+                    <tr
+                      key={row.id}
+                      className="border-t border-slate-100 transition hover:bg-emerald-50/40"
+                    >
+                      <td className="px-4 py-3 align-middle">
+                        <p className="font-medium text-slate-900">{row.patient_name}</p>
+                        {missingVisit ? (
+                          <p className="mt-0.5 text-xs font-medium text-amber-800">
+                            Needs visit documentation
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 align-middle font-mono text-slate-700">
+                        {row.invoice_number}
+                      </td>
+                      <td className="px-4 py-3 align-middle text-slate-600">
+                        {row.appointment_date ? formatMonthDayYear(row.appointment_date) : "—"}
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <StatusChipView status={row.status} />
+                      </td>
+                      <td className="px-4 py-3 align-middle text-right font-medium tabular-nums text-slate-900">
+                        {formatMoney(row.total_amount)}
+                      </td>
+                      <td className="px-4 py-3 align-middle text-right">
+                        <button
+                          type="button"
+                          disabled={busy || missingVisit}
+                          onClick={() => void openClaim(row.id)}
+                          className="rounded-xl bg-[#0d5c2e] px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#0a4a25] disabled:opacity-50 sm:text-sm"
+                        >
+                          {busy ? "Opening…" : "Generate claim"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <Cms1500PortalModal claim={claimModal} onClose={() => setClaimModal(null)} basePath={basePath} />

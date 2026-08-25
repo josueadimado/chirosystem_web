@@ -38,6 +38,7 @@ const mainItems = [
 const operationsItemsBase = [
   { label: "Invoices & Billing", href: "/admin/billing", icon: <IconFileDollar className="w-5 h-5" /> },
   { label: "Insurance claims", href: "/admin/insurance-claims", icon: <IconClipboardList className="w-5 h-5" /> },
+  { label: "Insurance companies", href: "/admin/insurance-companies", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "Services & Codes", href: "/admin/services", icon: <IconFileText className="w-5 h-5" /> },
   { label: "Diagnoses & codes", href: "/admin/diagnoses", icon: <IconFileText className="w-5 h-5" /> },
   { label: "Doctors & providers", href: "/admin/providers", icon: <IconStethoscope className="w-5 h-5" /> },
@@ -58,6 +59,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/intake": "Intake forms",
   "/admin/billing": "Invoices & Billing",
   "/admin/insurance-claims": "Insurance claims",
+  "/admin/insurance-companies": "Insurance companies",
   "/admin/services": "Services & Codes",
   "/admin/diagnoses": "Diagnoses & codes",
   "/admin/providers": "Doctors & providers",
@@ -87,11 +89,11 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
   }, []);
 
   const operationsItems = [
-    ...operationsItemsBase.slice(0, 4),
+    ...operationsItemsBase.slice(0, 5),
     ...(isOwnerAdmin
       ? [{ label: "Team & logins", href: "/admin/team", icon: <IconUserPlus className="w-5 h-5" /> }]
       : []),
-    ...operationsItemsBase.slice(4),
+    ...operationsItemsBase.slice(5),
   ];
 
   const toolsItems = [

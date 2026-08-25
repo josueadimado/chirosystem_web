@@ -24,6 +24,7 @@ export type Cms1500ClaimPayload = {
   plan_checks: Record<string, boolean>;
   insured_id: string;
   payer_name: string;
+  payer_email?: string;
   patient_name: string;
   patient_dob: string;
   patient_sex: string;
