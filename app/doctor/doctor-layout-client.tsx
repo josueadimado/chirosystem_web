@@ -1,7 +1,7 @@
 "use client";
 
 import { InstallAppCallout } from "@/components/install-app-callout";
-import { IconBarChart, IconBook, IconCalendar, IconFileText, IconMenu, IconStethoscope, IconUsers } from "@/components/icons";
+import { IconBarChart, IconBook, IconCalendar, IconClipboardList, IconFileText, IconMenu, IconStethoscope, IconUsers } from "@/components/icons";
 import { NotificationBell } from "@/components/notification-bell";
 import { Sidebar } from "@/components/sidebar";
 import { usePathname, useRouter } from "next/navigation";
@@ -16,6 +16,7 @@ const items = [
   { label: "My Schedule", href: "/doctor/schedule", icon: <IconCalendar className="w-5 h-5" /> },
   { label: "Patients", href: "/doctor/patients", icon: <IconUsers className="w-5 h-5" /> },
   { label: "Intake forms", href: "/doctor/intake", icon: <IconFileText className="w-5 h-5" /> },
+  { label: "Insurance claims", href: "/doctor/insurance-claims", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "User guide", href: "/doctor/manual", icon: <IconBook className="w-5 h-5" /> },
 ];
 
@@ -25,6 +26,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/doctor/schedule": "My Schedule",
   "/doctor/patients": "Patients",
   "/doctor/intake": "Intake forms",
+  "/doctor/insurance-claims": "Insurance claims",
   "/doctor/manual": "User guide",
 };
 

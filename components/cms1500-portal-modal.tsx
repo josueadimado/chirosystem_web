@@ -89,54 +89,54 @@ export function Cms1500PortalModal({ claim, onClose, basePath }: Props) {
       aria-modal="true"
       aria-labelledby="cms1500-modal-title"
     >
-      <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200/90 bg-white px-4 py-3 shadow-sm sm:px-5">
-        <div className="flex items-center justify-between gap-3">
+      <div className="flex shrink-0 flex-col gap-4 border-b border-slate-200/90 bg-white px-5 py-4 shadow-sm sm:px-6">
+        <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <h2 id="cms1500-modal-title" className="truncate text-base font-bold text-slate-900 sm:text-lg">
               Insurance claim (CMS-1500)
             </h2>
-            <p className="truncate text-xs text-slate-500">
+            <p className="mt-1 truncate text-xs text-slate-500">
               {claim.patient_name} · Invoice {claim.invoice_number}
               {claim.payer_name ? ` · ${claim.payer_name}` : ""}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2.5">
             <button
               type="button"
               onClick={triggerPrint}
-              className="rounded-xl bg-[#0d5c2e] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0a4a25]"
+              className="rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4a25]"
             >
               Print
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Close
             </button>
           </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
           <input
             type="email"
             value={emailTo}
             onChange={(e) => setEmailTo(e.target.value)}
             placeholder="Insurance company email"
-            className="w-full flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            className="w-full flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
           />
           <button
             type="button"
             disabled={emailing || !emailTo.trim()}
             onClick={() => void sendEmail()}
-            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-100 disabled:opacity-50"
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-100 disabled:opacity-50"
           >
             {emailing ? "Sending…" : "Email claim"}
           </button>
         </div>
         {emailMsg ? <p className="text-xs text-slate-600">{emailMsg}</p> : null}
       </div>
-      <div className="min-h-0 flex-1 bg-slate-200/80 p-2 sm:p-4">
+      <div className="min-h-0 flex-1 bg-slate-200/80 p-3 sm:p-5">
         <iframe
           key={modalKey}
           ref={iframeRef}

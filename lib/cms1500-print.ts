@@ -132,28 +132,131 @@ export function getCms1500DocumentHtml(c: Cms1500ClaimPayload): string {
 <meta charset="utf-8"/>
 <title>CMS-1500 — ${esc(c.patient_name)}</title>
 <style>
-  @page { size: letter; margin: 0.4in; }
+  @page { size: letter; margin: 0.5in; }
   * { box-sizing: border-box; }
-  body { font-family: "Courier New", Courier, monospace; font-size: 11px; color: #111; margin: 0; background: #fff; }
-  h1 { font-family: Arial, sans-serif; font-size: 16px; margin: 0 0 8px; color: #0d5c2e; }
-  .meta { font-family: Arial, sans-serif; font-size: 11px; color: #475569; margin-bottom: 10px; }
-  .box { border: 1px solid #94a3b8; padding: 6px 8px; margin-bottom: 6px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  body {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 11px;
+    color: #111;
+    margin: 0;
+    padding: 18px 20px 22px;
+    background: #fff;
+    line-height: 1.35;
+  }
+  h1 {
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+    margin: 0 0 6px;
+    color: #0d5c2e;
+    letter-spacing: 0.01em;
+  }
+  .meta {
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    color: #475569;
+    margin: 0 0 14px;
+    line-height: 1.4;
+  }
+  .box {
+    border: 1px solid #94a3b8;
+    padding: 10px 12px 12px;
+    margin: 0 0 10px;
+    min-width: 0;
+  }
+  .row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 10px;
+  }
+  .row > .box {
+    flex: 1 1 140px;
+    margin-bottom: 0;
+  }
   .grow { flex: 1 1 140px; }
-  .label { font-family: Arial, sans-serif; font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
-  .val { font-size: 12px; font-weight: 700; margin-top: 2px; min-height: 14px; }
-  .plans { font-family: Arial, sans-serif; font-size: 11px; display: flex; flex-wrap: wrap; gap: 8px 14px; }
-  .dx-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-  .dx { border: 1px solid #cbd5e1; padding: 3px 4px; min-height: 22px; }
-  .dx-l { color: #64748b; font-family: Arial, sans-serif; font-size: 9px; margin-right: 4px; }
-  table.lines { width: 100%; border-collapse: collapse; margin-top: 4px; }
-  table.lines th, table.lines td { border: 1px solid #94a3b8; padding: 3px 4px; font-size: 10px; }
-  table.lines th { font-family: Arial, sans-serif; font-size: 8px; background: #f1f5f9; text-transform: uppercase; }
+  .label {
+    font-family: Arial, sans-serif;
+    font-size: 9px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.3;
+    margin: 0 0 6px;
+  }
+  .val {
+    font-size: 12px;
+    font-weight: 700;
+    margin: 0;
+    min-height: 16px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .val + .val { margin-top: 4px; }
+  .plans {
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    padding-top: 2px;
+    line-height: 1.45;
+  }
+  .dx-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .dx {
+    border: 1px solid #cbd5e1;
+    padding: 8px 10px;
+    min-height: 32px;
+    line-height: 1.35;
+  }
+  .dx-l {
+    color: #64748b;
+    font-family: Arial, sans-serif;
+    font-size: 9px;
+    margin-right: 6px;
+  }
+  table.lines {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+  }
+  table.lines th,
+  table.lines td {
+    border: 1px solid #94a3b8;
+    padding: 8px 8px;
+    font-size: 10px;
+    line-height: 1.35;
+    vertical-align: middle;
+  }
+  table.lines th {
+    font-family: Arial, sans-serif;
+    font-size: 8px;
+    background: #f1f5f9;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 8px 6px;
+  }
   .c { text-align: center; }
   .r { text-align: right; }
-  .warn { font-family: Arial, sans-serif; background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; padding: 8px 10px; margin-bottom: 10px; font-size: 11px; }
-  .warn ul { margin: 4px 0 0 16px; padding: 0; }
+  .warn {
+    font-family: Arial, sans-serif;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    color: #9a3412;
+    padding: 12px 14px;
+    margin: 0 0 14px;
+    font-size: 11px;
+    line-height: 1.45;
+    border-radius: 4px;
+  }
+  .warn ul { margin: 8px 0 0 18px; padding: 0; }
+  .warn li { margin: 4px 0; }
   @media print {
+    body { padding: 0; }
     .warn { break-inside: avoid; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
