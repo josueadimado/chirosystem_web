@@ -4,7 +4,7 @@ import { DoctorSectionLabel } from "@/components/doctor-shell";
 import { Loader } from "@/components/loader";
 import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ApiError, apiDelete, apiGetAuth, apiPatch } from "@/lib/api";
+import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
 import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
 import { UsDateInput } from "@/components/us-date-input";
@@ -173,6 +173,9 @@ export function PatientDetailModal({
   const [intakeMsg, setIntakeMsg] = useState("");
   const [deletingPatient, setDeletingPatient] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [sendingUpdateLink, setSendingUpdateLink] = useState(false);
+  const [updateLinkMsg, setUpdateLinkMsg] = useState("");
+  const [updateLinkUrl, setUpdateLinkUrl] = useState("");
 
   const [intakeForm, setIntakeForm] = useState({
     first_name: "",
@@ -269,6 +272,8 @@ export function PatientDetailModal({
     setLoading(true);
     setError("");
     setDeleteError("");
+    setUpdateLinkMsg("");
+    setUpdateLinkUrl("");
     apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`)
       .then((d) => {
         setDetail(d);
@@ -761,31 +766,101 @@ export function PatientDetailModal({
                   </div>
 
                   {!readOnlyChart && patientId ? (
-                    <div>
-                      <DoctorSectionLabel>Payment card on file</DoctorSectionLabel>
-                      <PatientCardSetup
-                        patientId={patientId}
-                        containerId={`patient-card-setup-${patientId}`}
-                        existingSavedCard={
-                          detail.has_saved_card || detail.card_last4
-                            ? { card_brand: detail.card_brand, card_last4: detail.card_last4 }
-                            : null
-                        }
-                        onSaved={(card) => {
-                          setDetail((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  card_brand: card.card_brand,
-                                  card_last4: card.card_last4,
-                                  has_saved_card: true,
-                                  has_chargeable_saved_card: true,
-                                  card_display_only: false,
+                    <div className="space-y-4">
+                      <div>
+                        <DoctorSectionLabel>Payment card on file</DoctorSectionLabel>
+                        <PatientCardSetup
+                          patientId={patientId}
+                          containerId={`patient-card-setup-${patientId}`}
+                          existingSavedCard={
+                            detail.has_saved_card || detail.card_last4
+                              ? { card_brand: detail.card_brand, card_last4: detail.card_last4 }
+                              : null
+                          }
+                          onSaved={(card) => {
+                            setDetail((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    card_brand: card.card_brand,
+                                    card_last4: card.card_last4,
+                                    has_saved_card: true,
+                                    has_chargeable_saved_card: true,
+                                    card_display_only: false,
+                                  }
+                                : prev,
+                            );
+                          }}
+                        />
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4">
+                        <p className="text-sm font-semibold text-slate-900">Patient self-update link</p>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                          Text a private link so the patient can update their contact info and card on
+                          Square’s secure form (no login needed). Link expires in 14 days.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={sendingUpdateLink}
+                            onClick={() => {
+                              void (async () => {
+                                setSendingUpdateLink(true);
+                                setUpdateLinkMsg("");
+                                setUpdateLinkUrl("");
+                                try {
+                                  const base = isAdminChart ? "/admin" : "/doctor";
+                                  const res = await apiPost<{
+                                    detail: string;
+                                    url: string;
+                                    sms_sent: boolean;
+                                    sms_detail: string;
+                                    email_sent?: boolean;
+                                    email_detail?: string;
+                                  }>(`${base}/profile_update_send_link/`, {
+                                    patient_id: patientId,
+                                    send_sms: true,
+                                    send_email: Boolean((detail.email || "").trim()),
+                                  });
+                                  setUpdateLinkUrl(res.url || "");
+                                  setUpdateLinkMsg(
+                                    res.detail +
+                                      (res.sms_sent
+                                        ? ""
+                                        : res.sms_detail
+                                          ? ` (SMS: ${res.sms_detail})`
+                                          : ""),
+                                  );
+                                } catch (e) {
+                                  setUpdateLinkMsg(
+                                    e instanceof ApiError ? e.message : "Could not create update link.",
+                                  );
+                                } finally {
+                                  setSendingUpdateLink(false);
                                 }
-                              : prev,
-                          );
-                        }}
-                      />
+                              })();
+                            }}
+                            className="rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4a25] disabled:opacity-60"
+                          >
+                            {sendingUpdateLink ? "Sending…" : "Text update link"}
+                          </button>
+                          {updateLinkUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard?.writeText(updateLinkUrl);
+                                setUpdateLinkMsg("Link copied. You can paste it into a text or email.");
+                              }}
+                              className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                            >
+                              Copy link
+                            </button>
+                          ) : null}
+                        </div>
+                        {updateLinkMsg ? (
+                          <p className="mt-2 break-all text-xs text-slate-600">{updateLinkMsg}</p>
+                        ) : null}
+                      </div>
                     </div>
                   ) : readOnlyChart ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-3">
