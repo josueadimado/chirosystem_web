@@ -8,6 +8,7 @@ import { IconCheck, IconChevronLeft, IconChevronRight } from "@/components/icons
 import { BrandLogo } from "@/components/brand-logo";
 import { Loader } from "@/components/loader";
 import { BookingCardSetup } from "@/components/booking-card-setup";
+import { BookingUpdateInfoPanel } from "@/components/booking-update-info-panel";
 import { PublicBookingClinicHelp } from "@/components/public-booking-clinic-help";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -909,6 +910,20 @@ export default function BookingPage() {
     scrollToBookingSession();
   };
 
+  const activateUpdateInfoFlow = () => {
+    setBookingFlow("update_info");
+    setCart([]);
+    setSelectedCategory(null);
+    setAddingAnother(false);
+    setBookingResults([]);
+    setBookingMessage("");
+    setReschedulePick(null);
+    setRescheduleList([]);
+    setRescheduleListError("");
+    setStep(1);
+    scrollToBookingSession();
+  };
+
   /** Reminder SMS links use ?manage=1 so patients land on cancel / reschedule, not a new booking. */
   const manageDeepLinkHandled = useRef(false);
   useEffect(() => {
@@ -1436,6 +1451,8 @@ export default function BookingPage() {
             <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
               {bookingFlow === "reschedule" ? (
                 "View your upcoming visits, reschedule to a new time, or cancel—we verify your cell number before any change."
+              ) : bookingFlow === "update_info" ? (
+                "Update your contact details or payment card. We text a one-time code to confirm it’s you."
               ) : (
                 <>
                   Choose a service, pick your time, and you&apos;re done. Prefer to call?{" "}
@@ -1478,6 +1495,18 @@ export default function BookingPage() {
               >
                 View / reschedule or cancel appointment
               </button>
+              <button
+                type="button"
+                onClick={() => activateUpdateInfoFlow()}
+                className={cn(
+                  "min-h-11 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-all sm:min-h-0 sm:w-auto sm:flex-1 sm:max-w-xs",
+                  bookingFlow === "update_info"
+                    ? "border border-transparent bg-[#16a349] text-white shadow-sm shadow-[#16a349]/20"
+                    : "border border-border/80 bg-card text-foreground hover:border-primary/30",
+                )}
+              >
+                Update my info / card
+              </button>
             </div>
             <p className="mt-4 max-w-lg text-center text-xs text-muted-foreground sm:text-left">
               Already have a visit?{" "}
@@ -1512,6 +1541,10 @@ export default function BookingPage() {
           aria-label="Online booking steps"
           className="order-1 min-w-0 scroll-mt-3 rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80 md:p-6 space-y-5"
         >
+          {bookingFlow === "update_info" ? (
+            <BookingUpdateInfoPanel onBack={() => activateNewBookingFlow()} />
+          ) : (
+            <>
           <div className="grid grid-cols-4 gap-1 sm:gap-2">
             {([1, 2, 3, 4] as Step[]).map((item) => (
               <button
@@ -3249,10 +3282,12 @@ export default function BookingPage() {
               Next
             </Button>
           </div>
+            </>
+          )}
         </section>
 
         {/* ─── Sidebar: Booking summary (below steps on mobile) ─── */}
-        {!hideBookingSidebar && (
+        {!hideBookingSidebar && bookingFlow !== "update_info" && (
         <aside className="order-2 min-w-0 space-y-4 lg:order-2 lg:pt-1">
           <div className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm ring-1 ring-slate-100/80">
             <h3 className="text-lg font-bold tracking-tight text-foreground">
