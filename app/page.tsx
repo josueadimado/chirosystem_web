@@ -1505,7 +1505,7 @@ export default function BookingPage() {
                     : "border border-border/80 bg-card text-foreground hover:border-primary/30",
                 )}
               >
-                Update my info / card
+                Update my info
               </button>
             </div>
             <p className="mt-4 max-w-lg text-center text-xs text-muted-foreground sm:text-left">
