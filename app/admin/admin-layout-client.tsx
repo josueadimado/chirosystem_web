@@ -37,6 +37,7 @@ const mainItems = [
 
 const operationsItemsBase = [
   { label: "Invoices & Billing", href: "/admin/billing", icon: <IconFileDollar className="w-5 h-5" /> },
+  { label: "Payment reconciliation", href: "/admin/reconciliation", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "Insurance claims", href: "/admin/insurance-claims", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "Insurance companies", href: "/admin/insurance-companies", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "Services & Codes", href: "/admin/services", icon: <IconFileText className="w-5 h-5" /> },
@@ -59,6 +60,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/patients/merge": "Merge patients",
   "/admin/intake": "Intake forms",
   "/admin/billing": "Invoices & Billing",
+  "/admin/reconciliation": "Payment reconciliation",
   "/admin/insurance-claims": "Insurance claims",
   "/admin/insurance-companies": "Insurance companies",
   "/admin/services": "Services & Codes",

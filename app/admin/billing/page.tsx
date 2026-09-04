@@ -492,8 +492,14 @@ export default function AdminBillingPage() {
       <AdminPageIntro
         title="Invoices & billing"
         description="Collect what patients owe, clear overdue invoices, and open any row to record payment or print a bill."
-        pageHelp="Search by patient or invoice #. Use status chips for open or overdue. More filters cover invoice type, visit dates, and insurance lines."
+        pageHelp="Search by patient or invoice #. Use status chips for open or overdue. More filters cover invoice type, visit dates, and insurance lines. If cash was already recorded but the bill still looks open, use Payment reconciliation."
       />
+      <p className="text-sm text-slate-600">
+        Cash paid but still showing outstanding?{" "}
+        <Link href="/admin/reconciliation" className="font-semibold text-[#0d5c2e] hover:underline">
+          Open payment reconciliation
+        </Link>
+      </p>
 
       {emailStatus && !emailStatus.ready ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900">

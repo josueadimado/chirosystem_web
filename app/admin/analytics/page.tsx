@@ -316,9 +316,10 @@ export default function AdminAnalyticsPage() {
         id: "outstanding",
         tone: "rose",
         title: `Outstanding balance is high (${formatMoney(data.kpis.outstanding_balance)})`,
-        detail: "Review open invoices and collect payment from billing or patient charts.",
-        href: "/admin/billing",
-        cta: "Open billing",
+        detail:
+          "Collect on Billing, or use Payment reconciliation if cash was already taken but invoices still look open.",
+        href: "/admin/reconciliation",
+        cta: "Open reconciliation",
       });
     }
 
