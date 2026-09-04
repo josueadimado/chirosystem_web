@@ -29,9 +29,18 @@ type ReconRow = {
   amount_paid: string;
   amount_due: string;
   issued_at: string | null;
+  appointment_id?: number | null;
   appointment_date: string | null;
+  appointment_status?: string;
+  appointment_awaiting_payment?: boolean;
   payments: ReconPayment[];
   has_cash_payment: boolean;
+  has_full_discount?: boolean;
+  should_close?: boolean;
+  reason_code?: string;
+  reason_label?: string;
+  discount?: string;
+  subtotal?: string;
   issue: string;
 };
 
@@ -47,6 +56,9 @@ type ReconPayload = {
     fully_paid_still_open: number;
     partial_payment: number;
     open_unpaid: number;
+    awaiting_payment_stuck?: number;
+    full_discount_stuck?: number;
+    cash_recorded_stuck?: number;
   };
   fully_paid_still_open: ReconSection;
   partial_payment: ReconSection;
@@ -68,6 +80,38 @@ function methodLabel(m: string): string {
   if (m === "online") return "Online";
   if (m === "manual") return "Manual";
   return m;
+}
+
+function ReasonBadges({ row }: { row: ReconRow }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap gap-1">
+        {row.appointment_awaiting_payment ? (
+          <span className="rounded-md bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-900">
+            Awaiting payment
+          </span>
+        ) : row.appointment_status ? (
+          <StatusChipView status={row.appointment_status} />
+        ) : null}
+        {row.has_full_discount ? (
+          <span className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold text-sky-900">
+            Full discount
+          </span>
+        ) : null}
+        {row.has_cash_payment ? (
+          <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-950">
+            Cash recorded
+          </span>
+        ) : null}
+        {row.should_close ? (
+          <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-900">
+            Should close
+          </span>
+        ) : null}
+      </div>
+      {row.reason_label ? <p className="max-w-xs text-xs leading-snug text-slate-600">{row.reason_label}</p> : null}
+    </div>
+  );
 }
 
 export function StaffPaymentReconciliation() {
@@ -300,19 +344,37 @@ export function StaffPaymentReconciliation() {
       </div>
       <p className="text-sm text-slate-600">{tabs.find((t) => t.id === tab)?.hint}</p>
 
+      {tab === "fully_paid_still_open" && data ? (
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 font-semibold text-violet-900">
+            Awaiting payment: {data.summary.awaiting_payment_stuck ?? 0}
+          </span>
+          <span className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 font-semibold text-sky-900">
+            Full discount: {data.summary.full_discount_stuck ?? 0}
+          </span>
+          <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 font-semibold text-amber-950">
+            Cash recorded: {data.summary.cash_recorded_stuck ?? 0}
+          </span>
+          <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 font-medium text-emerald-900">
+            These should normally be closed with “Close as paid” — no new charge.
+          </span>
+        </div>
+      ) : null}
+
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5">
           <h2 className="text-sm font-semibold text-slate-900">Invoices needing attention</h2>
           {loading ? <Loader variant="spinner" label="Loading" /> : null}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Patient</th>
                 <th className="px-4 py-3">Invoice</th>
                 <th className="px-4 py-3">Visit</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Invoice status</th>
+                <th className="px-4 py-3">Why stuck</th>
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3 text-right">Paid</th>
                 <th className="px-4 py-3 text-right">Due</th>
@@ -323,7 +385,7 @@ export function StaffPaymentReconciliation() {
             <tbody>
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-10 text-center text-slate-500">
                     Nothing in this list — good news if Fully paid / still open is empty.
                   </td>
                 </tr>
@@ -348,7 +410,17 @@ export function StaffPaymentReconciliation() {
                       <td className="px-4 py-3 align-top">
                         <StatusChipView status={row.status} />
                       </td>
-                      <td className="px-4 py-3 align-top text-right tabular-nums">{formatMoney(row.total_amount)}</td>
+                      <td className="px-4 py-3 align-top">
+                        <ReasonBadges row={row} />
+                      </td>
+                      <td className="px-4 py-3 align-top text-right tabular-nums">
+                        <div>{formatMoney(row.total_amount)}</div>
+                        {row.has_full_discount && row.discount && row.subtotal ? (
+                          <p className="text-[11px] text-slate-500">
+                            {formatMoney(row.subtotal)} − {formatMoney(row.discount)} disc.
+                          </p>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-3 align-top text-right tabular-nums text-emerald-800">
                         {formatMoney(row.amount_paid)}
                       </td>
@@ -357,7 +429,9 @@ export function StaffPaymentReconciliation() {
                       </td>
                       <td className="px-4 py-3 align-top text-xs text-slate-600">
                         {row.payments.length === 0
-                          ? "—"
+                          ? row.has_full_discount
+                            ? "No payment (covered by discount)"
+                            : "—"
                           : row.payments
                               .map((p) => `${methodLabel(p.payment_method)} ${formatMoney(p.amount)}`)
                               .join(" · ")}
