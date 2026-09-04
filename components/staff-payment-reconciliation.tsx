@@ -203,7 +203,7 @@ export function StaffPaymentReconciliation() {
       id: "fully_paid_still_open",
       label: "Fully paid, still open",
       count: data?.summary.fully_paid_still_open ?? 0,
-      hint: "Cash/card already recorded — status never flipped to Paid",
+      hint: "Cash/card already recorded, or a full discount brought the bill to $0 — status never flipped to Paid",
     },
     {
       id: "partial_payment",
