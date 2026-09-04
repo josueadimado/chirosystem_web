@@ -3,12 +3,15 @@
 import {
   FORM_TYPE_OPTIONS,
   orderedIntakeAnswerRows,
+  printIntakeSubmission,
   type IntakeSubmissionRow,
 } from "@/lib/digital-intake";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+
+const PAGE_SIZE = 30;
 
 type Props = {
   /** "/admin" or "/doctor" */
@@ -18,6 +21,8 @@ type Props = {
 export function StaffIntakeBrowser({ basePath }: Props) {
   const [q, setQ] = useState("");
   const [formType, setFormType] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [rows, setRows] = useState<IntakeSubmissionRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -49,21 +54,32 @@ export function StaffIntakeBrowser({ basePath }: Props) {
       if (q.trim()) params.set("q", q.trim());
       if (formType) params.set("form_type", formType);
       params.set("status", "submitted");
-      const data = await apiGetAuth<{ results: IntakeSubmissionRow[] }>(
-        `${basePath}/intake_forms/?${params.toString()}`,
-      );
+      params.set("page", String(page));
+      params.set("page_size", String(PAGE_SIZE));
+      const data = await apiGetAuth<{
+        results: IntakeSubmissionRow[];
+        count?: number;
+        page?: number;
+        page_size?: number;
+      }>(`${basePath}/intake_forms/?${params.toString()}`);
       setRows(data.results || []);
+      setTotalCount(typeof data.count === "number" ? data.count : (data.results || []).length);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load forms.");
       setRows([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
-  }, [basePath, formType, q]);
+  }, [basePath, formType, q, page]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const rangeStart = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, totalCount);
 
   const openDetail = async (id: number) => {
     try {
@@ -138,13 +154,22 @@ export function StaffIntakeBrowser({ basePath }: Props) {
                     </p>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
-                  onClick={() => setSelected(null)}
-                >
-                  Close
-                </button>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    onClick={() => printIntakeSubmission(selected)}
+                  >
+                    Print
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                    onClick={() => setSelected(null)}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
@@ -182,7 +207,8 @@ export function StaffIntakeBrowser({ basePath }: Props) {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Intake forms</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Search submitted paperwork, open answers in a clear table, or text a patient their intake link.
+          Search submitted paperwork ({PAGE_SIZE} per page), open answers in a clear table, print a form, or text a
+          patient their intake link.
         </p>
       </div>
 
@@ -235,7 +261,10 @@ export function StaffIntakeBrowser({ basePath }: Props) {
             className="w-full flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
             placeholder="Search name, phone, or email"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setPage(1);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") void load();
             }}
@@ -243,7 +272,10 @@ export function StaffIntakeBrowser({ basePath }: Props) {
           <select
             className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
             value={formType}
-            onChange={(e) => setFormType(e.target.value)}
+            onChange={(e) => {
+              setFormType(e.target.value);
+              setPage(1);
+            }}
           >
             <option value="">All form types</option>
             {FORM_TYPE_OPTIONS.map((opt) => (
@@ -254,7 +286,10 @@ export function StaffIntakeBrowser({ basePath }: Props) {
           </select>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => {
+              if (page !== 1) setPage(1);
+              else void load();
+            }}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
           >
             Search
@@ -296,19 +331,80 @@ export function StaffIntakeBrowser({ basePath }: Props) {
                       {row.submitted_at ? new Date(row.submitted_at).toLocaleString() : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => void openDetail(row.id)}
-                        className="text-sm font-semibold text-[#0d5c2e] hover:underline"
-                      >
-                        View
-                      </button>
+                      <div className="flex flex-wrap items-center justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void openDetail(row.id)}
+                          className="text-sm font-semibold text-[#0d5c2e] hover:underline"
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void (async () => {
+                              try {
+                                const full = await apiGetAuth<IntakeSubmissionRow>(
+                                  `${basePath}/intake_form_detail/?id=${row.id}`,
+                                );
+                                printIntakeSubmission(full);
+                              } catch (e) {
+                                setError(e instanceof ApiError ? e.message : "Could not print form.");
+                              }
+                            })();
+                          }}
+                          className="text-sm font-semibold text-slate-600 hover:underline"
+                        >
+                          Print
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-slate-600">
+            {totalCount === 0 ? (
+              "No forms"
+            ) : (
+              <>
+                Showing{" "}
+                <span className="font-semibold tabular-nums text-slate-800">
+                  {rangeStart}–{rangeEnd}
+                </span>{" "}
+                of <span className="font-semibold tabular-nums text-slate-800">{totalCount}</span>
+                <span className="text-slate-400"> · {PAGE_SIZE} per page</span>
+              </>
+            )}
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-600">
+              Page <span className="font-semibold tabular-nums text-slate-800">{page}</span> of{" "}
+              <span className="font-semibold tabular-nums text-slate-800">{totalPages}</span>
+            </span>
+            <button
+              type="button"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+              aria-label="Previous page"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={page >= totalPages || loading}
+              onClick={() => setPage((p) => p + 1)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+              aria-label="Next page"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </section>
 

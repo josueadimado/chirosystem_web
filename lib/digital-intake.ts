@@ -241,3 +241,101 @@ export function orderedIntakeAnswerRows(
   return rows;
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Printable HTML document for a submitted intake form. */
+export function buildIntakePrintHtml(row: IntakeSubmissionRow, clinicName = "Relief Chiropractic"): string {
+  const answers = orderedIntakeAnswerRows(row.answers);
+  const submitted = row.submitted_at ? new Date(row.submitted_at).toLocaleString() : "—";
+  const signed = row.signature_name || "—";
+  const bodyRows = answers
+    .map(
+      (a) =>
+        `<tr>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;vertical-align:top;width:34%;font-weight:600;color:#334155;">${escapeHtml(a.label)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;vertical-align:top;white-space:pre-wrap;color:#0f172a;">${escapeHtml(a.value)}</td>
+        </tr>`,
+    )
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(row.form_label)} — ${escapeHtml(row.patient_name)}</title>
+  <style>
+    @page { margin: 0.6in; }
+    body { font-family: Georgia, "Times New Roman", serif; color: #0f172a; margin: 0; padding: 24px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .meta { font-size: 13px; color: #475569; margin: 0 0 4px; }
+    .clinic { font-size: 12px; color: #64748b; margin-bottom: 18px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; border-bottom: 2px solid #cbd5e1; padding: 6px 10px; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <p class="clinic">${escapeHtml(clinicName)}</p>
+  <h1>${escapeHtml(row.form_label)}</h1>
+  <p class="meta"><strong>Patient:</strong> ${escapeHtml(row.patient_name)}</p>
+  <p class="meta"><strong>Phone:</strong> ${escapeHtml(row.patient_phone || "—")}
+    ${row.patient_email ? ` · <strong>Email:</strong> ${escapeHtml(row.patient_email)}` : ""}</p>
+  <p class="meta"><strong>Submitted:</strong> ${escapeHtml(submitted)} · <strong>Signed:</strong> ${escapeHtml(signed)}</p>
+  <table>
+    <thead><tr><th>Question</th><th>Answer</th></tr></thead>
+    <tbody>
+      ${bodyRows || `<tr><td colspan="2" style="padding:12px;color:#64748b;">No answers recorded.</td></tr>`}
+    </tbody>
+  </table>
+</body>
+</html>`;
+}
+
+/** Open a hidden iframe and print the intake form. */
+export function printIntakeSubmission(row: IntakeSubmissionRow, clinicName?: string): void {
+  if (typeof document === "undefined") return;
+  const html = buildIntakePrintHtml(row, clinicName);
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("title", "Print intake form");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  document.body.appendChild(iframe);
+  const win = iframe.contentWindow;
+  const doc = iframe.contentDocument || win?.document;
+  if (!doc || !win) {
+    document.body.removeChild(iframe);
+    return;
+  }
+  doc.open();
+  doc.write(html);
+  doc.close();
+  const cleanup = () => {
+    try {
+      document.body.removeChild(iframe);
+    } catch {
+      /* already removed */
+    }
+  };
+  win.focus();
+  window.setTimeout(() => {
+    try {
+      win.print();
+    } finally {
+      window.setTimeout(cleanup, 1000);
+    }
+  }, 250);
+}
+

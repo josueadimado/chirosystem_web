@@ -1,7 +1,7 @@
 "use client";
 
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
-import { orderedIntakeAnswerRows, type IntakeSubmissionRow } from "@/lib/digital-intake";
+import { orderedIntakeAnswerRows, printIntakeSubmission, type IntakeSubmissionRow } from "@/lib/digital-intake";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -102,13 +102,22 @@ export function PatientDigitalIntakePanel({ patientId, basePath }: Props) {
                     <p className="mt-0.5 text-xs text-slate-500">Signed: {selected.signature_name}</p>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
-                  onClick={() => setSelected(null)}
-                >
-                  Close
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    onClick={() => printIntakeSubmission(selected)}
+                  >
+                    Print
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                    onClick={() => setSelected(null)}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                 {answerRows.length === 0 ? (
