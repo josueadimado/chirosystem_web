@@ -1,9 +1,14 @@
 "use client";
 
-import { formatAnswerValue, FORM_TYPE_OPTIONS, type IntakeSubmissionRow } from "@/lib/digital-intake";
+import {
+  FORM_TYPE_OPTIONS,
+  orderedIntakeAnswerRows,
+  type IntakeSubmissionRow,
+} from "@/lib/digital-intake";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
-import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 type Props = {
   /** "/admin" or "/doctor" */
@@ -21,6 +26,20 @@ export function StaffIntakeBrowser({ basePath }: Props) {
   const [sendTypes, setSendTypes] = useState<string[]>([]);
   const [sendMsg, setSendMsg] = useState("");
   const [sending, setSending] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!selected || typeof document === "undefined") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [selected]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,9 +105,86 @@ export function StaffIntakeBrowser({ basePath }: Props) {
     }
   };
 
+  const answerRows = selected ? orderedIntakeAnswerRows(selected.answers) : [];
+
+  const detailModal =
+    selected && portalReady
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="intake-detail-title"
+            onClick={() => setSelected(null)}
+          >
+            <div
+              className={cn(
+                "flex max-h-[min(92dvh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl",
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
+                <div className="min-w-0">
+                  <h2 id="intake-detail-title" className="text-lg font-semibold text-slate-900">
+                    {selected.form_label}
+                  </h2>
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    {selected.patient_name}
+                    {selected.signature_name ? ` · Signed: ${selected.signature_name}` : ""}
+                  </p>
+                  {selected.submitted_at ? (
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Submitted {new Date(selected.submitted_at).toLocaleString()}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                  onClick={() => setSelected(null)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+                {answerRows.length === 0 ? (
+                  <p className="text-sm text-slate-500">No answers recorded on this form.</p>
+                ) : (
+                  <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                        <th className="w-[38%] py-2 pr-3 font-semibold sm:w-48">Question</th>
+                        <th className="py-2 font-semibold">Answer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {answerRows.map((row) => (
+                        <tr key={row.key} className="border-b border-slate-100 align-top">
+                          <td className="py-2.5 pr-3 text-xs font-semibold text-slate-600 sm:text-sm">
+                            {row.label}
+                          </td>
+                          <td className="py-2.5 whitespace-pre-wrap text-slate-900">{row.value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Intake forms</h1>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Intake forms</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          Search submitted paperwork, open answers in a clear table, or text a patient their intake link.
+        </p>
+      </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-slate-900">Send intake link</h2>
@@ -169,34 +265,34 @@ export function StaffIntakeBrowser({ basePath }: Props) {
         {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
 
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-          <table className="min-w-full text-left text-sm">
+          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead className="border-b border-slate-100 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-semibold">Patient</th>
+                <th className="px-4 py-3 font-semibold">Phone</th>
+                <th className="hidden px-4 py-3 font-semibold md:table-cell">Email</th>
                 <th className="px-4 py-3 font-semibold">Form</th>
                 <th className="px-4 py-3 font-semibold">Submitted</th>
-                <th className="px-4 py-3 font-semibold" />
+                <th className="px-4 py-3 font-semibold text-right"> </th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                     No submitted forms yet.
                   </td>
                 </tr>
               ) : (
                 rows.map((row) => (
                   <tr key={row.id} className="border-b border-slate-50 hover:bg-emerald-50/40">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-900">{row.patient_name}</div>
-                      <div className="text-xs text-slate-500">
-                        {row.patient_phone}
-                        {row.patient_email ? ` · ${row.patient_email}` : ""}
-                      </div>
+                    <td className="px-4 py-3 font-medium text-slate-900">{row.patient_name}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-600">{row.patient_phone || "—"}</td>
+                    <td className="hidden max-w-[14rem] truncate px-4 py-3 text-slate-600 md:table-cell">
+                      {row.patient_email || "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{row.form_label}</td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-600">
                       {row.submitted_at ? new Date(row.submitted_at).toLocaleString() : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -216,46 +312,7 @@ export function StaffIntakeBrowser({ basePath }: Props) {
         </div>
       </section>
 
-      {selected ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-6"
-          onClick={() => setSelected(null)}
-        >
-          <div
-            className={cn(
-              "max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl sm:p-6",
-            )}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">{selected.form_label}</h2>
-                <p className="text-sm text-slate-600">
-                  {selected.patient_name}
-                  {selected.signature_name ? ` · Signed: ${selected.signature_name}` : ""}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg px-2 py-1 text-sm font-medium text-slate-500 hover:bg-slate-100"
-                onClick={() => setSelected(null)}
-              >
-                Close
-              </button>
-            </div>
-            <dl className="mt-4 space-y-3">
-              {Object.entries(selected.answers || {}).map(([key, value]) => (
-                <div key={key} className="grid gap-1 border-b border-slate-100 pb-2 sm:grid-cols-[180px_1fr]">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {key.replace(/_/g, " ")}
-                  </dt>
-                  <dd className="text-sm text-slate-800 whitespace-pre-wrap">{formatAnswerValue(value)}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </div>
-      ) : null}
+      {detailModal}
     </div>
   );
 }

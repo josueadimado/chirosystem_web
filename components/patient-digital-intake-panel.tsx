@@ -1,8 +1,9 @@
 "use client";
 
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
-import { formatAnswerValue, type IntakeSubmissionRow } from "@/lib/digital-intake";
+import { orderedIntakeAnswerRows, type IntakeSubmissionRow } from "@/lib/digital-intake";
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 type Props = {
   patientId: number;
@@ -16,6 +17,20 @@ export function PatientDigitalIntakePanel({ patientId, basePath }: Props) {
   const [selected, setSelected] = useState<IntakeSubmissionRow | null>(null);
   const [linkMsg, setLinkMsg] = useState("");
   const [sending, setSending] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!selected || typeof document === "undefined") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [selected]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,6 +80,66 @@ export function PatientDigitalIntakePanel({ patientId, basePath }: Props) {
     }
   };
 
+  const answerRows = selected ? orderedIntakeAnswerRows(selected.answers) : [];
+
+  const detailModal =
+    selected && portalReady
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setSelected(null)}
+          >
+            <div
+              className="flex max-h-[min(92dvh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-slate-900">{selected.form_label}</h3>
+                  {selected.signature_name ? (
+                    <p className="mt-0.5 text-xs text-slate-500">Signed: {selected.signature_name}</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                  onClick={() => setSelected(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                {answerRows.length === 0 ? (
+                  <p className="text-sm text-slate-500">No answers recorded.</p>
+                ) : (
+                  <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                        <th className="w-[38%] py-2 pr-3 font-semibold sm:w-48">Question</th>
+                        <th className="py-2 font-semibold">Answer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {answerRows.map((row) => (
+                        <tr key={row.key} className="border-b border-slate-100 align-top">
+                          <td className="py-2.5 pr-3 text-xs font-semibold text-slate-600 sm:text-sm">
+                            {row.label}
+                          </td>
+                          <td className="py-2.5 whitespace-pre-wrap text-slate-900">{row.value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div className="space-y-4">
       <div>
@@ -110,29 +185,7 @@ export function PatientDigitalIntakePanel({ patientId, basePath }: Props) {
         </ul>
       )}
 
-      {selected ? (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold text-slate-900">{selected.form_label}</h3>
-            <button type="button" className="text-sm text-slate-500" onClick={() => setSelected(null)}>
-              Close
-            </button>
-          </div>
-          {selected.signature_name ? (
-            <p className="mt-1 text-xs text-slate-500">Signed: {selected.signature_name}</p>
-          ) : null}
-          <dl className="mt-3 max-h-80 space-y-2 overflow-y-auto">
-            {Object.entries(selected.answers || {}).map(([key, value]) => (
-              <div key={key}>
-                <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  {key.replace(/_/g, " ")}
-                </dt>
-                <dd className="text-sm text-slate-800 whitespace-pre-wrap">{formatAnswerValue(value)}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
+      {detailModal}
     </div>
   );
 }
