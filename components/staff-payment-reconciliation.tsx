@@ -63,7 +63,6 @@ type ReconPayload = {
   fully_paid_still_open: ReconSection;
   partial_payment: ReconSection;
   open_unpaid: ReconSection;
-  hints: string[];
 };
 
 type TabKey = "fully_paid_still_open" | "partial_payment" | "open_unpaid";
@@ -109,7 +108,6 @@ function ReasonBadges({ row }: { row: ReconRow }) {
           </span>
         ) : null}
       </div>
-      {row.reason_label ? <p className="max-w-xs text-xs leading-snug text-slate-600">{row.reason_label}</p> : null}
     </div>
   );
 }
@@ -242,24 +240,21 @@ export function StaffPaymentReconciliation() {
     }
   };
 
-  const tabs: { id: TabKey; label: string; count: number; hint: string }[] = [
+  const tabs: { id: TabKey; label: string; count: number }[] = [
     {
       id: "fully_paid_still_open",
       label: "Fully paid, still open",
       count: data?.summary.fully_paid_still_open ?? 0,
-      hint: "Cash/card already recorded, or a full discount brought the bill to $0 — status never flipped to Paid",
     },
     {
       id: "partial_payment",
       label: "Partial payments",
       count: data?.summary.partial_payment ?? 0,
-      hint: "Some money on file; balance still due",
     },
     {
       id: "open_unpaid",
       label: "Open unpaid",
       count: data?.summary.open_unpaid ?? 0,
-      hint: "No local cash/card yet — Check Square or record payment",
     },
   ];
 
@@ -270,26 +265,6 @@ export function StaffPaymentReconciliation() {
         description="Find invoices that still look outstanding after cash or Square payments, and correct them without charging again."
         pageHelp="Use this alongside Billing and Square. “Close as paid” only works when local payments already cover the bill. Check Square looks for card/Terminal payments. Mark paid is for when Square’s app shows paid but sync cannot match."
       />
-
-      <section className="rounded-2xl border border-amber-200/80 bg-amber-50/60 px-4 py-3 text-sm text-amber-950 sm:px-5">
-        <p className="font-semibold">How this works</p>
-        <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-900/90">
-          {(data?.hints || []).map((h) => (
-            <li key={h}>{h}</li>
-          ))}
-        </ul>
-        <p className="mt-2 text-amber-900/80">
-          After fixing rows here, refresh{" "}
-          <Link href="/admin/billing" className="font-semibold underline">
-            Billing
-          </Link>{" "}
-          and{" "}
-          <Link href="/admin/analytics" className="font-semibold underline">
-            Analytics
-          </Link>{" "}
-          — outstanding totals should drop.
-        </p>
-      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -342,7 +317,6 @@ export function StaffPaymentReconciliation() {
           </button>
         ))}
       </div>
-      <p className="text-sm text-slate-600">{tabs.find((t) => t.id === tab)?.hint}</p>
 
       {tab === "fully_paid_still_open" && data ? (
         <div className="flex flex-wrap gap-2 text-xs">
@@ -354,9 +328,6 @@ export function StaffPaymentReconciliation() {
           </span>
           <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 font-semibold text-amber-950">
             Cash recorded: {data.summary.cash_recorded_stuck ?? 0}
-          </span>
-          <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 font-medium text-emerald-900">
-            These should normally be closed with “Close as paid” — no new charge.
           </span>
         </div>
       ) : null}
