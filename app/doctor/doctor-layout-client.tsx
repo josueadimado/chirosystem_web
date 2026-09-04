@@ -25,6 +25,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/doctor/analytics": "Analytics",
   "/doctor/schedule": "My Schedule",
   "/doctor/patients": "Patients",
+  "/doctor/patients/merge": "Merge patients",
   "/doctor/intake": "Intake forms",
   "/doctor/insurance-claims": "Insurance claims",
   "/doctor/manual": "User guide",
@@ -94,6 +95,8 @@ function DoctorHeader({
       ? userName
         ? `${userName}'s Dashboard`
         : "My Dashboard"
+      : pathname === "/doctor/patients/merge"
+        ? "Merge patients"
       : pathname.endsWith("/history")
         ? "Visit history"
       : pathname.startsWith("/doctor/patients/") && pathname !== "/doctor/patients"

@@ -30,6 +30,12 @@ type ProfileSession = {
     card_brand: string;
     card_last4: string;
     card_display_only: boolean;
+    saved_cards?: Array<{
+      id?: number;
+      card_brand: string;
+      card_last4: string;
+      is_default?: boolean;
+    }>;
   };
 };
 
@@ -276,18 +282,21 @@ export default function PublicUpdateInfoPage() {
         </form>
 
         <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-          <h2 className="text-lg font-semibold text-slate-900">Payment card on file</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Payment cards on file</h2>
           <p className="text-sm text-slate-600">
-            Add or replace your card using Square’s secure form. We never store your full card number.
+            Add a card using Square’s secure form. You can keep more than one card. We never store your full card
+            number.
           </p>
           <PublicProfileCardSetup
             token={token}
+            existingSavedCards={session.card.saved_cards || null}
             existingSavedCard={
               session.card.card_last4
                 ? {
                     card_brand: session.card.card_brand,
                     card_last4: session.card.card_last4,
                     card_display_only: session.card.card_display_only,
+                    saved_cards: session.card.saved_cards,
                   }
                 : null
             }
@@ -301,6 +310,7 @@ export default function PublicUpdateInfoPage() {
                         card_brand: card.card_brand,
                         card_last4: card.card_last4,
                         card_display_only: false,
+                        saved_cards: card.saved_cards,
                       },
                     }
                   : prev,

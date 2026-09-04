@@ -112,7 +112,14 @@ export default function BookingPage() {
   const [rescheduleSharedPhone, setRescheduleSharedPhone] = useState(false);
   const [reschedulePick, setReschedulePick] = useState<RescheduleAppointmentRow | null>(null);
   /** From patient-lookup API when returning patient has Square card on file */
-  const [lookupSavedCard, setLookupSavedCard] = useState<{ card_brand: string; card_last4: string } | null>(null);
+  const [lookupSavedCard, setLookupSavedCard] = useState<{
+    card_brand: string;
+    card_last4: string;
+    saved_cards?: Array<{ id?: number; card_brand: string; card_last4: string; is_default?: boolean }>;
+  } | null>(null);
+  const [lookupSavedCards, setLookupSavedCards] = useState<
+    Array<{ id?: number; card_brand: string; card_last4: string; is_default?: boolean }>
+  >([]);
   /** Chiropractic: must use flagged new-office visit when new to practice, no chiro on file, or long inactive (server + lookup). */
   const [chiroIntakeRule, setChiroIntakeRule] = useState<{
     requiresIntake: boolean;
@@ -569,6 +576,7 @@ export default function BookingPage() {
       if (step !== 4) {
         setPatientLookup("idle");
         setLookupSavedCard(null);
+        setLookupSavedCards([]);
         setHouseholdPickList([]);
       }
       return;
@@ -586,6 +594,7 @@ export default function BookingPage() {
         has_saved_card?: boolean;
         card_brand?: string;
         card_last4?: string;
+        saved_cards?: Array<{ id?: number; card_brand: string; card_last4: string; is_default?: boolean }>;
         chiropractic_returning_gap_requires_intake?: boolean;
         chiropractic_first_chiro_requires_intake?: boolean;
         chiropractic_new_patient_requires_intake?: boolean;
@@ -606,6 +615,7 @@ export default function BookingPage() {
             );
             setPatientLookup("ambiguous");
             setLookupSavedCard(null);
+            setLookupSavedCards([]);
             setChiroIntakeRule(nextRule);
             return;
           }
@@ -615,22 +625,30 @@ export default function BookingPage() {
             setLastName((prev) => (prev.trim() ? prev : res.last_name ?? ""));
             setEmail((prev) => (prev.trim() ? prev : res.email ?? ""));
             setPatientLookup("returning");
-            setLookupSavedCard(
-              res.has_saved_card && res.card_last4
-                ? { card_brand: res.card_brand ?? "", card_last4: res.card_last4 }
-                : null,
-            );
+            {
+              const list = res.saved_cards || [];
+              setLookupSavedCards(list);
+              setLookupSavedCard(
+                res.has_saved_card && res.card_last4
+                  ? { card_brand: res.card_brand ?? "", card_last4: res.card_last4, saved_cards: list }
+                  : list.length
+                    ? { card_brand: list[0].card_brand, card_last4: list[0].card_last4, saved_cards: list }
+                    : null,
+              );
+            }
             setChiroIntakeRule(nextRule);
             return;
           }
 
           setPatientLookup("new");
           setLookupSavedCard(null);
+          setLookupSavedCards([]);
           setChiroIntakeRule(nextRule);
         })
         .catch(() => {
           setPatientLookup("new");
           setLookupSavedCard(null);
+          setLookupSavedCards([]);
           setChiroIntakeRule(null);
           setHouseholdPickList([]);
         });
@@ -662,6 +680,7 @@ export default function BookingPage() {
         has_saved_card?: boolean;
         card_brand?: string;
         card_last4?: string;
+        saved_cards?: Array<{ id?: number; card_brand: string; card_last4: string; is_default?: boolean }>;
         chiropractic_returning_gap_requires_intake?: boolean;
         chiropractic_first_chiro_requires_intake?: boolean;
         chiropractic_new_patient_requires_intake?: boolean;
@@ -676,6 +695,7 @@ export default function BookingPage() {
           if (res.same_phone_different_person === true && res.found === false) {
             setPatientLookup("new");
             setLookupSavedCard(null);
+            setLookupSavedCards([]);
             setChiroIntakeRule(nextRule);
             return;
           }
@@ -689,6 +709,7 @@ export default function BookingPage() {
             );
             setPatientLookup("ambiguous");
             setLookupSavedCard(null);
+            setLookupSavedCards([]);
             setChiroIntakeRule(nextRule);
             return;
           }
@@ -696,22 +717,30 @@ export default function BookingPage() {
           if (res.found && res.first_name != null && res.last_name != null) {
             setPatientLookup("returning");
             setEmail(res.email ?? "");
-            setLookupSavedCard(
-              res.has_saved_card && res.card_last4
-                ? { card_brand: res.card_brand ?? "", card_last4: res.card_last4 }
-                : null,
-            );
+            {
+              const list = res.saved_cards || [];
+              setLookupSavedCards(list);
+              setLookupSavedCard(
+                res.has_saved_card && res.card_last4
+                  ? { card_brand: res.card_brand ?? "", card_last4: res.card_last4, saved_cards: list }
+                  : list.length
+                    ? { card_brand: list[0].card_brand, card_last4: list[0].card_last4, saved_cards: list }
+                    : null,
+              );
+            }
             setChiroIntakeRule(nextRule);
             return;
           }
 
           setPatientLookup("new");
           setLookupSavedCard(null);
+          setLookupSavedCards([]);
           setChiroIntakeRule(nextRule);
         })
         .catch(() => {
           setPatientLookup("new");
           setLookupSavedCard(null);
+          setLookupSavedCards([]);
           setChiroIntakeRule(null);
           setHouseholdPickList([]);
         });
@@ -2972,6 +3001,7 @@ export default function BookingPage() {
                         setFormErrors((p) => ({ ...p, phone: undefined }));
                         setPatientLookup("idle");
                         setLookupSavedCard(null);
+                        setLookupSavedCards([]);
                         setChiroIntakeRule(null);
                         setHouseholdPickList([]);
                       }}
@@ -3043,6 +3073,7 @@ export default function BookingPage() {
                 email={email}
                 phone={phone}
                 existingSavedCard={lookupSavedCard}
+                existingSavedCards={lookupSavedCards}
               />
               <div className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
                 <SmsConsentCheckbox

@@ -117,6 +117,13 @@ type PatientDetail = {
   has_saved_card?: boolean;
   has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
+  saved_cards?: Array<{
+    id: number;
+    card_brand: string;
+    card_last4: string;
+    is_default: boolean;
+  }>;
+  default_saved_card_id?: number;
   /** When true, public booking skips “must book intake chiro first” for this patient (migrated / established). */
   online_chiro_intake_waived?: boolean;
   sms_consent?: boolean;
@@ -772,6 +779,7 @@ export function PatientDetailModal({
                         <PatientCardSetup
                           patientId={patientId}
                           containerId={`patient-card-setup-${patientId}`}
+                          existingSavedCards={detail.saved_cards || null}
                           existingSavedCard={
                             detail.has_saved_card || detail.card_last4
                               ? { card_brand: detail.card_brand, card_last4: detail.card_last4 }
@@ -787,6 +795,7 @@ export function PatientDetailModal({
                                     has_saved_card: true,
                                     has_chargeable_saved_card: true,
                                     card_display_only: false,
+                                    saved_cards: card.saved_cards || prev.saved_cards,
                                   }
                                 : prev,
                             );

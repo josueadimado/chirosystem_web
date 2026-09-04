@@ -11,6 +11,7 @@ import { ApiError, apiGetAuth, apiPost, apiUploadAuth } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 
@@ -610,6 +611,12 @@ export default function AdminPatientsPage() {
           }
         />
         <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
+          <Link
+            href="/admin/patients/merge"
+            className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          >
+            Merge patients
+          </Link>
           <Button
             type="button"
             variant="outline"

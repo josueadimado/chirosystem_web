@@ -113,6 +113,13 @@ type PatientDetail = {
   has_saved_card?: boolean;
   has_chargeable_saved_card?: boolean;
   card_display_only?: boolean;
+  saved_cards?: Array<{
+    id: number;
+    card_brand: string;
+    card_last4: string;
+    is_default: boolean;
+  }>;
+  default_saved_card_id?: number;
   account_summary?: PatientAccountSummary;
   appointments: AppointmentHistoryRow[];
 };
@@ -309,6 +316,9 @@ function VisitBillPanel({
   cardLast4,
   cardBrand,
   cardDisplayOnly,
+  savedCards,
+  chargeSavedCardId,
+  onChargeSavedCardIdChange,
   printing,
   emailing,
   emailSentTo,
@@ -330,6 +340,9 @@ function VisitBillPanel({
   cardLast4?: string;
   cardBrand?: string;
   cardDisplayOnly?: boolean;
+  savedCards?: Array<{ id: number; card_brand: string; card_last4: string; is_default: boolean }>;
+  chargeSavedCardId?: number | null;
+  onChargeSavedCardIdChange?: (id: number) => void;
   printing: boolean;
   emailing?: boolean;
   emailSentTo?: string | null;
@@ -393,16 +406,33 @@ function VisitBillPanel({
         </div>
         <div className="flex flex-wrap gap-2">
           {unpaid && onChargeSavedCard && hasChargeableSavedCard && !cardDisplayOnly ? (
-            <button
-              type="button"
-              disabled={chargingSavedCard}
-              onClick={onChargeSavedCard}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
-            >
-              {chargingSavedCard
-                ? "Charging card…"
-                : `Charge saved card${cardLast4 ? ` (•••• ${cardLast4})` : ""}`}
-            </button>
+            <div className="flex w-full flex-wrap items-center gap-2">
+              {savedCards && savedCards.length > 1 && onChargeSavedCardIdChange ? (
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                  value={chargeSavedCardId ?? savedCards.find((c) => c.is_default)?.id ?? savedCards[0]?.id ?? ""}
+                  onChange={(e) => onChargeSavedCardIdChange(Number(e.target.value))}
+                  aria-label="Card to charge"
+                >
+                  {savedCards.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {(c.card_brand || "Card").toUpperCase()} •••• {c.card_last4}
+                      {c.is_default ? " (default)" : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <button
+                type="button"
+                disabled={chargingSavedCard}
+                onClick={onChargeSavedCard}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
+              >
+                {chargingSavedCard
+                  ? "Charging card…"
+                  : `Charge saved card${cardLast4 ? ` (•••• ${cardLast4})` : ""}`}
+              </button>
+            </div>
           ) : null}
           {unpaid && cardDisplayOnly ? (
             <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -628,6 +658,9 @@ function VisitRecordCard({
   cardLast4,
   cardBrand,
   cardDisplayOnly,
+  savedCards,
+  chargeSavedCardId,
+  onChargeSavedCardIdChange,
   printingBill,
   emailingBill,
   emailSentTo,
@@ -656,6 +689,9 @@ function VisitRecordCard({
   cardLast4?: string;
   cardBrand?: string;
   cardDisplayOnly?: boolean;
+  savedCards?: Array<{ id: number; card_brand: string; card_last4: string; is_default: boolean }>;
+  chargeSavedCardId?: number | null;
+  onChargeSavedCardIdChange?: (id: number) => void;
   printingBill: boolean;
   emailingBill?: boolean;
   emailSentTo?: string | null;
@@ -818,6 +854,9 @@ function VisitRecordCard({
             cardLast4={cardLast4}
             cardBrand={cardBrand}
             cardDisplayOnly={cardDisplayOnly}
+            savedCards={savedCards}
+            chargeSavedCardId={chargeSavedCardId}
+            onChargeSavedCardIdChange={onChargeSavedCardIdChange}
             printing={printingBill}
             emailing={emailingBill}
             emailSentTo={emailSentTo}
@@ -887,6 +926,7 @@ export function PatientHistoryPage({
   const [confirmingInvoiceId, setConfirmingInvoiceId] = useState<number | null>(null);
   const [recordingCashInvoiceId, setRecordingCashInvoiceId] = useState<number | null>(null);
   const [chargingSavedCardInvoiceId, setChargingSavedCardInvoiceId] = useState<number | null>(null);
+  const [chargeSavedCardId, setChargeSavedCardId] = useState<number | null>(null);
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
   const [billingEditAppointment, setBillingEditAppointment] = useState<AppointmentHistoryRow | null>(null);
   const [removingAppointmentId, setRemovingAppointmentId] = useState<number | null>(null);
@@ -899,6 +939,9 @@ export function PatientHistoryPage({
     try {
       const d = await apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`);
       setDetail(d);
+      const cards = d.saved_cards || [];
+      const defaultCard = cards.find((c) => c.is_default) || cards[0];
+      setChargeSavedCardId(defaultCard?.id ?? null);
       const m: Record<number, string> = {};
       for (const a of d.appointments) m[a.id] = a.clinical_handoff_notes ?? "";
       setHandoffEdits(m);
@@ -979,7 +1022,12 @@ export function PatientHistoryPage({
   );
 
   const chargeSavedCard = useCallback(
-    async (invoiceId: number, invoiceNumber: string, patientName: string) => {
+    async (
+      invoiceId: number,
+      invoiceNumber: string,
+      patientName: string,
+      savedCardId?: number | null,
+    ) => {
       if (!invoiceChargeSavedCardPath) return;
       const ok = window.confirm(
         `Charge the saved card on file for ${patientName}?\n\nInvoice: ${invoiceNumber}\n\nOnly continue if the patient agreed to this charge.`,
@@ -989,9 +1037,11 @@ export function PatientHistoryPage({
       setHandoffMsg("");
       await runWithFeedback(
         async () => {
+          const body: { invoice_id: number; saved_card_id?: number } = { invoice_id: invoiceId };
+          if (savedCardId) body.saved_card_id = savedCardId;
           const out = await apiPost<{ charged?: boolean; paid?: boolean; detail: string }>(
             `${invoiceChargeSavedCardPath}/`,
-            { invoice_id: invoiceId },
+            body,
           );
           await loadDetail();
           setHandoffMsg(out.detail ?? "Card charged — invoice paid.");
@@ -1296,6 +1346,7 @@ export function PatientHistoryPage({
                           selectedVisit.invoice!.id,
                           selectedVisit.invoice!.invoice_number,
                           patientFullName(detail.first_name, detail.last_name),
+                          chargeSavedCardId,
                         )
                     : undefined
                 }
@@ -1303,9 +1354,15 @@ export function PatientHistoryPage({
                   detail.has_chargeable_saved_card ??
                     (detail.has_saved_card && !detail.card_display_only),
                 )}
-                cardLast4={detail.card_last4}
+                cardLast4={
+                  (detail.saved_cards || []).find((c) => c.id === chargeSavedCardId)?.card_last4 ||
+                  detail.card_last4
+                }
                 cardBrand={detail.card_brand}
                 cardDisplayOnly={detail.card_display_only}
+                savedCards={detail.saved_cards}
+                chargeSavedCardId={chargeSavedCardId}
+                onChargeSavedCardIdChange={setChargeSavedCardId}
                 printingBill={printingInvoiceId === selectedVisit.invoice?.id}
                 emailingBill={
                   selectedVisit.invoice?.id != null && billEmail.isSending(selectedVisit.invoice.id)

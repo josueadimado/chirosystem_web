@@ -54,7 +54,14 @@ function loadSquareScript(environment: string): Promise<void> {
   });
 }
 
-type SavedCardDisplay = { card_brand: string; card_last4: string };
+type SavedCardRow = {
+  id?: number;
+  card_brand: string;
+  card_last4: string;
+  is_default?: boolean;
+};
+
+type SavedCardDisplay = { card_brand: string; card_last4: string; saved_cards?: SavedCardRow[] };
 
 type Props = {
   firstName: string;
@@ -63,15 +70,27 @@ type Props = {
   phone: string | undefined;
   /** When set, patient already has a card on file — we do not prompt to add one unless they choose to update. */
   existingSavedCard?: SavedCardDisplay | null;
+  existingSavedCards?: SavedCardRow[] | null;
 };
+
+function formatBrand(brand: string) {
+  return (brand || "Card").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 /**
  * Optional Square card-on-file during booking (Web Payments SDK).
  * See https://developer.squareup.com/docs/web-payments/overview
  */
-export function BookingCardSetup({ firstName, lastName, email, phone, existingSavedCard = null }: Props) {
+export function BookingCardSetup({
+  firstName,
+  lastName,
+  email,
+  phone,
+  existingSavedCard = null,
+  existingSavedCards = null,
+}: Props) {
   const [config, setConfig] = useState<SquareConfig | null>(null);
-  /** User chose to add/replace card, or no card on file yet */
+  /** User chose to add another card, or no card on file yet */
   const [showForm, setShowForm] = useState(false);
   const [loadErr, setLoadErr] = useState("");
   const [success, setSuccess] = useState("");
@@ -79,15 +98,28 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
   const [sdkReady, setSdkReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
   /** After a successful save in this session (parent may not re-fetch immediately) */
-  const [justSaved, setJustSaved] = useState<SavedCardDisplay | null>(null);
-
-  const onFile: SavedCardDisplay | null =
-    justSaved ??
-    (existingSavedCard?.card_last4 ? existingSavedCard : null);
+  const [cards, setCards] = useState<SavedCardRow[]>(() => {
+    if (existingSavedCards?.length) return existingSavedCards;
+    if (existingSavedCard?.saved_cards?.length) return existingSavedCard.saved_cards;
+    if (existingSavedCard?.card_last4) {
+      return [{ card_brand: existingSavedCard.card_brand, card_last4: existingSavedCard.card_last4, is_default: true }];
+    }
+    return [];
+  });
 
   useEffect(() => {
-    setJustSaved(null);
-  }, [phone]);
+    if (existingSavedCards?.length) {
+      setCards(existingSavedCards);
+    } else if (existingSavedCard?.saved_cards?.length) {
+      setCards(existingSavedCard.saved_cards);
+    } else if (existingSavedCard?.card_last4) {
+      setCards([
+        { card_brand: existingSavedCard.card_brand, card_last4: existingSavedCard.card_last4, is_default: true },
+      ]);
+    } else {
+      setCards([]);
+    }
+  }, [phone, existingSavedCards, existingSavedCard?.card_brand, existingSavedCard?.card_last4, existingSavedCard?.saved_cards]);
 
   useEffect(() => {
     apiGet<SquareConfig>("/booking-options/square-config/")
@@ -147,7 +179,11 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
         setLoadErr(msg);
         return;
       }
-      const saved = await apiPostPublic<{ card_brand?: string; card_last4?: string }>("/booking-options/save-card/", {
+      const saved = await apiPostPublic<{
+        card_brand?: string;
+        card_last4?: string;
+        saved_cards?: SavedCardRow[];
+      }>("/booking-options/save-card/", {
         phone,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
@@ -155,10 +191,16 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
         source_id: result.token,
         verification_token: result.verificationToken || "",
       });
-      setJustSaved({
-        card_brand: saved.card_brand ?? "",
-        card_last4: saved.card_last4 ?? "",
-      });
+      const list = saved.saved_cards?.length
+        ? saved.saved_cards
+        : [
+            {
+              card_brand: saved.card_brand ?? "",
+              card_last4: saved.card_last4 ?? "",
+              is_default: true,
+            },
+          ];
+      setCards(list);
       setSuccess("Your card was saved securely. We only store the last four digits on file.");
       await card.destroy().catch(() => {});
       cardRef.current = null;
@@ -183,12 +225,17 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Optional — faster checkout</p>
 
-      {onFile ? (
+      {cards.length > 0 ? (
         <>
-          <p className="mt-2 text-sm text-slate-700">
-            We have <strong>{(onFile.card_brand || "Card").replace(/\b\w/g, (c) => c.toUpperCase())}</strong> ending in{" "}
-            <strong>{onFile.card_last4}</strong> on file—no need to re-enter for this booking.
-          </p>
+          <ul className="mt-2 space-y-1.5">
+            {cards.map((c, idx) => (
+              <li key={c.id || `${c.card_brand}-${c.card_last4}-${idx}`} className="text-sm text-slate-700">
+                We have <strong>{formatBrand(c.card_brand)}</strong> ending in <strong>{c.card_last4}</strong>
+                {c.is_default ? " (default)" : ""} on file.
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-slate-500">No need to re-enter a card for this booking unless you want to add another.</p>
           {!showForm && (
             <button
               type="button"
@@ -199,7 +246,7 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
               }}
               className="mt-3 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
             >
-              Replace or add a different card
+              Add another card
             </button>
           )}
         </>
@@ -227,8 +274,10 @@ export function BookingCardSetup({ firstName, lastName, email, phone, existingSa
 
       {showForm && (
         <form onSubmit={handleSave} className="mt-4 space-y-3">
-          {onFile ? (
-            <p className="text-sm text-slate-600">Enter your new card below. Saving will replace the card on file.</p>
+          {cards.length ? (
+            <p className="text-sm text-slate-600">
+              Enter another card below. Saving adds it — it does not remove cards already on file.
+            </p>
           ) : null}
           <div id="square-card-container" className="min-h-[120px] rounded-lg border border-slate-200 bg-slate-50 p-2" />
           {!sdkReady && <p className="text-xs text-slate-500">Loading secure card field…</p>}

@@ -53,18 +53,42 @@ function loadSquareScript(environment: string): Promise<void> {
   });
 }
 
-type SavedCardDisplay = { card_brand: string; card_last4: string; card_display_only?: boolean };
+type SavedCardRow = {
+  id?: number;
+  card_brand: string;
+  card_last4: string;
+  is_default?: boolean;
+  card_display_only?: boolean;
+};
+
+type SavedCardDisplay = {
+  card_brand: string;
+  card_last4: string;
+  card_display_only?: boolean;
+  saved_cards?: SavedCardRow[];
+};
 
 type Props = {
   token: string;
   existingSavedCard?: SavedCardDisplay | null;
+  existingSavedCards?: SavedCardRow[] | null;
   onSaved?: (card: SavedCardDisplay) => void;
 };
 
+function formatBrand(brand: string) {
+  return (brand || "Card").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /**
- * Patient magic-link: add/replace card on file via Square Web Payments (token never stores full PAN).
+ * Patient magic-link: add a card on file via Square Web Payments (token never stores full PAN).
+ * Adds another card — does not remove cards already saved.
  */
-export function PublicProfileCardSetup({ token, existingSavedCard = null, onSaved }: Props) {
+export function PublicProfileCardSetup({
+  token,
+  existingSavedCard = null,
+  existingSavedCards = null,
+  onSaved,
+}: Props) {
   const [config, setConfig] = useState<SquareConfig | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [loadErr, setLoadErr] = useState("");
@@ -72,13 +96,46 @@ export function PublicProfileCardSetup({ token, existingSavedCard = null, onSave
   const [busy, setBusy] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
-  const [onFile, setOnFile] = useState<SavedCardDisplay | null>(
-    existingSavedCard?.card_last4 ? existingSavedCard : null,
-  );
+  const [cards, setCards] = useState<SavedCardRow[]>(() => {
+    if (existingSavedCards?.length) return existingSavedCards;
+    if (existingSavedCard?.saved_cards?.length) return existingSavedCard.saved_cards;
+    if (existingSavedCard?.card_last4) {
+      return [
+        {
+          card_brand: existingSavedCard.card_brand,
+          card_last4: existingSavedCard.card_last4,
+          is_default: true,
+          card_display_only: existingSavedCard.card_display_only,
+        },
+      ];
+    }
+    return [];
+  });
 
   useEffect(() => {
-    setOnFile(existingSavedCard?.card_last4 ? existingSavedCard : null);
-  }, [existingSavedCard?.card_brand, existingSavedCard?.card_last4, existingSavedCard?.card_display_only]);
+    if (existingSavedCards?.length) {
+      setCards(existingSavedCards);
+    } else if (existingSavedCard?.saved_cards?.length) {
+      setCards(existingSavedCard.saved_cards);
+    } else if (existingSavedCard?.card_last4) {
+      setCards([
+        {
+          card_brand: existingSavedCard.card_brand,
+          card_last4: existingSavedCard.card_last4,
+          is_default: true,
+          card_display_only: existingSavedCard.card_display_only,
+        },
+      ]);
+    } else {
+      setCards([]);
+    }
+  }, [
+    existingSavedCards,
+    existingSavedCard?.card_brand,
+    existingSavedCard?.card_last4,
+    existingSavedCard?.card_display_only,
+    existingSavedCard?.saved_cards,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,16 +202,29 @@ export function PublicProfileCardSetup({ token, existingSavedCard = null, onSave
         card_brand?: string;
         card_last4?: string;
         detail?: string;
+        saved_cards?: SavedCardRow[];
+        card_display_only?: boolean;
       }>(`/patient-profile-update/save-card/${encodeURIComponent(token)}/`, {
         source_id: result.token,
         verification_token: result.verificationToken || "",
       });
-      const next = {
-        card_brand: saved.card_brand ?? "",
-        card_last4: saved.card_last4 ?? "",
+      const list = saved.saved_cards?.length
+        ? saved.saved_cards
+        : [
+            {
+              card_brand: saved.card_brand ?? "",
+              card_last4: saved.card_last4 ?? "",
+              is_default: true,
+            },
+          ];
+      setCards(list);
+      const def = list.find((c) => c.is_default) || list[0];
+      const next: SavedCardDisplay = {
+        card_brand: def?.card_brand || saved.card_brand || "",
+        card_last4: def?.card_last4 || saved.card_last4 || "",
         card_display_only: false,
+        saved_cards: list,
       };
-      setOnFile(next);
       onSaved?.(next);
       setSuccess("Your card was saved securely. We only keep the brand and last four digits.");
       await card.destroy().catch(() => {});
@@ -182,17 +252,24 @@ export function PublicProfileCardSetup({ token, existingSavedCard = null, onSave
 
   return (
     <div className="space-y-3">
-      {onFile?.card_last4 ? (
-        <div className="rounded-xl bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 px-5 py-4 text-white shadow-md">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">Card on file</p>
-          <p className="mt-2 text-lg font-semibold tracking-wide">
-            {(onFile.card_brand || "Card").replace(/\b\w/g, (c) => c.toUpperCase())}
-          </p>
-          <p className="mt-1 font-mono text-sm tracking-widest text-white/90">•••• •••• •••• {onFile.card_last4}</p>
-          {onFile.card_display_only ? (
-            <p className="mt-2 text-xs text-amber-200">Please save your card again so we can charge it when needed.</p>
-          ) : null}
-        </div>
+      {cards.length > 0 ? (
+        <ul className="space-y-2">
+          {cards.map((c, idx) => (
+            <li
+              key={c.id || `${c.card_brand}-${c.card_last4}-${idx}`}
+              className="rounded-xl bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 px-5 py-4 text-white shadow-md"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">
+                {c.is_default ? "Default card" : "Card on file"}
+              </p>
+              <p className="mt-2 text-lg font-semibold tracking-wide">{formatBrand(c.card_brand)}</p>
+              <p className="mt-1 font-mono text-sm tracking-widest text-white/90">•••• •••• •••• {c.card_last4}</p>
+              {c.card_display_only ? (
+                <p className="mt-2 text-xs text-amber-200">Please save this card again so we can charge it when needed.</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       ) : (
         <p className="text-sm text-slate-600">No payment card on file yet.</p>
       )}
@@ -207,12 +284,13 @@ export function PublicProfileCardSetup({ token, existingSavedCard = null, onSave
           }}
           className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
         >
-          {onFile?.card_last4 ? "Replace card" : "Add card"}
+          {cards.length ? "Add another card" : "Add card"}
         </button>
       ) : (
         <form onSubmit={(e) => void handleSave(e)} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-sm text-slate-600">
             Enter your card below. Your full card number goes only to Square — our clinic never stores it.
+            {cards.length ? " This adds another card; it does not remove cards already on file." : ""}
           </p>
           <div id="profile-update-square-card" className="min-h-[90px]" />
           {loadErr ? <p className="text-sm text-red-700">{loadErr}</p> : null}

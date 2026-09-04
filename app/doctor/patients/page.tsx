@@ -244,14 +244,22 @@ export default function DoctorPatientsPage() {
             </>
           }
         />
-        <button
-          type="button"
-          onClick={refreshAll}
-          disabled={loading}
-          className="mt-1 shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:mt-8"
-        >
-          Refresh
-        </button>
+        <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
+          <Link
+            href="/doctor/patients/merge"
+            className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            Merge patients
+          </Link>
+          <button
+            type="button"
+            onClick={refreshAll}
+            disabled={loading}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error ? (
