@@ -216,6 +216,11 @@ export function humanizeIntakeKey(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Keys that duplicate other fields or header metadata — hide from the answer table. */
+const INTAKE_ANSWER_SKIP_ALWAYS = new Set([
+  "signature_name", // shown in the modal / print header
+]);
+
 export type IntakeAnswerRow = { key: string; label: string; value: string };
 
 /** Stable, labeled rows for staff viewing — skips empty values unless includeEmpty. */
@@ -228,8 +233,22 @@ export function orderedIntakeAnswerRows(
   const seen = new Set<string>();
   const rows: IntakeAnswerRow[] = [];
 
+  const hasCityParts =
+    Boolean(String(src.city || "").trim()) ||
+    Boolean(String(src.state || "").trim()) ||
+    Boolean(String(src.zip || "").trim());
+
   const push = (key: string) => {
     if (seen.has(key) || !(key in src)) return;
+    if (INTAKE_ANSWER_SKIP_ALWAYS.has(key)) {
+      seen.add(key);
+      return;
+    }
+    // Prefill stores city_state_zip plus city/state/zip — only show one version.
+    if (key === "city_state_zip" && hasCityParts) {
+      seen.add(key);
+      return;
+    }
     seen.add(key);
     const formatted = formatAnswerValue(src[key]);
     if (!includeEmpty && (formatted === "—" || formatted === "")) return;

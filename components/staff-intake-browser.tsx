@@ -32,6 +32,8 @@ export function StaffIntakeBrowser({ basePath }: Props) {
   const [sendMsg, setSendMsg] = useState("");
   const [sending, setSending] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
+  /** When false, list every historical submission (can look duplicated). */
+  const [latestOnly, setLatestOnly] = useState(true);
 
   useEffect(() => {
     setPortalReady(true);
@@ -56,6 +58,7 @@ export function StaffIntakeBrowser({ basePath }: Props) {
       params.set("status", "submitted");
       params.set("page", String(page));
       params.set("page_size", String(PAGE_SIZE));
+      params.set("latest_only", latestOnly ? "1" : "0");
       const data = await apiGetAuth<{
         results: IntakeSubmissionRow[];
         count?: number;
@@ -71,7 +74,7 @@ export function StaffIntakeBrowser({ basePath }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [basePath, formType, q, page]);
+  }, [basePath, formType, q, page, latestOnly]);
 
   useEffect(() => {
     void load();
@@ -204,13 +207,9 @@ export function StaffIntakeBrowser({ basePath }: Props) {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Intake forms</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Search submitted paperwork ({PAGE_SIZE} per page), open answers in a clear table, print a form, or text a
-          patient their intake link.
-        </p>
-      </div>
+      <p className="text-sm text-slate-600">
+        Search submitted paperwork, open answers, print, or text a patient their intake link.
+      </p>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-slate-900">Send intake link</h2>
@@ -295,6 +294,17 @@ export function StaffIntakeBrowser({ basePath }: Props) {
             Search
           </button>
         </div>
+        <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={!latestOnly}
+            onChange={(e) => {
+              setLatestOnly(!e.target.checked);
+              setPage(1);
+            }}
+          />
+          Show every past submission (not just the latest per patient)
+        </label>
 
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
         {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
