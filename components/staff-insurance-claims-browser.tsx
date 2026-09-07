@@ -162,13 +162,13 @@ export function StaffInsuranceClaimsBrowser({ basePath }: Props) {
       {isAdmin ? (
         <AdminPageIntro
           title="Insurance claims"
-          description="Find a visit invoice, then generate a CMS-1500 claim to print or email to the insurance company. Fill patient insurance details on the patient chart first for best results."
+          description="Find a visit invoice, then generate a CMS-1500 claim to print or email (PDF attachment) to the insurance company. Fill patient insurance details on the patient chart first for best results."
           pageHelp="Claims use visit documentation (CPT codes and diagnoses) plus insurance info saved on the patient chart. The table shows 30 invoices per page."
         />
       ) : (
         <DoctorPageIntro
           title="Insurance claims"
-          description="Search one of your visit invoices by patient name or invoice number, then generate a CMS-1500 claim to print or email."
+          description="Search one of your visit invoices by patient name or invoice number, then generate a CMS-1500 claim to print or email as a PDF."
         />
       )}
 

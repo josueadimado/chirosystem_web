@@ -131,9 +131,12 @@ export function Cms1500PortalModal({ claim, onClose, basePath }: Props) {
             onClick={() => void sendEmail()}
             className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-100 disabled:opacity-50"
           >
-            {emailing ? "Sending…" : "Email claim"}
+            {emailing ? "Sending…" : "Email claim PDF"}
           </button>
         </div>
+        <p className="text-xs text-slate-500">
+          Emails include the full CMS-1500 as a PDF attachment (same fields as this print preview), plus a short cover note.
+        </p>
         {emailMsg ? <p className="text-xs text-slate-600">{emailMsg}</p> : null}
       </div>
       <div className="min-h-0 flex-1 bg-slate-200/80 p-3 sm:p-5">
