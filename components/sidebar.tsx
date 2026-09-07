@@ -6,7 +6,13 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
 
-export type NavItem = { label: string; href: string; icon?: React.ReactNode };
+export type NavItem = {
+  label: string;
+  href: string;
+  icon?: React.ReactNode;
+  /** Small pill next to the label (e.g. newly shipped pages). */
+  badge?: "new";
+};
 
 export type NavGroup = { label: string; items: NavItem[] };
 
@@ -65,9 +71,26 @@ function NavLink({
       )}
     >
       {item.icon != null && (
-        <span className={`shrink-0 ${navIconClass(accent, active)}`}>{item.icon}</span>
+        <span className={`relative shrink-0 ${navIconClass(accent, active)}`}>
+          {item.icon}
+          {!open && item.badge === "new" ? (
+            <span
+              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-sidebar"
+              aria-hidden
+            />
+          ) : null}
+        </span>
       )}
-      {open && <span className="truncate">{item.label}</span>}
+      {open && (
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate">{item.label}</span>
+          {item.badge === "new" ? (
+            <span className="shrink-0 rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+              New
+            </span>
+          ) : null}
+        </span>
+      )}
     </Link>
   );
 }

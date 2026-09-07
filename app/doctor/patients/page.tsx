@@ -7,6 +7,7 @@ import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatMonthDayYear } from "@/lib/format-date";
+import { isNewNavBadgeActive } from "@/lib/staff-announcements";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -247,9 +248,14 @@ export default function DoctorPatientsPage() {
         <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
           <Link
             href="/doctor/patients/merge"
-            className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
           >
             Merge patients
+            {isNewNavBadgeActive("/doctor/patients/merge") ? (
+              <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                New
+              </span>
+            ) : null}
           </Link>
           <button
             type="button"

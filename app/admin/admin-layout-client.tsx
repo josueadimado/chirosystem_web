@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Sidebar } from "@/components/sidebar";
+import { Sidebar, type NavItem } from "@/components/sidebar";
 import { NotificationBell } from "@/components/notification-bell";
 import { InstallAppCallout } from "@/components/install-app-callout";
+import { StaffSystemUpgradeNotice } from "@/components/staff-system-upgrade-notice";
 import {
   IconBarChart,
   IconAlertTriangle,
@@ -25,19 +26,30 @@ import {
 import { getRoleCookie } from "@/lib/auth";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { PORTAL_ZONE_CLASSES } from "@/lib/portal-readability-classes";
+import { isNewNavBadgeActive } from "@/lib/staff-announcements";
 import { cn } from "@/lib/utils";
 
-const mainItems = [
+const mainItems: NavItem[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: <IconLayoutGrid className="w-5 h-5" /> },
   { label: "Analytics", href: "/admin/analytics", icon: <IconBarChart className="w-5 h-5" /> },
   { label: "Schedule", href: "/admin/schedule", icon: <IconCalendar className="w-5 h-5" /> },
   { label: "Patients", href: "/admin/patients", icon: <IconUsers className="w-5 h-5" /> },
-  { label: "Intake forms", href: "/admin/intake", icon: <IconFileText className="w-5 h-5" /> },
+  {
+    label: "Intake forms",
+    href: "/admin/intake",
+    icon: <IconFileText className="w-5 h-5" />,
+    badge: isNewNavBadgeActive("/admin/intake") ? "new" : undefined,
+  },
 ];
 
-const operationsItemsBase = [
+const operationsItemsBase: NavItem[] = [
   { label: "Invoices & Billing", href: "/admin/billing", icon: <IconFileDollar className="w-5 h-5" /> },
-  { label: "Payment reconciliation", href: "/admin/reconciliation", icon: <IconClipboardList className="w-5 h-5" /> },
+  {
+    label: "Payment reconciliation",
+    href: "/admin/reconciliation",
+    icon: <IconClipboardList className="w-5 h-5" />,
+    badge: isNewNavBadgeActive("/admin/reconciliation") ? "new" : undefined,
+  },
   { label: "Insurance claims", href: "/admin/insurance-claims", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "Insurance companies", href: "/admin/insurance-companies", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "Services & Codes", href: "/admin/services", icon: <IconFileText className="w-5 h-5" /> },
@@ -151,6 +163,7 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
             onSidebarToggle={() => setSidebarOpen(!sidebarOpen)}
             onLogout={handleLogout}
           />
+          <StaffSystemUpgradeNotice timezoneSource="admin" />
           <main className="admin-zone min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div
               className={cn(

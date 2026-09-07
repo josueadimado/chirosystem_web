@@ -9,6 +9,7 @@ import { UsDateInput } from "@/components/us-date-input";
 import { Button } from "@/components/ui/button";
 import { ApiError, apiGetAuth, apiPost, apiUploadAuth } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
+import { isNewNavBadgeActive } from "@/lib/staff-announcements";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -613,9 +614,14 @@ export default function AdminPatientsPage() {
         <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
           <Link
             href="/admin/patients/merge"
-            className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
           >
             Merge patients
+            {isNewNavBadgeActive("/admin/patients/merge") ? (
+              <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                New
+              </span>
+            ) : null}
           </Link>
           <Button
             type="button"

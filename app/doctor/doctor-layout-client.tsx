@@ -3,19 +3,26 @@
 import { InstallAppCallout } from "@/components/install-app-callout";
 import { IconBarChart, IconBook, IconCalendar, IconClipboardList, IconFileText, IconMenu, IconStethoscope, IconUsers } from "@/components/icons";
 import { NotificationBell } from "@/components/notification-bell";
-import { Sidebar } from "@/components/sidebar";
+import { Sidebar, type NavItem } from "@/components/sidebar";
+import { StaffSystemUpgradeNotice } from "@/components/staff-system-upgrade-notice";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { PORTAL_ZONE_CLASSES } from "@/lib/portal-readability-classes";
+import { isNewNavBadgeActive } from "@/lib/staff-announcements";
 import { cn } from "@/lib/utils";
 
-const items = [
+const items: NavItem[] = [
   { label: "My Dashboard", href: "/doctor/dashboard", icon: <IconStethoscope className="w-5 h-5" /> },
   { label: "Analytics", href: "/doctor/analytics", icon: <IconBarChart className="w-5 h-5" /> },
   { label: "My Schedule", href: "/doctor/schedule", icon: <IconCalendar className="w-5 h-5" /> },
   { label: "Patients", href: "/doctor/patients", icon: <IconUsers className="w-5 h-5" /> },
-  { label: "Intake forms", href: "/doctor/intake", icon: <IconFileText className="w-5 h-5" /> },
+  {
+    label: "Intake forms",
+    href: "/doctor/intake",
+    icon: <IconFileText className="w-5 h-5" />,
+    badge: isNewNavBadgeActive("/doctor/intake") ? "new" : undefined,
+  },
   { label: "Insurance claims", href: "/doctor/insurance-claims", icon: <IconClipboardList className="w-5 h-5" /> },
   { label: "User guide", href: "/doctor/manual", icon: <IconBook className="w-5 h-5" /> },
 ];
@@ -53,6 +60,7 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <DoctorHeader sidebarOpen={sidebarOpen} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <StaffSystemUpgradeNotice timezoneSource="default" />
         <main className="doctor-zone min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24">
           <div
             className={cn(
