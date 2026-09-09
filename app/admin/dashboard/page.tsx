@@ -16,6 +16,7 @@ type TodayScheduleRow = {
   id: number;
   patient_name: string;
   patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
   provider_name?: string;
   service_name?: string;
   start_time: string;
@@ -98,6 +99,7 @@ function TodayScheduleRowLink({ a }: { a: TodayScheduleRow }) {
         <PatientNameWithProfile
           name={<span className="truncate">{a.patient_name}</span>}
           profile={a.patient_payment_profile}
+          irisTag={a.patient_iris_tag}
           compactBadge
         />
       </span>

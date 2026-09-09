@@ -79,6 +79,12 @@ type AnalyticsPayload = {
     at_risk_60d: number;
     inactive_90d: number;
   };
+  iris_clients?: {
+    tagged_total: number;
+    unique_this_week: number;
+    unique_this_month: number;
+    unique_this_quarter: number;
+  };
   voice_summary: {
     total_calls: number;
     booked: number;
@@ -423,6 +429,7 @@ export default function AdminAnalyticsPage() {
   const today = data.today_snapshot;
   const providers = data.provider_stats ?? [];
   const atRisk = data.at_risk_patients ?? [];
+  const iris = data.iris_clients;
   const collectionAlert = billing.collection_rate > 0 && billing.collection_rate < COLLECTION_RATE_ALERT;
   const weekNoShowAlert = week.no_show_rate >= NO_SHOW_RATE_ALERT && week.no_shows > 0;
 
@@ -745,6 +752,30 @@ export default function AdminAnalyticsPage() {
         </TabsContent>
 
         <TabsContent value="patients" className="mt-0 space-y-6">
+          {iris ? (
+            <section className="admin-panel border-orange-200/90 bg-orange-50/50">
+              <AdminSectionLabel help="Patients marked with the orange IRIS label (Iris referral or Iris nutrition). Counts are unique patients who had at least one appointment in each period — not appointment visits.">
+                IRIS clients
+              </AdminSectionLabel>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {(
+                  [
+                    { label: "Tagged now", value: iris.tagged_total, sub: "On patient record" },
+                    { label: "This week", value: iris.unique_this_week, sub: "Unique patients" },
+                    { label: "This month", value: iris.unique_this_month, sub: "Unique patients" },
+                    { label: "This quarter", value: iris.unique_this_quarter, sub: "Unique patients" },
+                  ] as const
+                ).map((box) => (
+                  <div key={box.label} className="rounded-xl border border-orange-100 bg-white px-3 py-3 text-center sm:text-left">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-800/80">{box.label}</p>
+                    <p className="mt-2 text-2xl font-bold tabular-nums text-orange-950">{box.value}</p>
+                    <p className="mt-1 text-xs text-slate-500">{box.sub}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <section className="admin-panel border-amber-200/80 bg-amber-50/40">
             <AdminSectionLabel help="Patients who have not visited in 60–89 days — good candidates for a reminder call.">
               Patients to re-engage

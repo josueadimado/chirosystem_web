@@ -87,6 +87,7 @@ export function PatientBillPortalModal({
                 <PatientNameWithProfile
                   name={bill.patient_name}
                   profile={bill.patient_payment_profile}
+                  irisTag={bill.patient_iris_tag}
                   compactBadge
                 />
               </>

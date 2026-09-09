@@ -2,9 +2,10 @@
 
 import { useAppFeedback } from "@/components/app-feedback";
 import {
+  PatientIrisBadge,
   PatientNameWithProfile,
   PatientPaymentProfileBadge,
-  paymentProfileShortLabel,
+  patientScheduleLabels,
 } from "@/components/patient-payment-profile";
 import { cn } from "@/lib/utils";
 import { effectiveAppointmentStatus } from "@/lib/visit-status-utils";
@@ -63,6 +64,8 @@ export type ScheduleAppointment = {
   reason_for_visit?: string;
   /** insurance | cash — badge next to name on calendar */
   patient_payment_profile?: string;
+  /** Iris referral / nutrition patient — orange IRIS badge */
+  patient_iris_tag?: boolean;
 };
 
 /** Status used for colors, labels, and desk rules on the schedule grid. */
@@ -303,12 +306,14 @@ function ScheduleAppointmentTimeRow({
   startShown,
   endShown,
   paymentProfile,
+  irisTag,
   uiStatus,
   textClassName,
 }: {
   startShown: string;
   endShown: string;
   paymentProfile?: string;
+  irisTag?: boolean;
   uiStatus: string;
   textClassName?: string;
 }) {
@@ -329,6 +334,7 @@ function ScheduleAppointmentTimeRow({
         </span>
         <span className="flex shrink-0 items-center gap-0.5">
           <PatientPaymentProfileBadge profile={paymentProfile} compact />
+          <PatientIrisBadge irisTag={irisTag} compact />
           <ScheduleStatusMark status={uiStatus} />
         </span>
       </span>
@@ -384,6 +390,7 @@ function PatientNameLine({
 function AppointmentBlockTooltip({
   patientName,
   patientPaymentProfile,
+  patientIrisTag,
   serviceName,
   startLabel,
   endLabel,
@@ -394,6 +401,7 @@ function AppointmentBlockTooltip({
 }: {
   patientName: string;
   patientPaymentProfile?: string;
+  patientIrisTag?: boolean;
   serviceName: string;
   startLabel: string;
   endLabel: string;
@@ -440,7 +448,7 @@ function AppointmentBlockTooltip({
           )}
         >
           <p className="font-semibold text-slate-900">
-            <PatientNameWithProfile name={patientName} profile={patientPaymentProfile} compactBadge />
+            <PatientNameWithProfile name={patientName} profile={patientPaymentProfile} irisTag={patientIrisTag} compactBadge />
           </p>
           <p className="mt-1 text-slate-700">{serviceName?.trim() ? serviceName : "—"}</p>
           <p className="mt-1 tabular-nums text-slate-600">
@@ -1400,6 +1408,7 @@ function DayProviderColumn({
                   <AppointmentBlockTooltip
                     patientName={a.patient_name}
                     patientPaymentProfile={a.patient_payment_profile}
+                    patientIrisTag={a.patient_iris_tag}
                     serviceName={a.service_name || ""}
                     startLabel={startShown}
                     endLabel={endShown}
@@ -1413,6 +1422,7 @@ function DayProviderColumn({
                         startShown={startShown}
                         endShown={endShown}
                         paymentProfile={a.patient_payment_profile}
+                        irisTag={a.patient_iris_tag}
                         uiStatus={uiStatus}
                         textClassName={styles.text}
                       />
@@ -2012,6 +2022,7 @@ function WeekDayStack({
               <AppointmentBlockTooltip
                 patientName={a.patient_name}
                 patientPaymentProfile={a.patient_payment_profile}
+                patientIrisTag={a.patient_iris_tag}
                 serviceName={a.service_name || ""}
                 startLabel={startShown}
                 endLabel={endShown}
@@ -2025,6 +2036,7 @@ function WeekDayStack({
                     startShown={startShown}
                     endShown={endShown}
                     paymentProfile={a.patient_payment_profile}
+                    irisTag={a.patient_iris_tag}
                     uiStatus={uiStatus}
                     textClassName={styles.text}
                   />
@@ -2124,9 +2136,9 @@ function MonthGrid({
                         <li
                           key={a.id}
                           className="truncate text-[9px] font-semibold leading-tight text-slate-800"
-                          title={`${a.patient_name}${paymentProfileShortLabel(a.patient_payment_profile) ? ` · ${paymentProfileShortLabel(a.patient_payment_profile)}` : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
+                          title={`${a.patient_name}${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag) ? ` · ${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag)}` : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
                         >
-                          <PatientNameWithProfile name={shortName} profile={a.patient_payment_profile} compactBadge />
+                          <PatientNameWithProfile name={shortName} profile={a.patient_payment_profile} irisTag={a.patient_iris_tag} compactBadge />
                         </li>
                       );
                     })}

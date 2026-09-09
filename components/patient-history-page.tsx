@@ -108,6 +108,7 @@ type PatientDetail = {
   clinical_access?: "full" | "read_only";
   clinical_access_message?: string;
   payment_profile?: string;
+  iris_tag?: boolean;
   card_brand?: string;
   card_last4?: string;
   has_saved_card?: boolean;
@@ -1213,6 +1214,7 @@ export function PatientHistoryPage({
               <PatientNameWithProfile
                 name={patientFullName(detail.first_name, detail.last_name)}
                 profile={detail.payment_profile}
+                irisTag={detail.iris_tag}
               />
             </h1>
             <p className="mt-0.5 text-sm text-slate-600">

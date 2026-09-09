@@ -32,6 +32,7 @@ type MergeSummary = {
   card_brand: string;
   card_last4: string;
   payment_profile: string;
+  iris_tag: boolean;
 };
 
 type MergePreview = {

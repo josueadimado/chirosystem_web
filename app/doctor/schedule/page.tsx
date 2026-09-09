@@ -134,6 +134,7 @@ type AppointmentRow = {
   reason_for_visit?: string;
   patient_date_of_birth?: string | null;
   patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
 };
 
 type ScheduleViewMode = "day" | "week" | "month";
@@ -1014,6 +1015,7 @@ function DoctorSchedulePageInner() {
               appointmentId={selected.id}
               reasonForVisit={selected.reason_for_visit}
               patientPaymentProfile={selected.patient_payment_profile}
+              patientIrisTag={selected.patient_iris_tag}
             />
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -1023,6 +1025,14 @@ function DoctorSchedulePageInner() {
                 intakeSavePath="/doctor/patient_intake/"
                 onSaved={(profile) => {
                   const patch = { patient_payment_profile: profile };
+                  setSelected((s) => (s ? { ...s, ...patch } : s));
+                  setAppointments((list) =>
+                    list.map((a) => (a.patient === selected.patient ? { ...a, ...patch } : a)),
+                  );
+                }}
+                irisTag={!!selected.patient_iris_tag}
+                onIrisSaved={(iris) => {
+                  const patch = { patient_iris_tag: iris };
                   setSelected((s) => (s ? { ...s, ...patch } : s));
                   setAppointments((list) =>
                     list.map((a) => (a.patient === selected.patient ? { ...a, ...patch } : a)),

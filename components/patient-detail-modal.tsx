@@ -132,6 +132,7 @@ type PatientDetail = {
   notify_reminders?: string;
   notify_bills?: string;
   payment_profile?: string;
+  iris_tag?: boolean;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -558,6 +559,7 @@ export function PatientDetailModal({
                     <PatientNameWithProfile
                       name={patientFullName(detail.first_name, detail.last_name)}
                       profile={detail.payment_profile}
+                      irisTag={detail.iris_tag}
                       compactBadge
                     />
                   </span>
@@ -642,6 +644,7 @@ export function PatientDetailModal({
                         <PatientNameWithProfile
                           name={patientFullName(detail.first_name, detail.last_name)}
                           profile={detail.payment_profile}
+                          irisTag={detail.iris_tag}
                         />
                       </p>
                       <p className="mt-1 font-medium text-slate-700">{detail.phone}</p>
@@ -656,6 +659,10 @@ export function PatientDetailModal({
                       intakeSavePath={intakeSavePath}
                       onSaved={(profile) =>
                         setDetail((d) => (d ? { ...d, payment_profile: profile } : d))
+                      }
+                      irisTag={!!detail.iris_tag}
+                      onIrisSaved={(iris) =>
+                        setDetail((d) => (d ? { ...d, iris_tag: iris } : d))
                       }
                     />
                   ) : null}

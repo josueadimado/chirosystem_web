@@ -19,6 +19,7 @@ export type BookNextSource = {
 export type BookNextVisitContext = {
   patient_name: string;
   patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
   appointment_date: string;
   start_time_display: string;
   service_name: string;
@@ -216,6 +217,7 @@ export function useBookNextVisit({
             id: number;
             patient_name: string;
             patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
             start_time: string;
             end_time: string;
             status: string;
@@ -227,6 +229,7 @@ export function useBookNextVisit({
             id: a.id,
             patient_name: a.patient_name,
             patient_payment_profile: a.patient_payment_profile,
+            patient_iris_tag: a.patient_iris_tag,
             start_time: a.start_time,
             end_time: a.end_time,
             status: a.status,
@@ -267,6 +270,7 @@ export function useBookNextVisit({
             appointment_date: string;
             patient_name: string;
             patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
             start_time: string;
             end_time: string;
             status: string;
@@ -279,6 +283,7 @@ export function useBookNextVisit({
             appointment_date: a.appointment_date,
             patient_name: a.patient_name,
             patient_payment_profile: a.patient_payment_profile,
+            patient_iris_tag: a.patient_iris_tag,
             start_time: a.start_time,
             end_time: a.end_time,
             status: a.status,

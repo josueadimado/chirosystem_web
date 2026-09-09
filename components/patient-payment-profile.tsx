@@ -22,23 +22,41 @@ export function paymentProfileShortLabel(profile: string | null | undefined): st
   return "";
 }
 
+/** Extra tooltip fragment when the patient has the Iris tag. */
+export function irisTagShortLabel(irisTag: boolean | null | undefined): string {
+  return irisTag ? "IRIS" : "";
+}
+
+/** Combines payment + IRIS labels for calendar tooltips. */
+export function patientScheduleLabels(
+  profile: string | null | undefined,
+  irisTag?: boolean | null,
+): string {
+  const parts = [paymentProfileShortLabel(profile), irisTagShortLabel(irisTag)].filter(Boolean);
+  return parts.join(" · ");
+}
+
 /** Full name helper — use with PatientNameWithProfile everywhere staff see a patient name. */
 export function patientFullName(firstName: string, lastName: string): string {
   return `${firstName} ${lastName}`.trim();
 }
 
 /**
- * Patient name with insurance (eye) or cash badge — use on lists, charts, billing, and headers.
+ * Patient name with insurance (eye), cash, and/or orange IRIS badge —
+ * use on lists, charts, billing, and headers.
  */
 export function PatientNameWithProfile({
   name,
   profile,
+  irisTag = false,
   className,
   nameClassName,
   compactBadge = false,
 }: {
   name: ReactNode;
   profile?: string | null;
+  /** Independent of cash/insurance — Iris referral or Iris nutrition patient. */
+  irisTag?: boolean | null;
   className?: string;
   nameClassName?: string;
   compactBadge?: boolean;
@@ -47,6 +65,7 @@ export function PatientNameWithProfile({
     <span className={cn("inline-flex max-w-full flex-wrap items-center gap-1.5", className)}>
       <span className={cn("min-w-0", nameClassName)}>{name}</span>
       <PatientPaymentProfileBadge profile={profile} compact={compactBadge} />
+      <PatientIrisBadge irisTag={irisTag} compact={compactBadge} />
     </span>
   );
 }
@@ -96,25 +115,56 @@ export function PatientPaymentProfileBadge({
   );
 }
 
+/** Orange IRIS badge — can show next to Cash or Insurance. */
+export function PatientIrisBadge({
+  irisTag,
+  compact = false,
+  className,
+}: {
+  irisTag: boolean | null | undefined;
+  compact?: boolean;
+  className?: string;
+}) {
+  if (!irisTag) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-md bg-orange-500 font-bold uppercase tracking-wide text-white ring-1 ring-orange-600/40",
+        compact ? "px-1 py-0 text-[8px] leading-none" : "px-1.5 py-0.5 text-[9px]",
+        className,
+      )}
+      title="Iris patient (referral or nutrition)"
+      aria-label="Iris patient"
+    >
+      IRIS
+    </span>
+  );
+}
+
 type SelectorProps = {
   patientId: number;
   value: PatientPaymentProfile;
   /** e.g. `/admin/patient_intake/` or `/doctor/patient_intake/` */
   intakeSavePath: string;
   onSaved: (profile: PatientPaymentProfile) => void;
+  /** Independent Iris tag — can be on at the same time as Cash or Insurance. */
+  irisTag?: boolean;
+  onIrisSaved?: (irisTag: boolean) => void;
   disabled?: boolean;
   className?: string;
 };
 
 /**
- * Lets staff mark a patient as insurance or cash during a visit.
- * Saves to the patient record so every future schedule view shows the badge.
+ * Lets staff mark a patient as insurance or cash during a visit, plus an optional IRIS tag.
+ * Saves to the patient record so every future schedule view shows the badges.
  */
 export function PatientPaymentProfileSelector({
   patientId,
   value,
   intakeSavePath,
   onSaved,
+  irisTag = false,
+  onIrisSaved,
   disabled = false,
   className,
 }: SelectorProps) {
@@ -136,13 +186,28 @@ export function PatientPaymentProfileSelector({
     }
   }
 
+  async function saveIris(next: boolean) {
+    if (disabled || saving || !onIrisSaved) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await apiPatch(intakeSavePath, { patient_id: patientId, iris_tag: next });
+      onIrisSaved(next);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not save IRIS tag.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className={cn("rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3", className)}>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-        Payment type (schedule label)
+        Labels (schedule badges)
       </p>
       <p className="mt-0.5 text-xs text-slate-600">
-        Shown on the calendar next to this patient&apos;s name for all staff.
+        Payment type is Cash or Insurance. IRIS can be on at the same time (Iris referral or nutrition
+        patient).
       </p>
       <div className="mt-2.5 flex flex-wrap gap-2">
         <button
@@ -176,6 +241,24 @@ export function PatientPaymentProfileSelector({
         >
           Cash
         </button>
+        {onIrisSaved ? (
+          <button
+            type="button"
+            disabled={disabled || saving}
+            onClick={() => void saveIris(!irisTag)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition",
+              irisTag
+                ? "border-orange-500 bg-orange-500 text-white shadow-sm"
+                : "border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50/80",
+              (disabled || saving) && "opacity-50",
+            )}
+            aria-pressed={irisTag}
+            title="Mark as Iris referral or Iris nutrition patient"
+          >
+            IRIS
+          </button>
+        ) : null}
         {current ? (
           <button
             type="button"
@@ -183,7 +266,7 @@ export function PatientPaymentProfileSelector({
             onClick={() => void save("")}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
           >
-            Clear label
+            Clear payment label
           </button>
         ) : null}
       </div>

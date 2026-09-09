@@ -58,6 +58,7 @@ type PatientSearchRow = {
   last_name: string;
   phone?: string;
   payment_profile?: string;
+  iris_tag?: boolean;
 };
 
 function minutesToHHMMSS(totalMin: number): string {
@@ -671,7 +672,7 @@ export function AdminDeskBookFromSlotModal({
                           active ? "bg-emerald-50 font-semibold text-emerald-950" : "text-slate-800"
                         }`}
                       >
-                        <PatientNameWithProfile name={label} profile={p.payment_profile} compactBadge />
+                        <PatientNameWithProfile name={label} profile={p.payment_profile} irisTag={p.iris_tag} compactBadge />
                         {sub ? <span className="block text-sm font-normal text-slate-500">{sub}</span> : null}
                       </button>
                     </li>

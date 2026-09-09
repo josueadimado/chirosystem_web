@@ -46,6 +46,7 @@ export type PatientBillPayload = {
   statement_date_display?: string;
   patient_name: string;
   patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
   patient_address: string;
   diagnosis: string;
   provider_name?: string;

@@ -27,6 +27,7 @@ type PatientApi = {
   next_appointment_time: string | null;
   no_show_count?: number;
   payment_profile?: string;
+  iris_tag?: boolean;
 };
 
 type PaginatedPatients = {
@@ -540,6 +541,7 @@ export default function DoctorPatientsPage() {
                                       </span>
                                     }
                                     profile={p.payment_profile}
+                                    irisTag={p.iris_tag}
                                     compactBadge
                                   />
                                   <PatientNoShowBadge count={noShows} />

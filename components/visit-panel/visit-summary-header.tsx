@@ -18,6 +18,7 @@ export function VisitSummaryHeader({
   appointmentId,
   reasonForVisit,
   patientPaymentProfile,
+  patientIrisTag,
 }: {
   patientName: string;
   serviceName?: string;
@@ -31,6 +32,7 @@ export function VisitSummaryHeader({
   /** What the patient typed when booking online (if any). */
   reasonForVisit?: string | null;
   patientPaymentProfile?: string;
+  patientIrisTag?: boolean;
 }) {
   return (
     <div
@@ -42,7 +44,7 @@ export function VisitSummaryHeader({
       )}
     >
       <h2 className="text-xl font-bold tracking-tight text-slate-900">
-        <PatientNameWithProfile name={patientName} profile={patientPaymentProfile} />
+        <PatientNameWithProfile name={patientName} profile={patientPaymentProfile} irisTag={patientIrisTag} />
       </h2>
       <p className="mt-1 text-sm font-medium text-slate-600">{serviceName || "—"}</p>
       <AppointmentClientReason reason={reasonForVisit} className="mt-3" />

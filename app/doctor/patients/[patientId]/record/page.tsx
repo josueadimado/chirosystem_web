@@ -90,6 +90,7 @@ type PatientDetail = {
   clinical_access?: "full" | "read_only";
   clinical_access_message?: string;
   payment_profile?: string;
+  iris_tag?: boolean;
   appointments: AppointmentHistoryRow[];
 };
 
@@ -467,6 +468,7 @@ export default function DoctorPatientRecordPage() {
               <PatientNameWithProfile
                 name={patientFullName(detail.first_name, detail.last_name)}
                 profile={detail.payment_profile}
+                irisTag={detail.iris_tag}
               />
             </h1>
             <p className="mt-1 font-medium text-slate-700">{detail.phone}</p>

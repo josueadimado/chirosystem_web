@@ -45,6 +45,7 @@ export type PatientDemographicsSource = {
   notify_bills?: string;
   sms_consent?: boolean;
   payment_profile?: string;
+  iris_tag?: boolean;
 };
 
 type IntakeForm = {
@@ -228,6 +229,8 @@ export function PatientDemographicsEditor({
           value={(patient.payment_profile || "") as PatientPaymentProfile}
           intakeSavePath={intakeSavePath}
           onSaved={(profile) => onPatientUpdated({ ...patient, payment_profile: profile })}
+          irisTag={!!patient.iris_tag}
+          onIrisSaved={(iris) => onPatientUpdated({ ...patient, iris_tag: iris })}
           disabled={readOnly}
         />
       ) : null}

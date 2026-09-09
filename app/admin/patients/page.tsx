@@ -63,6 +63,7 @@ type Patient = {
   balance_late_cancel_fee?: string;
   has_overdue?: boolean;
   payment_profile?: string;
+  iris_tag?: boolean;
 };
 
 type SortMode = "name_asc" | "visit_desc" | "visit_asc" | "balance_desc" | "balance_asc";
@@ -993,6 +994,7 @@ export default function AdminPatientsPage() {
                                       </span>
                                     }
                                     profile={p.payment_profile}
+                                    irisTag={p.iris_tag}
                                     compactBadge
                                   />
                                   <PatientNoShowBadge count={noShows} />

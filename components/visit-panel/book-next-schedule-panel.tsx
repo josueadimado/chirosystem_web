@@ -28,13 +28,14 @@ import {
 } from "@/lib/book-next-schedule-dates";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
-import { PatientNameWithProfile, paymentProfileShortLabel } from "@/components/patient-payment-profile";
+import { PatientNameWithProfile, patientScheduleLabels } from "@/components/patient-payment-profile";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
 export type BookNextDayAppointment = {
   id: number;
   patient_name: string;
   patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
   start_time: string;
   end_time: string;
   status: string;
@@ -207,10 +208,10 @@ function BookNextDayTimeline({
                   key={a.id}
                   className="pointer-events-none absolute left-1.5 right-1.5 z-[2] overflow-hidden rounded-lg border border-slate-300 bg-slate-200/95 px-2 py-1 shadow-sm"
                   style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 28 }}
-                  title={`${a.patient_name}${paymentProfileShortLabel(a.patient_payment_profile) ? ` · ${paymentProfileShortLabel(a.patient_payment_profile)}` : ""} · booked`}
+                  title={`${a.patient_name}${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag) ? ` · ${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag)}` : ""} · booked`}
                 >
                   <span className="block truncate text-sm font-semibold text-slate-800">
-                    <PatientNameWithProfile name={a.patient_name} profile={a.patient_payment_profile} compactBadge />
+                    <PatientNameWithProfile name={a.patient_name} profile={a.patient_payment_profile} irisTag={a.patient_iris_tag} compactBadge />
                   </span>
                   <span className="block truncate text-[11px] text-slate-600">
                     {minutesToLabel(st)} – {minutesToLabel(st + dur)}
@@ -411,10 +412,10 @@ function BookNextWeekGrid({
                         data-book-next-booked
                         className="pointer-events-none absolute left-0.5 right-0.5 z-[2] overflow-hidden rounded-md border border-slate-300 bg-slate-200/95 px-1 py-0.5 text-[10px] font-semibold text-slate-800"
                         style={{ top: `${topPct}%`, height: `${heightPct}%`, minHeight: 14 }}
-                        title={`${a.patient_name}${paymentProfileShortLabel(a.patient_payment_profile) ? ` · ${paymentProfileShortLabel(a.patient_payment_profile)}` : ""}`}
+                        title={`${a.patient_name}${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag) ? ` · ${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag)}` : ""}`}
                       >
                         <span className="block truncate">
-                          <PatientNameWithProfile name={a.patient_name} profile={a.patient_payment_profile} compactBadge />
+                          <PatientNameWithProfile name={a.patient_name} profile={a.patient_payment_profile} irisTag={a.patient_iris_tag} compactBadge />
                         </span>
                       </div>
                     );

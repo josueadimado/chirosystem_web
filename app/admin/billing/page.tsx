@@ -38,6 +38,7 @@ type BillingInvoiceRow = {
   patient_id: number;
   patient_name: string;
   patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
   patient_credit_balance: string;
   status: string;
   /** visit | no_show_fee | late_cancel_fee — only visit invoices support line-item edit before payment */
@@ -774,6 +775,7 @@ export default function AdminBillingPage() {
                               <PatientNameWithProfile
                                 name={inv.patient_name}
                                 profile={inv.patient_payment_profile}
+                                irisTag={inv.patient_iris_tag}
                                 compactBadge
                               />
                             </p>
@@ -887,7 +889,7 @@ export default function AdminBillingPage() {
             <>
               <DialogHeader className="pr-8">
                 <DialogTitle className="font-semibold text-slate-900">
-                  <PatientNameWithProfile name={selected.patient_name} profile={selected.patient_payment_profile} />
+                  <PatientNameWithProfile name={selected.patient_name} profile={selected.patient_payment_profile} irisTag={selected.patient_iris_tag} />
                 </DialogTitle>
                 <DialogDescription className="flex flex-wrap items-center gap-2 text-slate-600">
                   <span className="font-mono text-xs">{selected.invoice_number}</span>

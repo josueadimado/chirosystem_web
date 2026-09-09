@@ -222,6 +222,7 @@ type Appointment = {
   saved_cards?: Array<{ id: number; card_brand: string; card_last4: string; is_default: boolean }>;
   default_saved_card_id?: number;
   patient_payment_profile?: string;
+  patient_iris_tag?: boolean;
   /** Total unpaid across all open invoices (visit + penalties). */
   patient_balance_due?: string;
 };
@@ -515,6 +516,7 @@ export default function DoctorDashboardPage() {
     invoice_number: string;
     patient_name: string;
     patient_payment_profile?: string;
+    patient_iris_tag?: boolean;
     date_of_service: string;
     total_amount: string;
     status: string;
@@ -684,6 +686,7 @@ export default function DoctorDashboardPage() {
         invoice_kind: a.invoice_kind,
         reason_for_visit: a.reason_for_visit,
         patient_payment_profile: a.patient_payment_profile,
+        patient_iris_tag: a.patient_iris_tag,
       })),
     );
   }, [appointments, myProviderId, myProviderName]);
@@ -2286,7 +2289,7 @@ export default function DoctorDashboardPage() {
           </div>
           <div>
             <p className="font-semibold text-slate-900">
-              <PatientNameWithProfile name={activeAppt.patient} profile={activeAppt.patient_payment_profile} />
+              <PatientNameWithProfile name={activeAppt.patient} profile={activeAppt.patient_payment_profile} irisTag={activeAppt.patient_iris_tag} />
             </p>
             <p className="text-xs text-slate-500">Patient #{activeAppt.patient_id}</p>
           </div>
@@ -2297,6 +2300,13 @@ export default function DoctorDashboardPage() {
           intakeSavePath="/doctor/patient_intake/"
           onSaved={(profile) => {
             const patch = { patient_payment_profile: profile };
+            setAppointments((list) =>
+              list.map((a) => (a.patient_id === activeAppt.patient_id ? { ...a, ...patch } : a)),
+            );
+          }}
+          irisTag={!!activeAppt.patient_iris_tag}
+          onIrisSaved={(iris) => {
+            const patch = { patient_iris_tag: iris };
             setAppointments((list) =>
               list.map((a) => (a.patient_id === activeAppt.patient_id ? { ...a, ...patch } : a)),
             );
@@ -2708,6 +2718,7 @@ export default function DoctorDashboardPage() {
                     <PatientNameWithProfile
                       name={nextUpAppt.appt.patient}
                       profile={nextUpAppt.appt.patient_payment_profile}
+                      irisTag={nextUpAppt.appt.patient_iris_tag}
                       compactBadge
                     />
                   </p>
@@ -3191,6 +3202,7 @@ export default function DoctorDashboardPage() {
                         <PatientNameWithProfile
                           name={inv.patient_name}
                           profile={inv.patient_payment_profile}
+                          irisTag={inv.patient_iris_tag}
                           compactBadge
                         />
                       </p>
@@ -3461,7 +3473,7 @@ export default function DoctorDashboardPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">
-                        <PatientNameWithProfile name={appt.patient} profile={appt.patient_payment_profile} />
+                        <PatientNameWithProfile name={appt.patient} profile={appt.patient_payment_profile} irisTag={appt.patient_iris_tag} />
                       </p>
                       {parseMoneyAmount(appt.patient_balance_due) > 0.009 ? (
                         <p className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-950">
