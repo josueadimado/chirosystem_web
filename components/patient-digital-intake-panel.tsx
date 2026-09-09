@@ -86,7 +86,7 @@ export function PatientDigitalIntakePanel({ patientId, basePath }: Props) {
     selected && portalReady
       ? createPortal(
           <div
-            className="fixed inset-0 z-[200] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
+            className="fixed inset-0 z-[450] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
             role="dialog"
             aria-modal="true"
             onClick={() => setSelected(null)}
