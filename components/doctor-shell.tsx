@@ -64,7 +64,7 @@ export type DoctorStat = {
 
 export function DoctorStatsRow({ stats }: { stats: DoctorStat[] }) {
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-5">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 lg:gap-5">
       {stats.map((s) => {
         const panelClass = cn(
           "rounded-2xl border px-5 py-5 text-left transition-shadow",

@@ -174,7 +174,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-type DashboardListFilter = "all" | "checked_in" | "in_consultation" | "finished" | "no_show";
+type DashboardListFilter = "all" | "checked_in" | "in_consultation" | "finished" | "no_show" | "cancelled";
+
+/** Cancelled visits are tracked separately — they should not inflate “On your schedule.” */
+function isCancelledAppointment(a: { status: string; display_status?: string; invoice_kind?: string | null }): boolean {
+  return resolveAppointmentUiStatus(a) === "cancelled" || a.status === "cancelled";
+}
 
 /** Square Terminal API (hardware) — needs SQUARE_DEVICE_ID on the server. */
 type SquareTerminalConfig = {
@@ -934,15 +939,17 @@ export default function DoctorDashboardPage() {
           return a.status === "completed" || a.status === "awaiting_payment";
         case "no_show":
           return resolveAppointmentUiStatus(a) === "no_show";
+        case "cancelled":
+          return isCancelledAppointment(a);
         default:
-          return true;
+          // “On your schedule” / show all = patients who were or should have been seen (not cancelled).
+          return !isCancelledAppointment(a);
       }
     },
     [listFilter],
   );
 
   const filteredScheduleListItems = useMemo(() => {
-    if (listFilter === "all") return scheduleListItems;
     const out: typeof scheduleListItems = [];
     let pendingHeader: (typeof scheduleListItems)[number] | null = null;
     for (const item of scheduleListItems) {
@@ -959,7 +966,7 @@ export default function DoctorDashboardPage() {
       }
     }
     return out;
-  }, [scheduleListItems, listFilter, matchesListFilter]);
+  }, [scheduleListItems, matchesListFilter]);
 
   const toggleListFilter = useCallback((key: DashboardListFilter) => {
     setListFilter((prev) => (prev === key ? "all" : key));
@@ -990,14 +997,16 @@ export default function DoctorDashboardPage() {
 
   const dayStats = useMemo(() => {
     const list = appointments;
+    const activeList = list.filter((a) => !isCancelledAppointment(a));
+    const cancelledCount = list.length - activeList.length;
     return [
       {
         label: "On your schedule",
-        value: list.length,
+        value: activeList.length,
         help:
           scheduleView === "day"
-            ? "All of your visits today—not only people who have finished check-in yet."
-            : "All visits in the week or month you are viewing.",
+            ? "Patients who were or should have been seen today (cancelled visits are left out). Compare with Finished today to spot any still needing close-out."
+            : "Patients who were or should have been seen in this week or month (cancelled visits left out). Compare with Finished to spot any still open.",
         onSelect: () => setListFilter("all"),
         active: listFilter === "all",
       },
@@ -1020,7 +1029,7 @@ export default function DoctorDashboardPage() {
       {
         label: "Finished today",
         value: list.filter((a) => ["completed", "awaiting_payment"].includes(a.status)).length,
-        help: "Visit is wrapped up or waiting on payment. Awaiting payment still counts as needing checkout at the desk.",
+        help: "Visit is wrapped up or waiting on payment. Awaiting payment still counts as needing checkout at the desk. Compare with On your schedule to see if any visits still need closing.",
         onSelect: () => toggleListFilter("finished"),
         active: listFilter === "finished",
       },
@@ -1031,6 +1040,13 @@ export default function DoctorDashboardPage() {
         help: "Patient did not attend (including automatic no-shows after the grace period). No-show fee may be on file.",
         onSelect: () => toggleListFilter("no_show"),
         active: listFilter === "no_show",
+      },
+      {
+        label: "Cancelled",
+        value: cancelledCount,
+        help: "Cancelled visits are not counted in On your schedule. Tap to review them separately.",
+        onSelect: () => toggleListFilter("cancelled"),
+        active: listFilter === "cancelled",
       },
     ];
   }, [appointments, scheduleView, listFilter, toggleListFilter]);
@@ -3281,7 +3297,7 @@ export default function DoctorDashboardPage() {
               <span className="mt-2 block text-xs font-semibold text-[#0d5c2e]">
                 Filtered list —{" "}
                 <button type="button" className="underline" onClick={() => setListFilter("all")}>
-                  show all
+                  show schedule
                 </button>
               </span>
             ) : null}
@@ -3416,13 +3432,25 @@ export default function DoctorDashboardPage() {
           <Loader variant="page" label="Loading appointments" sublabel="Almost there…" />
         ) : scheduleLayout === "list" && filteredScheduleListItems.length === 0 ? (
           <DoctorEmptyWell
-            title={listFilter !== "all" ? "Nothing in this filter" : scheduleView === "day" ? "Clear calendar today" : scheduleView === "week" ? "No visits this week" : "No visits this month"}
+            title={
+              listFilter === "cancelled"
+                ? "No cancelled visits"
+                : listFilter !== "all"
+                  ? "Nothing in this filter"
+                  : scheduleView === "day"
+                    ? "Clear calendar today"
+                    : scheduleView === "week"
+                      ? "No visits this week"
+                      : "No visits this month"
+            }
             description={
-              listFilter !== "all"
-                ? "Try another stat filter, or show all visits."
-                : scheduleView === "day"
-                  ? "When patients book with you, they will show up here. Use Week or Month above to plan ahead, or open My Schedule."
-                  : `Nothing on your schedule for ${scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}. Try another week or month.`
+              listFilter === "cancelled"
+                ? "No cancelled appointments in this day, week, or month view."
+                : listFilter !== "all"
+                  ? "Tap the active stat again, or choose On your schedule, to go back to your full active list."
+                  : scheduleView === "day"
+                    ? "No active visits today (cancelled ones are listed under Cancelled)."
+                    : "No active visits in this range (cancelled ones are listed under Cancelled)."
             }
           >
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100/80 text-[#16a349] shadow-inner">
