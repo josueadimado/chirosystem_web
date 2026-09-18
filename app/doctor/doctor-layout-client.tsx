@@ -53,7 +53,9 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
     pathname === "/doctor/schedule" ||
     pathname === "/doctor/patients" ||
     pathname === "/doctor/intake" ||
-    pathname === "/doctor/insurance-claims";
+    pathname === "/doctor/insurance-claims" ||
+    pathname.endsWith("/history") ||
+    pathname.endsWith("/record");
 
   return (
     <div className="flex h-[100dvh] overflow-hidden">

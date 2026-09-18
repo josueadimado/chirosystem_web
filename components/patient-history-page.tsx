@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useAppFeedback } from "@/components/app-feedback";
 import { Loader } from "@/components/loader";
-import { EmailBillButton } from "@/components/email-bill-button";
 import { PatientBillPortalModal } from "@/components/patient-bill-portal-modal";
 import { useRecordCashPayment } from "@/components/record-cash-payment-modal";
 import { usePatientBillEmail } from "@/hooks/use-patient-bill-email";
@@ -12,7 +11,7 @@ import {
   isPatientBillEmailSuccessMessage,
 } from "@/lib/patient-bill-email";
 import { PatientNameWithProfile, patientFullName } from "@/components/patient-payment-profile";
-import { AppointmentStatusBadge, appointmentHistoryRowClass } from "@/components/status-chip";
+import { AppointmentStatusBadge } from "@/components/status-chip";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { VisitDiagnosisDisplay } from "@/components/visit-diagnosis-display";
 import { cn } from "@/lib/utils";
@@ -21,7 +20,18 @@ import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { parseMoneyAmount } from "@/lib/record-cash-prompt";
 import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
-import { CalendarClock, FileText, Printer, Receipt, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CreditCard,
+  Download,
+  FileText,
+  Mail,
+  Printer,
+  Receipt,
+  Search,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -147,7 +157,6 @@ function invoiceKindLabel(kind: string | undefined): string {
 function PatientAccountSummaryCard({
   summary,
   billingHref,
-  patientName,
 }: {
   summary: PatientAccountSummary;
   billingHref?: string;
@@ -161,96 +170,59 @@ function PatientAccountSummaryCard({
 
   return (
     <section
-      className="mt-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-100/80"
+      className="grid grid-cols-1 gap-6 border-t border-[#e8e8e8] bg-[#ecfdf5] px-4 py-4 sm:grid-cols-3 sm:px-6"
       aria-label="Account summary"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Balance &amp; visits</p>
-          {hasBalance ? (
-            <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-amber-950">
-              {formatMoney(summary.balance_total)}
-              <span className="ml-2 text-sm font-semibold uppercase text-amber-700">
-                {summary.has_overdue ? "Overdue" : "Due"}
-              </span>
-            </p>
-          ) : (
-            <p className="mt-1 text-lg font-semibold text-[#0d5c2e]">No balance due</p>
-          )}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-[#949494]">BALANCE DUE</p>
+          {billingHref ? (
+            <Link
+              href={billingHref}
+              className="text-xs font-semibold text-[#16a349] hover:underline"
+            >
+              All invoices →
+            </Link>
+          ) : null}
         </div>
-        {billingHref ? (
-          <Link
-            href={billingHref}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white"
-          >
-            All invoices →
-          </Link>
+        <p
+          className={cn(
+            "text-xl font-bold tabular-nums tracking-tight",
+            hasBalance ? "text-[#ef4444]" : "text-[#16a349]",
+          )}
+        >
+          {hasBalance ? formatMoney(summary.balance_total) : "No balance"}
+        </p>
+        {hasBalance ? (
+          <div className="space-y-0.5 text-xs text-[#949494]">
+            {visitDue > 0.009 ? <div>Visit bills: {formatMoney(summary.balance_visit)}</div> : null}
+            {nsDue > 0.009 ? <div>No-show fees: {formatMoney(summary.balance_no_show_fee)}</div> : null}
+            {lcDue > 0.009 ? <div>Late cancel fee: {formatMoney(summary.balance_late_cancel_fee)}</div> : null}
+            {summary.has_overdue ? <div className="font-semibold text-amber-700">Overdue</div> : null}
+          </div>
         ) : null}
       </div>
 
-      {hasBalance ? (
-        <ul className="mt-3 flex flex-wrap gap-2 text-xs">
-          {visitDue > 0.009 ? (
-            <li className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-800">
-              Visit bills {formatMoney(summary.balance_visit)}
-            </li>
-          ) : null}
-          {nsDue > 0.009 ? (
-            <li className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 font-medium text-red-950">
-              No-show fees {formatMoney(summary.balance_no_show_fee)}
-            </li>
-          ) : null}
-          {lcDue > 0.009 ? (
-            <li className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 font-medium text-rose-950">
-              Cancel fees {formatMoney(summary.balance_late_cancel_fee)}
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
-
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Completed visits</p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">{summary.visit_count}</p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Upcoming</p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#047857]">{summary.upcoming_count}</p>
-        </div>
-        <div className="rounded-xl border border-red-100 bg-red-50/50 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-red-800/80">No-shows on record</p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-red-950">{summary.no_show_count}</p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Cancelled</p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-slate-700">{summary.cancelled_count}</p>
-        </div>
+      <div className="space-y-1">
+        <p className="text-xs font-semibold text-[#949494]">VISITS</p>
+        <p className="text-xl font-bold tabular-nums text-[#0d5c2e]">{summary.visit_count}</p>
+        <p className="text-xs text-[#949494]">
+          {summary.no_show_count} no-show · {summary.cancelled_count} cancelled
+        </p>
       </div>
 
-      {summary.upcoming_count > 0 && summary.next_appointment_date ? (
-        <p className="mt-3 flex items-center gap-2 text-sm text-[#0d5c2e]">
-          <CalendarClock className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
-          <span>
-            <span className="font-semibold">Next:</span>{" "}
+      <div className="space-y-1">
+        <p className="text-xs font-semibold text-[#949494]">UPCOMING</p>
+        <p className="text-xl font-bold tabular-nums text-[#0d5c2e]">{summary.upcoming_count}</p>
+        {summary.upcoming_count > 0 && summary.next_appointment_date ? (
+          <p className="text-xs text-[#949494]">
             {formatWeekdayMonthDayYear(summary.next_appointment_date)}
             {summary.next_appointment_time ? ` at ${summary.next_appointment_time}` : ""}
-          </span>
-        </p>
-      ) : (
-        <p className="mt-3 text-sm text-slate-500">No upcoming appointments on the schedule.</p>
-      )}
-
-      <p className="mt-2 text-[11px] text-slate-500">
-        Unpaid totals match{" "}
-        {billingHref ? (
-          <Link href={billingHref} className="font-medium text-[#0d5c2e] hover:underline">
-            Invoices &amp; Billing
-          </Link>
+          </p>
         ) : (
-          "billing"
+          <p className="text-xs text-[#949494]">No upcoming appointments</p>
         )}
-        . Search for <span className="font-medium text-slate-700">{patientName}</span> to see every bill.
-      </p>
+      </div>
     </section>
   );
 }
@@ -363,232 +335,241 @@ function VisitBillPanel({
 
   if (!inv) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-5 text-center">
+      <div className="rounded-lg border border-dashed border-[#e8e8e8] bg-[#f5f5f5]/60 p-5 text-center">
         <p className="text-sm font-semibold text-slate-700">No patient bill yet</p>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-[#949494]">
           A printable bill appears here after the visit is completed and billing is saved.
         </p>
       </div>
     );
   }
 
+  const remaining =
+    inv.remaining_client_responsibility_total ??
+    Math.max(
+      0,
+      parseFloat(inv.patient_charge_total ?? inv.total_amount) -
+        parseFloat(inv.payments_received_total ?? "0"),
+    ).toFixed(2);
+
   return (
-    <div
-      className={cn(
-        "rounded-xl border-2 p-4 shadow-sm",
-        isPenaltyBill
-          ? "border-red-200/90 bg-gradient-to-b from-red-50/80 to-white"
-          : "border-[#0f766e]/25 bg-gradient-to-b from-[#f0fdfa] to-white",
-      )}
-    >
-      <div
-        className={cn(
-          "flex flex-wrap items-start justify-between gap-3 border-b pb-3",
-          isPenaltyBill ? "border-red-200/80" : "border-[#0f766e]/15",
-        )}
-      >
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <p
-            className={cn(
-              "text-[10px] font-bold uppercase tracking-[0.16em]",
-              isPenaltyBill ? "text-red-900" : "text-[#0f766e]",
-            )}
-          >
-            {isPenaltyBill ? invoiceKindLabel(inv.kind) : "Patient bill"}
+          <p className="text-xs font-semibold text-[#949494]">
+            INVOICE {inv.invoice_number}
           </p>
-          <p className="mt-1 font-mono text-sm font-bold text-slate-900">{inv.invoice_number}</p>
-          <p className="mt-0.5 text-xs capitalize text-slate-600">{inv.status.replace(/_/g, " ")}</p>
+          <p className="text-xs text-[#949494]">{invoiceKindLabel(inv.kind)}</p>
           {isPenaltyBill && unpaid ? (
-            <p className="mt-1 text-xs text-red-950/90">
+            <p className="mt-1 text-xs text-red-800">
               {patientName} missed or cancelled this visit — collect the fee below when they pay.
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {unpaid && onChargeSavedCard && hasChargeableSavedCard && !cardDisplayOnly ? (
-            <div className="flex w-full flex-wrap items-center gap-2">
-              {savedCards && savedCards.length > 1 && onChargeSavedCardIdChange ? (
-                <select
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
-                  value={chargeSavedCardId ?? savedCards.find((c) => c.is_default)?.id ?? savedCards[0]?.id ?? ""}
-                  onChange={(e) => onChargeSavedCardIdChange(Number(e.target.value))}
-                  aria-label="Card to charge"
-                >
-                  {savedCards.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {(c.card_brand || "Card").toUpperCase()} •••• {c.card_last4}
-                      {c.is_default ? " (default)" : ""}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              <button
-                type="button"
-                disabled={chargingSavedCard}
-                onClick={onChargeSavedCard}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
-              >
-                {chargingSavedCard
-                  ? "Charging card…"
-                  : `Charge saved card${cardLast4 ? ` (•••• ${cardLast4})` : ""}`}
-              </button>
-            </div>
-          ) : null}
-          {unpaid && cardDisplayOnly ? (
-            <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-              Card digits are on file but cannot be charged — open the patient chart, save the card again, then use{" "}
-              <strong>Charge saved card</strong>.
-            </p>
-          ) : null}
-          {unpaid && onRecordCashPayment ? (
-            <button
-              type="button"
-              disabled={recordingCash}
-              onClick={onRecordCashPayment}
-              className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-950 shadow-sm hover:bg-emerald-100 disabled:opacity-60"
-            >
-              {recordingCash ? "Recording…" : "Record cash payment"}
-            </button>
-          ) : null}
-          {awaiting && onSyncPayment ? (
-            <button
-              type="button"
-              disabled={syncing}
-              onClick={() => onSyncPayment(inv.id)}
-              className="inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100 disabled:opacity-60"
-            >
-              {syncing ? "Checking Square…" : "Check Square (any device)"}
-            </button>
-          ) : null}
-          {awaiting && onConfirmPaid ? (
-            <button
-              type="button"
-              disabled={confirming}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Mark ${inv.invoice_number} as paid?\n\nOnly use this if you already see the payment in the Square app.`,
-                  )
-                ) {
-                  onConfirmPaid(inv.id, inv.invoice_number);
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-60"
-            >
-              {confirming ? "Updating…" : "Mark paid (verified in Square)"}
-            </button>
-          ) : null}
-          {inv.status === "paid" && onEmail ? (
-            <EmailBillButton
-              onClick={() => onEmail(inv.id)}
-              sending={emailing}
-              sentTo={emailSentTo}
-            />
-          ) : null}
-          {onEditBilling ? (
-            <button
-              type="button"
-              onClick={onEditBilling}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#16a349]/50 bg-[#ecfdf5] px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] shadow-sm hover:bg-[#d1fae5]"
-            >
-              Edit billing
-            </button>
-          ) : null}
-          <button
-            type="button"
-            disabled={printing}
-            onClick={() => onPrint(inv.id, inv.status)}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
-          >
-            <Printer className="h-4 w-4" aria-hidden />
-            {printing ? "Opening…" : inv.status === "paid" ? "Reprint bill" : "View & print bill"}
-          </button>
-        </div>
+        {inv.status === "paid" ? (
+          <span className="inline-block rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">
+            Paid
+          </span>
+        ) : (
+          <span className="inline-block rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-[#ef4444]">
+            Unpaid
+          </span>
+        )}
       </div>
-      {onEditBilling && inv.status === "paid" && !isPenaltyBill ? (
-        <p className="mt-3 text-xs text-slate-600">
-          Paid already? Use <strong>Edit billing</strong> to fix lines or discounts — if the new total is higher than
-          payments received, the visit reopens for collection.
-        </p>
-      ) : null}
 
       {lines.length > 0 ? (
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[280px] border-collapse text-left text-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[280px] text-xs">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-100/80 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                <th className="px-2 py-2">Service</th>
-                <th className="px-2 py-2">Code</th>
-                <th className="px-2 py-2 text-right">Qty</th>
-                <th className="px-2 py-2 text-right">Amount</th>
+              <tr className="border-b border-[#e8e8e8]">
+                <th className="py-2 text-left font-semibold text-[#949494]">Service</th>
+                <th className="py-2 text-left font-semibold text-[#949494]">Code</th>
+                <th className="py-2 text-center font-semibold text-[#949494]">Qty</th>
+                <th className="py-2 text-right font-semibold text-[#949494]">Price</th>
+                <th className="py-2 text-right font-semibold text-[#949494]">Total</th>
               </tr>
             </thead>
             <tbody>
               {lines.map((line, i) => (
-                <tr key={i} className="border-b border-slate-100">
-                  <td className="px-2 py-2 font-medium text-slate-800">
+                <tr key={i} className="border-b border-[#e8e8e8] last:border-b-0">
+                  <td className="py-2 text-foreground">
                     {line.service_name}
                     {line.charges_patient === false ? (
-                      <span className="ml-1 text-[10px] font-normal text-slate-500">(insurance)</span>
+                      <span className="ml-1 text-[10px] text-[#949494]">(insurance)</span>
                     ) : null}
                   </td>
-                  <td className="px-2 py-2 text-slate-600">{line.billing_code || "—"}</td>
-                  <td className="px-2 py-2 text-right text-slate-700">{line.quantity}</td>
-                  <td className="px-2 py-2 text-right font-semibold text-slate-900">${line.line_total}</td>
+                  <td className="py-2 text-[#949494]">{line.billing_code || "—"}</td>
+                  <td className="py-2 text-center">{line.quantity}</td>
+                  <td className="py-2 text-right">${line.unit_price}</td>
+                  <td className="py-2 text-right font-medium">${line.line_total}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <p className="mt-3 text-xs text-slate-500">No line items on file for this visit.</p>
+        <p className="text-xs text-[#949494]">No line items on file for this visit.</p>
       )}
 
-      <div className="mt-4 space-y-1 border-t border-slate-200 pt-3 text-sm text-slate-700">
+      <div className="space-y-2 rounded-lg border border-[#d1e8d8] bg-[#ecfdf5] p-4">
         {inv.bill_charges_total ? (
-          <div className="flex justify-between gap-4">
+          <div className="flex justify-between gap-4 text-sm">
             <span>Total documented</span>
-            <span className="font-medium">${inv.bill_charges_total}</span>
+            <span>${inv.bill_charges_total}</span>
           </div>
         ) : null}
-        <div className="flex justify-between gap-4 font-semibold text-[#0d5c2e]">
-          <span>Patient Payments</span>
-          <span>${inv.patient_charge_total ?? inv.total_amount}</span>
+        <div className="flex justify-between gap-4 text-sm">
+          <span>Subtotal</span>
+          <span>${inv.subtotal}</span>
         </div>
-        {inv.insurance_remaining_total && parseFloat(inv.insurance_remaining_total) > 0 ? (
-          <div className="flex justify-between gap-4">
-            <span>Remaining balance</span>
-            <span className="font-medium">${inv.insurance_remaining_total}</span>
-          </div>
-        ) : null}
         {inv.discount !== "0.00" ? (
-          <div className="flex justify-between gap-4 text-slate-600">
-            <span>Professional discount</span>
+          <div className="flex justify-between gap-4 text-sm">
+            <span>Discount</span>
             <span>-${inv.discount}</span>
           </div>
         ) : null}
         {inv.credit_applied_total !== "0.00" ? (
-          <div className="flex justify-between gap-4 text-slate-600">
-            <span>Credit applied</span>
+          <div className="flex justify-between gap-4 text-sm">
+            <span>Credit</span>
             <span>-${inv.credit_applied_total}</span>
           </div>
         ) : null}
-        <div className="flex justify-between gap-4 text-slate-600">
-          <span>Payments received</span>
-          <span className="font-medium">${inv.payments_received_total ?? "0.00"}</span>
+        <div className="flex justify-between gap-4 border-t border-[#a7d4b8] pt-2 text-sm font-semibold text-[#0d5c2e]">
+          <span>Total</span>
+          <span>${inv.patient_charge_total ?? inv.total_amount}</span>
         </div>
-        <div className="flex justify-between gap-4 border-t border-slate-200 pt-2 text-base font-bold text-slate-900">
-          <span>Remaining Client Responsibility</span>
-          <span>
-            $
-            {inv.remaining_client_responsibility_total ??
-              Math.max(
-                0,
-                parseFloat(inv.patient_charge_total ?? inv.total_amount) -
-                  parseFloat(inv.payments_received_total ?? "0"),
-              ).toFixed(2)}
-          </span>
+        {inv.insurance_remaining_total && parseFloat(inv.insurance_remaining_total) > 0 ? (
+          <div className="flex justify-between gap-4 text-xs text-[#949494]">
+            <span>Insurance remaining</span>
+            <span>${inv.insurance_remaining_total}</span>
+          </div>
+        ) : null}
+        <div className="space-y-1 border-t border-[#a7d4b8] pt-2">
+          <div className="flex justify-between gap-4 text-xs text-[#949494]">
+            <span>Amount received</span>
+            <span>${inv.payments_received_total ?? "0.00"}</span>
+          </div>
+          <div className="flex justify-between gap-4 text-sm font-semibold">
+            <span className="text-[#0d5c2e]">Remaining due</span>
+            <span className={unpaid ? "text-[#ef4444]" : "text-[#16a349]"}>${remaining}</span>
+          </div>
         </div>
+      </div>
+
+      {onEditBilling && inv.status === "paid" && !isPenaltyBill ? (
+        <p className="text-xs text-[#949494]">
+          Paid already? Use <strong>Edit billing</strong> to fix lines or discounts — if the new total is higher than
+          payments received, the visit reopens for collection.
+        </p>
+      ) : null}
+
+      {unpaid && cardDisplayOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          Card digits are on file but cannot be charged — open the patient chart, save the card again, then use{" "}
+          <strong>Charge card</strong>.
+        </p>
+      ) : null}
+
+      {unpaid && onChargeSavedCard && hasChargeableSavedCard && !cardDisplayOnly && savedCards && savedCards.length > 1 && onChargeSavedCardIdChange ? (
+        <select
+          className="w-full rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] px-3 py-2 text-sm"
+          value={chargeSavedCardId ?? savedCards.find((c) => c.is_default)?.id ?? savedCards[0]?.id ?? ""}
+          onChange={(e) => onChargeSavedCardIdChange(Number(e.target.value))}
+          aria-label="Card to charge"
+        >
+          {savedCards.map((c) => (
+            <option key={c.id} value={c.id}>
+              {(c.card_brand || "Card").toUpperCase()} •••• {c.card_last4}
+              {c.is_default ? " (default)" : ""}
+            </option>
+          ))}
+        </select>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <button
+          type="button"
+          disabled={printing}
+          onClick={() => onPrint(inv.id, inv.status)}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2.5 text-xs font-medium text-slate-800 hover:bg-[#f5f5f5] disabled:opacity-60"
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden />
+          {printing ? "Opening…" : "View / Print"}
+        </button>
+        {onEmail ? (
+          <button
+            type="button"
+            disabled={emailing}
+            onClick={() => onEmail(inv.id)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2.5 text-xs font-medium text-slate-800 hover:bg-[#f5f5f5] disabled:opacity-60"
+          >
+            <Mail className="h-3.5 w-3.5" aria-hidden />
+            {emailing ? "Sending…" : emailSentTo ? `Sent to ${emailSentTo}` : "Email bill"}
+          </button>
+        ) : (
+          <span className="hidden sm:block" />
+        )}
+        {unpaid && onRecordCashPayment ? (
+          <button
+            type="button"
+            disabled={recordingCash}
+            onClick={onRecordCashPayment}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2.5 text-xs font-medium text-slate-800 hover:bg-[#f5f5f5] disabled:opacity-60"
+          >
+            <CreditCard className="h-3.5 w-3.5" aria-hidden />
+            {recordingCash ? "Recording…" : "Record cash"}
+          </button>
+        ) : null}
+        {unpaid && onChargeSavedCard && hasChargeableSavedCard && !cardDisplayOnly ? (
+          <button
+            type="button"
+            disabled={chargingSavedCard}
+            onClick={onChargeSavedCard}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#e9982f] px-3 py-2.5 text-xs font-medium text-white hover:bg-[#d48928] disabled:opacity-60"
+          >
+            <Zap className="h-3.5 w-3.5" aria-hidden />
+            {chargingSavedCard
+              ? "Charging…"
+              : `Charge card${cardLast4 ? ` ···· ${cardLast4}` : ""}`}
+          </button>
+        ) : null}
+        {awaiting && onSyncPayment ? (
+          <button
+            type="button"
+            disabled={syncing}
+            onClick={() => onSyncPayment(inv.id)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2.5 text-xs font-medium text-slate-800 hover:bg-[#f5f5f5] disabled:opacity-60"
+          >
+            {syncing ? "Checking Square…" : "Check Square"}
+          </button>
+        ) : null}
+        {awaiting && onConfirmPaid ? (
+          <button
+            type="button"
+            disabled={confirming}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Mark ${inv.invoice_number} as paid?\n\nOnly use this if you already see the payment in the Square app.`,
+                )
+              ) {
+                onConfirmPaid(inv.id, inv.invoice_number);
+              }
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-60"
+          >
+            {confirming ? "Updating…" : "Mark paid"}
+          </button>
+        ) : null}
+        {onEditBilling ? (
+          <button
+            type="button"
+            onClick={onEditBilling}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#16a349]/40 bg-[#ecfdf5] px-3 py-2.5 text-xs font-medium text-[#0d5c2e] hover:bg-[#d1fae5]"
+          >
+            Edit billing
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -604,35 +585,41 @@ function VisitListRow({
   onSelect: () => void;
 }) {
   const inv = a.invoice;
+  const unpaid = invoiceIsUnpaid(inv);
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "w-full rounded-xl border px-3 py-2.5 text-left transition",
+        "w-full rounded-lg border px-3 py-2.5 text-left transition",
         selected
-          ? "border-[#16a349] bg-[#ecfdf5] shadow-sm ring-2 ring-[#16a349]/25"
-          : a.status === "no_show"
-            ? "border-red-200/90 bg-red-50/50 hover:border-red-300 hover:bg-red-50"
-            : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80",
+          ? "border-[#16a349] bg-[#ecfdf5]"
+          : "border-[#e8e8e8] bg-white hover:border-[#949494]/50",
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</span>
-        <AppointmentStatusBadge status={a.status} size="xs" />
+      <div className="mb-1 flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold text-[#949494]">{formatMonthDayYear(a.appointment_date)}</div>
+          <div className="text-xs tabular-nums text-[#949494]">
+            {a.start_time}
+            {a.end_time ? `–${a.end_time}` : ""}
+          </div>
+        </div>
+        {unpaid ? (
+          <span
+            className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#ef4444]"
+            title="Unpaid"
+            aria-label="Unpaid bill"
+          />
+        ) : null}
       </div>
-      <p className="mt-0.5 text-xs text-slate-600 tabular-nums">
-        {a.start_time}
-        {a.service ? ` · ${a.service}` : ""}
-      </p>
-      {inv ? (
-        <p className="mt-1 text-xs font-medium text-[#0f766e]">
-          {invoiceKindLabel(inv.kind)} {inv.invoice_number} · ${inv.total_amount}
-          {inv.status !== "paid" ? ` · ${inv.status}` : " · paid"}
-        </p>
-      ) : (
-        <p className="mt-1 text-xs text-slate-400">No bill yet</p>
-      )}
+      <div className="mb-1.5 truncate text-xs text-slate-900">{a.service || "Visit"}</div>
+      <div className="flex items-center justify-between gap-2">
+        <AppointmentStatusBadge status={a.status} size="xs" />
+        {inv ? (
+          <span className="shrink-0 text-xs tabular-nums text-[#949494]">${inv.total_amount}</span>
+        ) : null}
+      </div>
     </button>
   );
 }
@@ -702,62 +689,62 @@ function VisitRecordCard({
 }) {
   const a = appointment;
   const dateLabel = formatWeekdayMonthDayYear(a.appointment_date);
+  const shortDate = formatMonthDayYear(a.appointment_date);
   const [panel, setPanel] = useState<"chart" | "bill">(visitHasBill(a) ? "bill" : "chart");
 
   return (
-    <article className={cn("overflow-hidden rounded-2xl border", appointmentHistoryRowClass(a.status))}>
-      <header
-        className={cn(
-          "border-b px-4 py-3 sm:px-5",
-          a.status === "no_show" ? "border-red-200/80 bg-red-50/90" : "border-slate-100 bg-slate-50/90",
-        )}
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold text-slate-900">{dateLabel}</h2>
-            <p className="mt-0.5 text-sm font-medium text-slate-700">
+    <article className="bg-white">
+      <header className="sticky top-0 z-10 mb-2 border-b border-[#e8e8e8] bg-white pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-[#0d5c2e]">{shortDate}</h2>
+            <span className="text-sm text-[#949494]">·</span>
+            <span className="text-sm tabular-nums text-[#949494]">
               {a.start_time}
-              {a.end_time ? ` – ${a.end_time}` : ""}
-              {a.service ? ` · ${a.service}` : ""}
-            </p>
-            {a.provider ? (
-              <p className="mt-0.5 text-sm text-slate-600">
-                <span className="font-semibold text-[#0d5c2e]">{a.provider}</span>
-              </p>
-            ) : null}
+              {a.end_time ? `–${a.end_time}` : ""}
+            </span>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <AppointmentStatusBadge status={a.status} size="sm" />
-              {onRemoveFromChart ? (
-                <button
-                  type="button"
-                  disabled={removingFromChart}
-                  onClick={onRemoveFromChart}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 shadow-sm hover:bg-rose-50 disabled:opacity-50"
-                >
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                  {removingFromChart ? "Removing…" : "Remove from chart"}
-                </button>
-              ) : null}
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
             {isVisitToday(a.appointment_date) ? (
               <Link
                 href={`${scheduleHrefPrefix}?appointment=${a.id}`}
-                className="text-xs font-semibold text-[#0d5c2e] hover:underline"
+                className="rounded-lg border border-[#e8e8e8] bg-white px-2.5 py-1.5 text-xs font-medium text-[#0d5c2e] hover:bg-[#f5f5f5]"
               >
-                Today&apos;s schedule →
+                Today&apos;s schedule
               </Link>
             ) : null}
+            {onRemoveFromChart ? (
+              <button
+                type="button"
+                disabled={removingFromChart}
+                onClick={onRemoveFromChart}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                {removingFromChart ? "Removing…" : "Remove"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={printingBill || !a.invoice}
+              onClick={() => {
+                if (a.invoice) onPrintBill(a.invoice.id, a.invoice.status);
+              }}
+              className="rounded-lg border border-[#e8e8e8] bg-white p-1.5 hover:bg-[#f5f5f5] disabled:opacity-40"
+              title="Print bill"
+              aria-label="Print bill"
+            >
+              <Printer className="h-3.5 w-3.5 text-[#949494]" aria-hidden />
+            </button>
           </div>
         </div>
-        <div className="mt-3 flex gap-1 rounded-xl border border-slate-200/90 bg-white p-1 lg:hidden">
+        <div className="mt-3 flex gap-1 rounded-lg border border-[#e8e8e8] bg-[#f5f5f5] p-1 lg:hidden">
           <button
             type="button"
             onClick={() => setPanel("chart")}
             className={cn(
-              "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition",
-              panel === "chart" ? "bg-[#16a349] text-white" : "text-slate-600 hover:bg-slate-50",
+              "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition",
+              panel === "chart" ? "bg-[#16a349] text-white" : "text-[#949494] hover:bg-white",
             )}
           >
             <FileText className="h-3.5 w-3.5" aria-hidden />
@@ -767,8 +754,8 @@ function VisitRecordCard({
             type="button"
             onClick={() => setPanel("bill")}
             className={cn(
-              "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition",
-              panel === "bill" ? "bg-[#16a349] text-white" : "text-slate-600 hover:bg-slate-50",
+              "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition",
+              panel === "bill" ? "bg-[#16a349] text-white" : "text-[#949494] hover:bg-white",
             )}
           >
             <Receipt className="h-3.5 w-3.5" aria-hidden />
@@ -777,69 +764,89 @@ function VisitRecordCard({
         </div>
       </header>
 
-      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-2">
-        <section className={cn("space-y-4", panel === "bill" ? "hidden lg:block" : "")}>
+      <div className="max-w-4xl space-y-6 p-1 sm:p-2">
+        <div className="grid grid-cols-1 gap-4 rounded-lg border border-[#d1e8d8] bg-[#ecfdf5] p-4 sm:grid-cols-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              Visit reminders & handoff
-            </p>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p className="text-xs font-semibold text-[#949494]">PROVIDER</p>
+            <p className="mt-1 text-sm font-medium text-[#0d5c2e]">{a.provider || "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-[#949494]">SERVICE</p>
+            <p className="mt-1 text-sm font-medium text-[#0d5c2e]">{a.service || "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-[#949494]">STATUS</p>
+            <div className="mt-1">
+              <AppointmentStatusBadge status={a.status} size="sm" />
+            </div>
+          </div>
+        </div>
+
+        <section className={cn("space-y-6", panel === "bill" ? "hidden lg:block" : "")}>
+          {a.visit?.reason_for_visit?.trim() ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#949494]">REASON FOR VISIT</p>
+              <p className="rounded-lg border border-[#e8e8e8] bg-white p-3 text-sm text-slate-800">
+                {a.visit.reason_for_visit}
+              </p>
+            </div>
+          ) : null}
+
+          <div className="space-y-3 border-t border-[#e8e8e8] pt-6">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-[#949494]">HANDOFF &amp; REMINDERS</p>
+            </div>
+            <p className="text-xs text-[#949494]">
               Saved on this appointment for the next visit — not the same as consultation SOAP notes below.
             </p>
-            <div className="mt-2">
-              <ChartNoteWorkspace
-                value={handoffValue}
-                onChange={onHandoffChange}
-                editable={a.can_edit_handoff_notes}
-                saving={savingHandoff}
-                onSave={onSaveHandoff}
-                meta={{
-                  dateLabel: `${dateLabel} at ${a.start_time}`,
-                  provider: a.provider ?? undefined,
-                  service: a.service ?? undefined,
-                }}
-                lineItems={a.visit?.rendered_services}
-                inputClassName={inputClass}
-              />
-            </div>
+            <ChartNoteWorkspace
+              value={handoffValue}
+              onChange={onHandoffChange}
+              editable={a.can_edit_handoff_notes}
+              saving={savingHandoff}
+              onSave={onSaveHandoff}
+              meta={{
+                dateLabel: `${dateLabel} at ${a.start_time}`,
+                provider: a.provider ?? undefined,
+                service: a.service ?? undefined,
+              }}
+              lineItems={a.visit?.rendered_services}
+              inputClassName={inputClass}
+            />
           </div>
 
           {a.visit ? (
-            <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4 text-sm">
-              {a.visit.reason_for_visit?.trim() ? (
-                <p>
-                  <span className="font-semibold text-slate-600">Reason for visit: </span>
-                  {a.visit.reason_for_visit}
-                </p>
-              ) : null}
+            <>
               {a.visit.diagnosis?.trim() || (a.visit.diagnoses?.length ?? 0) > 0 ? (
-                <div className={a.visit.reason_for_visit?.trim() ? "mt-2" : ""}>
-                  <p className="font-semibold text-slate-600">Diagnosis (on bill)</p>
-                  <VisitDiagnosisDisplay diagnosis={a.visit.diagnosis} diagnoses={a.visit.diagnoses} className="mt-1" />
+                <div className="space-y-3 border-t border-[#e8e8e8] pt-6">
+                  <p className="text-xs font-semibold text-[#949494]">DIAGNOSIS</p>
+                  <VisitDiagnosisDisplay diagnosis={a.visit.diagnosis} diagnoses={a.visit.diagnoses} />
                 </div>
               ) : null}
+
               {a.visit.doctor_notes?.trim() ? (
-                <div className="mt-4">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">SOAP chart</p>
-                  <div className="mt-2">
+                <div className="space-y-3 border-t border-[#e8e8e8] pt-6">
+                  <p className="text-xs font-semibold text-[#949494]">CHART NOTES</p>
+                  <div className="min-h-28 rounded-lg border border-[#e8e8e8] bg-white p-4">
                     <ChartNoteReader text={a.visit.doctor_notes} />
                   </div>
+                  {a.visit.completed_at ? (
+                    <p className="text-xs text-[#949494]">
+                      Visit completed {formatMonthDayYear(a.visit.completed_at.slice(0, 10))}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
-              {a.visit.completed_at ? (
-                <p className="mt-3 text-xs text-slate-500">
-                  Visit completed {formatMonthDayYear(a.visit.completed_at.slice(0, 10))}
-                </p>
-              ) : null}
-            </div>
+            </>
           ) : (
-            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <p className="rounded-lg border border-dashed border-[#e8e8e8] bg-[#f5f5f5] px-4 py-3 text-sm text-[#949494]">
               This appointment has not been completed as a clinical visit yet.
             </p>
           )}
         </section>
 
-        <section className={cn(panel === "chart" ? "hidden lg:block" : "")}>
+        <section className={cn("space-y-3 border-t border-[#e8e8e8] pt-6", panel === "chart" ? "hidden lg:block" : "")}>
+          <p className="text-xs font-semibold text-[#949494]">SERVICES &amp; BILLING</p>
           <VisitBillPanel
             appointment={a}
             patientName={patientName}
@@ -930,6 +937,7 @@ export function PatientHistoryPage({
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
   const [billingEditAppointment, setBillingEditAppointment] = useState<AppointmentHistoryRow | null>(null);
   const [removingAppointmentId, setRemovingAppointmentId] = useState<number | null>(null);
+  const [visitSearch, setVisitSearch] = useState("");
   const { runWithFeedback, toast } = useAppFeedback();
   const { requestCashAmount, RecordCashPaymentModal } = useRecordCashPayment();
 
@@ -1151,10 +1159,39 @@ export function PatientHistoryPage({
 
   const billCount = detail?.appointments.filter(visitHasBill).length ?? 0;
 
+  const filteredAppointments = useMemo(() => {
+    if (!detail) return [];
+    const q = visitSearch.trim().toLowerCase();
+    if (!q) return detail.appointments;
+    return detail.appointments.filter((a) => {
+      const hay = [
+        a.appointment_date,
+        a.start_time,
+        a.end_time,
+        a.service,
+        a.provider,
+        a.status,
+        a.invoice?.invoice_number,
+        a.visit?.reason_for_visit,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [detail, visitSearch]);
+
   const selectedVisit = useMemo(() => {
     if (!detail || selectedVisitId == null) return null;
     return detail.appointments.find((a) => a.id === selectedVisitId) ?? null;
   }, [detail, selectedVisitId]);
+
+  useEffect(() => {
+    if (!detail) return;
+    if (selectedVisitId != null && filteredAppointments.some((a) => a.id === selectedVisitId)) return;
+    // Keep selection inside the visible (possibly filtered) visit list.
+    setSelectedVisitId(filteredAppointments[0]?.id ?? detail.appointments[0]?.id ?? null);
+  }, [detail, filteredAppointments, selectedVisitId]);
 
   const removeFromChart = async (appointment: AppointmentHistoryRow) => {
     if (!allowRemoveFromChart) return;
@@ -1210,20 +1247,25 @@ export function PatientHistoryPage({
   }
 
   return (
-    <div className="mx-auto flex min-h-0 max-w-6xl flex-col p-3 sm:p-4 lg:p-5">
-      <header className="sticky top-0 z-20 -mx-3 border-b border-slate-200/90 bg-[#f8faf9]/95 px-3 py-3 backdrop-blur sm:-mx-4 sm:px-4 lg:-mx-5 lg:px-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex min-h-0 flex-1 flex-col bg-[#f5f5f5]">
+      <header className="sticky top-0 z-20 border-b border-[#e8e8e8] bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-              <PatientNameWithProfile
-                name={patientFullName(detail.first_name, detail.last_name)}
-                profile={detail.payment_profile}
-                irisTag={detail.iris_tag}
-              />
-            </h1>
-            <p className="mt-0.5 text-sm text-slate-600">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-2xl font-bold tracking-tight text-[#0d5c2e]">
+                <PatientNameWithProfile
+                  name={patientFullName(detail.first_name, detail.last_name)}
+                  profile={detail.payment_profile}
+                  irisTag={detail.iris_tag}
+                  nameClassName="text-[#0d5c2e]"
+                />
+              </h1>
+            </div>
+            <p className="text-sm text-[#949494]">
               {detail.phone}
-              <span className="text-slate-400"> · </span>
+              <span className="text-[#e8e8e8]"> · </span>
+              ID: {detail.id}
+              <span className="text-[#e8e8e8]"> · </span>
               {detail.appointments.length} visit{detail.appointments.length === 1 ? "" : "s"}
               {billCount > 0 ? ` · ${billCount} bill${billCount === 1 ? "" : "s"}` : ""}
             </p>
@@ -1232,28 +1274,30 @@ export function PatientHistoryPage({
             {chartHref ? (
               <Link
                 href={chartHref}
-                className="rounded-lg border border-[#16a349]/30 bg-[#f0fdf4] px-3 py-1.5 text-sm font-semibold text-[#0d5c2e] hover:bg-[#dcfce7]"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d]"
               >
+                <FileText className="h-3.5 w-3.5" aria-hidden />
                 Chart
               </Link>
             ) : null}
             <Link
               href={backHref}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#e8e8e8] bg-white px-4 py-2 text-sm font-medium text-[#949494] hover:bg-[#f5f5f5]"
             >
-              ← Patients
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+              Patients
             </Link>
           </div>
         </div>
         {detail.clinical_access === "read_only" && detail.clinical_access_message ? (
-          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          <p className="mx-4 mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:mx-6">
             {detail.clinical_access_message}
           </p>
         ) : null}
         {handoffMsg ? (
           <p
             className={cn(
-              "mt-2 rounded-lg px-3 py-2 text-xs font-medium",
+              "mx-4 mb-3 rounded-lg px-3 py-2 text-xs font-medium sm:mx-6",
               handoffMsg === "Reminders & handoff saved." ||
               handoffMsg === "Invoice updated." ||
               /marked paid|already marked paid|payment found|cash recorded/i.test(handoffMsg) ||
@@ -1275,18 +1319,34 @@ export function PatientHistoryPage({
       </header>
 
       {detail.appointments.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center">
+        <div className="m-6 rounded-lg border border-dashed border-[#e8e8e8] bg-white px-6 py-12 text-center">
           <p className="text-base font-semibold text-slate-800">No appointments on file</p>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-[#949494]">
             When visits are completed, they will appear here with chart notes and printable bills.
           </p>
         </div>
       ) : (
-        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:items-stretch">
-          <aside className="flex flex-col lg:w-[17.5rem] lg:shrink-0">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Visits (newest first)</p>
-            <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden">
-              {detail.appointments.map((a) => (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+          <aside className="flex flex-col border-[#e8e8e8] bg-white lg:w-72 lg:shrink-0 lg:border-r">
+            <div className="sticky top-0 border-b border-[#e8e8e8] bg-white px-4 py-4">
+              <p className="mb-3 text-xs font-semibold text-[#949494]">VISIT HISTORY</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="search"
+                  value={visitSearch}
+                  onChange={(e) => setVisitSearch(e.target.value)}
+                  placeholder="Search visits…"
+                  className="min-w-0 flex-1 rounded-md border border-[#e8e8e8] bg-[#f8f8f7] px-2 py-1.5 text-xs text-slate-800 placeholder:text-[#949494] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                  aria-label="Search visits"
+                />
+                <span className="rounded-md border border-[#e8e8e8] bg-white p-1.5" aria-hidden>
+                  <Search className="h-3.5 w-3.5 text-[#949494]" />
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto p-2 lg:hidden">
+              {filteredAppointments.map((a) => (
                 <button
                   key={a.id}
                   type="button"
@@ -1295,29 +1355,34 @@ export function PatientHistoryPage({
                     "shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                     selectedVisitId === a.id
                       ? "border-[#16a349] bg-[#16a349] text-white"
-                      : "border-slate-200 bg-white text-slate-700",
+                      : "border-[#e8e8e8] bg-white text-slate-700",
                   )}
                 >
                   {formatMonthDayYear(a.appointment_date)}
                 </button>
               ))}
             </div>
+
             <nav
-              className="hidden space-y-1.5 lg:block lg:max-h-[calc(100dvh-11rem)] lg:overflow-y-auto lg:pr-1"
+              className="hidden space-y-1 overflow-y-auto p-2 lg:block lg:max-h-[calc(100dvh-16rem)]"
               aria-label="Visit list"
             >
-              {detail.appointments.map((a) => (
-                <VisitListRow
-                  key={a.id}
-                  appointment={a}
-                  selected={selectedVisitId === a.id}
-                  onSelect={() => setSelectedVisitId(a.id)}
-                />
-              ))}
+              {filteredAppointments.length === 0 ? (
+                <p className="px-2 py-6 text-center text-xs text-[#949494]">No visits match your search.</p>
+              ) : (
+                filteredAppointments.map((a) => (
+                  <VisitListRow
+                    key={a.id}
+                    appointment={a}
+                    selected={selectedVisitId === a.id}
+                    onSelect={() => setSelectedVisitId(a.id)}
+                  />
+                ))
+              )}
             </nav>
           </aside>
 
-          <main className="min-h-0 min-w-0 flex-1 lg:max-h-[calc(100dvh-11rem)] lg:overflow-y-auto">
+          <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-white p-4 sm:p-6 lg:max-h-[calc(100dvh-12rem)]">
             {selectedVisit ? (
               <VisitRecordCard
                 key={selectedVisit.id}
@@ -1395,9 +1460,9 @@ export function PatientHistoryPage({
                 removingFromChart={removingAppointmentId === selectedVisit.id}
               />
             ) : (
-              <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-                Select a visit to view chart notes and bill.
-              </p>
+              <div className="flex h-full min-h-48 items-center justify-center">
+                <p className="text-sm text-[#949494]">Select a visit to view details</p>
+              </div>
             )}
           </main>
         </div>

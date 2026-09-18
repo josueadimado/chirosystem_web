@@ -158,7 +158,8 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
     pathname === "/admin/team" ||
     pathname === "/admin/diagnoses" ||
     pathname === "/admin/providers" ||
-    pathname === "/admin/booking-blocks";
+    pathname === "/admin/booking-blocks" ||
+    pathname.endsWith("/history");
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {

@@ -26,6 +26,7 @@ import { PatientNameWithProfile, patientFullName } from "@/components/patient-pa
 import { useParams } from "next/navigation";
 import { flushSync } from "react-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, FileText, Printer, Search } from "lucide-react";
 
 // --- Types aligned with `GET /doctor/patient_detail/?patient_id=` (same as patient chart modal) ---
 
@@ -143,6 +144,7 @@ export default function DoctorPatientRecordPage() {
   const [patientBillModal, setPatientBillModal] = useState<PatientBillPayload | null>(null);
   const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
   const [billLoadError, setBillLoadError] = useState("");
+  const [visitSearch, setVisitSearch] = useState("");
 
   useEffect(() => {
     setSelectedVisit(null);
@@ -182,6 +184,18 @@ export default function DoctorPatientRecordPage() {
     if (!detail?.appointments?.length) return [];
     return [...detail.appointments].sort(compareAppointmentsNewestFirst);
   }, [detail]);
+
+  const filteredVisits = useMemo(() => {
+    const q = visitSearch.trim().toLowerCase();
+    if (!q) return visitsNewestFirst;
+    return visitsNewestFirst.filter((a) => {
+      const hay = [a.appointment_date, a.start_time, a.service, a.provider, a.status, a.invoice?.invoice_number]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [visitsNewestFirst, visitSearch]);
 
   /** All chart appointments, oldest first — used for print narrative order. */
   const allVisitsSorted = useMemo(() => {
@@ -402,149 +416,209 @@ export default function DoctorPatientRecordPage() {
   `;
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col">
       <style dangerouslySetInnerHTML={{ __html: printStyles }} />
 
-      <div id="patient-record-print-root" className="print:hidden space-y-8">
-        {/* Top bar: back + print date range */}
-        <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
-          <Link
-            href="/doctor/patients"
-            className="print:hidden inline-flex w-fit items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            ← Back to patients
-          </Link>
-          <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+      <div id="patient-record-print-root" className="print:hidden flex min-h-0 flex-1 flex-col bg-[#f5f5f5]">
+        {/* Banani header */}
+        <header className="shrink-0 border-b border-[#e8e8e8] bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[#16a349] text-lg font-bold text-white">
+                {displayInitial}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#949494]">Medical record</p>
+                <h1 className="truncate text-2xl font-bold tracking-tight text-[#0d5c2e]">
+                  <PatientNameWithProfile
+                    name={patientFullName(detail.first_name, detail.last_name)}
+                    profile={detail.payment_profile}
+                    irisTag={detail.iris_tag}
+                    nameClassName="text-[#0d5c2e]"
+                  />
+                </h1>
+                <p className="text-sm text-[#949494]">
+                  {detail.phone}
+                  {detail.email ? ` · ${detail.email}` : ""}
+                  <span className="text-[#e8e8e8]"> · </span>
+                  ID: {detail.id}
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Link
+                href={`/doctor/patients/${detail.id}/history`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d]"
+              >
+                <FileText className="h-3.5 w-3.5" aria-hidden />
+                Visit history
+                {billVisitCount > 0 ? ` (${billVisitCount})` : ""}
+              </Link>
+              <Link
+                href="/doctor/patients"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e8e8e8] bg-white px-4 py-2 text-sm font-medium text-[#949494] hover:bg-[#f5f5f5]"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+                Patients
+              </Link>
+            </div>
+          </div>
+
+          {/* Slim print toolbar */}
+          <div className="flex flex-wrap items-end gap-3 border-t border-[#e8e8e8] bg-[#ecfdf5] px-4 py-3 sm:px-6">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-slate-500">Print from</span>
+              <span className="text-xs font-semibold text-[#949494]">Print from</span>
               <input
                 type="date"
                 value={printStart}
                 onChange={(e) => setPrintStart(e.target.value)}
                 min={appointmentDateBounds.min || undefined}
                 max={appointmentDateBounds.max || undefined}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                className="rounded-md border border-[#e8e8e8] bg-white px-2 py-1.5 text-sm"
                 aria-label="Print date range start"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-slate-500">Print through</span>
+              <span className="text-xs font-semibold text-[#949494]">Print through</span>
               <input
                 type="date"
                 value={printEnd}
                 onChange={(e) => setPrintEnd(e.target.value)}
                 min={appointmentDateBounds.min || undefined}
                 max={appointmentDateBounds.max || undefined}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                className="rounded-md border border-[#e8e8e8] bg-white px-2 py-1.5 text-sm"
                 aria-label="Print date range end"
               />
             </div>
-            <p className="min-w-[12rem] pb-2 text-sm text-slate-600">
-              <span className="font-semibold text-slate-800">{visitsForPrint.length}</span> visit
-              {visitsForPrint.length === 1 ? "" : "s"} in this range
+            <p className="pb-2 text-sm text-[#949494]">
+              <span className="font-semibold text-[#0d5c2e]">{visitsForPrint.length}</span> visit
+              {visitsForPrint.length === 1 ? "" : "s"} in range
             </p>
             <button
               type="button"
               onClick={handlePrintPatientFile}
-              className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-100"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#16a349]/40 bg-white px-3 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-[#d1fae5]"
             >
+              <Printer className="h-3.5 w-3.5" aria-hidden />
               Print patient file
             </button>
           </div>
-        </div>
-
-        {/* Header — mirrors patient chart modal overview card */}
-        <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[#16a349]/20 bg-gradient-to-br from-[#ecfdf5] via-white to-emerald-50/30 p-5 shadow-sm shadow-emerald-900/5 ring-1 ring-emerald-100/50">
-          <div className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#16a349] to-[#13823d] text-2xl font-bold text-white shadow-lg shadow-emerald-900/20">
-            {displayInitial}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#0d5c2e]">Medical record</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
-              <PatientNameWithProfile
-                name={patientFullName(detail.first_name, detail.last_name)}
-                profile={detail.payment_profile}
-                irisTag={detail.iris_tag}
-              />
-            </h1>
-            <p className="mt-1 font-medium text-slate-700">{detail.phone}</p>
-            {detail.email ? <p className="mt-0.5 text-sm text-slate-500">{detail.email}</p> : null}
-            <p className="mt-2 text-sm font-medium text-slate-500">
-              Patient ID <span className="font-semibold text-slate-700">#{detail.id}</span>
-            </p>
-            <Link
-              href={`/doctor/patients/${detail.id}/history`}
-              className="mt-3 inline-flex rounded-xl border border-[#16a349]/40 bg-[#ecfdf5] px-4 py-2 text-sm font-semibold text-[#0d5c2e] hover:bg-[#d1fae5]"
-            >
-              Bill history — preview &amp; print all visits
-              {billVisitCount > 0 ? ` (${billVisitCount})` : ""}
-            </Link>
-          </div>
-        </div>
+        </header>
 
         {billLoadError ? (
-          <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{billLoadError}</p>
+          <p className="mx-4 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 sm:mx-6">
+            {billLoadError}
+          </p>
         ) : null}
 
         {detail.clinical_access === "read_only" && detail.clinical_access_message ? (
-          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:mx-6">
             {detail.clinical_access_message}
           </p>
         ) : null}
 
-        <PatientDemographicsEditor
-          patient={detail}
-          intakeSavePath="/doctor/patient_intake/"
-          detailPath="/doctor/patient_detail"
-          onPatientUpdated={(refreshed) => setDetail(refreshed as PatientDetail)}
-          readOnly={detail.clinical_access === "read_only"}
-          readOnlyMessage={detail.clinical_access_message}
-          includeContactFields={detail.clinical_access !== "read_only"}
-        />
+        {/* Chart + compact history side-by-side */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <PatientDemographicsEditor
+              patient={detail}
+              intakeSavePath="/doctor/patient_intake/"
+              detailPath="/doctor/patient_detail"
+              onPatientUpdated={(refreshed) => setDetail(refreshed as PatientDetail)}
+              readOnly={detail.clinical_access === "read_only"}
+              readOnlyMessage={detail.clinical_access_message}
+              includeContactFields={detail.clinical_access !== "read_only"}
+            />
+          </div>
 
-        {/* Visit history — opens detail in a side drawer (no inline expansion). */}
-        <section className="space-y-3">
-          <h2 className="text-lg font-bold tracking-tight text-slate-900">Visit history</h2>
-          <p className="text-sm text-slate-600">
-            All appointments, most recent first. Select a row for chart notes and to preview or print that visit&apos;s patient bill.
-          </p>
-
-          {visitsNewestFirst.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 py-12 text-center">
-              <p className="font-semibold text-slate-800">No visits on file yet</p>
-              <p className="mt-2 text-sm text-slate-500">Appointments for this patient will appear here.</p>
+          <aside className="flex max-h-[40vh] flex-col border-t border-[#e8e8e8] bg-white lg:max-h-none lg:w-80 lg:shrink-0 lg:border-l lg:border-t-0">
+            <div className="shrink-0 border-b border-[#e8e8e8] px-4 py-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-[#949494]">RECENT VISITS</p>
+                <Link
+                  href={`/doctor/patients/${detail.id}/history`}
+                  className="text-xs font-semibold text-[#16a349] hover:underline"
+                >
+                  Full history →
+                </Link>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="search"
+                  value={visitSearch}
+                  onChange={(e) => setVisitSearch(e.target.value)}
+                  placeholder="Search visits…"
+                  className="min-w-0 flex-1 rounded-md border border-[#e8e8e8] bg-[#f8f8f7] px-2 py-1.5 text-xs placeholder:text-[#949494] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                  aria-label="Search visits"
+                />
+                <span className="rounded-md border border-[#e8e8e8] p-1.5" aria-hidden>
+                  <Search className="h-3.5 w-3.5 text-[#949494]" />
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] text-[#949494]">
+                {visitsNewestFirst.length} total · tap a row for notes &amp; bill
+              </p>
             </div>
-          ) : (
-            <ul className="space-y-2">
-              {visitsNewestFirst.map((a) => (
-                <li key={a.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedVisit(a)}
-                    className={cn(
-                      "flex w-full flex-col gap-3 rounded-2xl border px-4 py-4 text-left transition sm:flex-row sm:flex-wrap sm:items-center sm:justify-between",
-                      a.status === "no_show"
-                        ? "border-red-300 bg-red-50/60 hover:border-red-400 hover:bg-red-50"
-                        : "border-slate-200/90 bg-white shadow-sm hover:border-[#16a349]/25 hover:bg-slate-50/80",
-                    )}
-                  >
-                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
-                      <span className="font-semibold text-slate-900">{formatMonthDayYear(a.appointment_date)}</span>
-                      <span className="text-sm text-slate-600 tabular-nums">{a.start_time}</span>
-                      <span className="text-sm text-slate-700">{a.service || "—"}</span>
-                      <span className="text-sm text-slate-600">{a.provider || "—"}</span>
-                      <AppointmentStatusBadge status={a.status} size="xs" />
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-4">
-                      <span className="text-sm font-medium text-slate-800">{pricePaidLabel(a.invoice)}</span>
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
 
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+              {filteredVisits.length === 0 ? (
+                <div className="px-2 py-8 text-center">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {visitsNewestFirst.length === 0 ? "No visits on file yet" : "No visits match"}
+                  </p>
+                  <p className="mt-1 text-xs text-[#949494]">
+                    {visitsNewestFirst.length === 0
+                      ? "Appointments for this patient will appear here."
+                      : "Try a different search."}
+                  </p>
+                </div>
+              ) : (
+                filteredVisits.map((a) => {
+                  const unpaid =
+                    a.invoice &&
+                    a.invoice.status !== "paid" &&
+                    a.invoice.status !== "void";
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setSelectedVisit(a)}
+                      className={cn(
+                        "w-full rounded-lg border px-3 py-2.5 text-left transition",
+                        a.status === "no_show"
+                          ? "border-red-200 bg-red-50/70 hover:border-red-300"
+                          : "border-[#e8e8e8] bg-white hover:border-[#16a349]/40 hover:bg-[#ecfdf5]",
+                      )}
+                    >
+                      <div className="mb-1 flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-[#949494]">
+                            {formatMonthDayYear(a.appointment_date)}
+                          </div>
+                          <div className="text-xs tabular-nums text-[#949494]">{a.start_time}</div>
+                        </div>
+                        {unpaid ? (
+                          <span
+                            className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#ef4444]"
+                            title="Unpaid"
+                            aria-label="Unpaid bill"
+                          />
+                        ) : null}
+                      </div>
+                      <div className="mb-1.5 truncate text-xs text-slate-900">{a.service || "Visit"}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <AppointmentStatusBadge status={a.status} size="xs" />
+                        <span className="shrink-0 text-[11px] tabular-nums text-[#949494]">
+                          {pricePaidLabel(a.invoice)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+        </div>
       </div>
 
       <Sheet open={selectedVisit !== null} onOpenChange={(open) => !open && setSelectedVisit(null)}>
@@ -552,24 +626,31 @@ export default function DoctorPatientRecordPage() {
           <SheetContent
             side="right"
             showCloseButton
-            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[480px]"
+            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-[#e8e8e8] bg-white p-0 shadow-2xl sm:max-w-[480px]"
           >
-            <div className="shrink-0 border-b border-slate-100 px-5 pb-4 pt-14">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Visit details</p>
-              <p className="mt-1 text-xl font-bold tracking-tight text-slate-900">
+            <div className="shrink-0 border-b border-[#e8e8e8] bg-[#ecfdf5] px-5 pb-4 pt-14">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#949494]">Visit details</p>
+              <p className="mt-1 text-xl font-bold tracking-tight text-[#0d5c2e]">
                 {formatMonthDayYear(selectedVisit.appointment_date)}
               </p>
-              <p className="mt-2 text-sm font-medium text-slate-800">
+              <p className="mt-2 text-sm font-medium tabular-nums text-slate-800">
                 {selectedVisit.start_time}
                 {selectedVisit.end_time ? ` – ${selectedVisit.end_time}` : ""}
               </p>
-              <p className="mt-3 text-sm text-slate-700">{selectedVisit.service || "—"}</p>
-              <p className="mt-1 text-sm text-slate-600">{selectedVisit.provider || "—"}</p>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</span>
-                <AppointmentStatusBadge status={selectedVisit.status} size="sm" />
+              <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-[#d1e8d8] bg-white p-3">
+                <div>
+                  <p className="text-[10px] font-semibold text-[#949494]">SERVICE</p>
+                  <p className="mt-0.5 text-sm font-medium text-[#0d5c2e]">{selectedVisit.service || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold text-[#949494]">PROVIDER</p>
+                  <p className="mt-0.5 text-sm font-medium text-[#0d5c2e]">{selectedVisit.provider || "—"}</p>
+                </div>
               </div>
-              <p className="mt-4 text-sm font-semibold text-slate-900">{pricePaidLabel(selectedVisit.invoice)}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <AppointmentStatusBadge status={selectedVisit.status} size="sm" />
+                <span className="text-sm font-semibold text-slate-800">{pricePaidLabel(selectedVisit.invoice)}</span>
+              </div>
               {selectedVisit.invoice?.id ? (
                 <button
                   type="button"
@@ -577,7 +658,7 @@ export default function DoctorPatientRecordPage() {
                   onClick={() =>
                     void openBillPreview(selectedVisit.invoice!.id, selectedVisit.invoice!.status)
                   }
-                  className="mt-3 w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-60"
+                  className="mt-3 w-full rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-60"
                 >
                   {printingInvoiceId === selectedVisit.invoice.id
                     ? "Opening bill…"
@@ -586,10 +667,16 @@ export default function DoctorPatientRecordPage() {
                       : "Preview bill"}
                 </button>
               ) : (
-                <p className="mt-3 text-xs text-slate-500">
+                <p className="mt-3 text-xs text-[#949494]">
                   No printable bill for this visit yet (billing may still be in progress).
                 </p>
               )}
+              <Link
+                href={`/doctor/patients/${detail.id}/history`}
+                className="mt-2 block text-center text-xs font-semibold text-[#16a349] hover:underline"
+              >
+                Open full visit history →
+              </Link>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -612,7 +699,7 @@ export default function DoctorPatientRecordPage() {
                 {selectedVisit.visit?.doctor_notes?.trim() &&
                 selectedVisit.visit.doctor_notes.trim() !== (selectedVisit.clinical_handoff_notes ?? "").trim() ? (
                   <div className="mt-6">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-[#949494]">
                       Consultation notes (SOAP)
                     </p>
                     <div className="mt-2 max-h-[min(50vh,480px)] overflow-y-auto">
@@ -743,6 +830,6 @@ export default function DoctorPatientRecordPage() {
           </p>
         </div>
       </div>
-    </>
+    </div>
   );
 }
