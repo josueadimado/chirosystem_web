@@ -25,6 +25,7 @@ import {
   providerColorForId,
   providerDayOpenGaps,
   scheduleDayEndMinute,
+  scheduleGridPixelHeight,
   scheduleTotalMinutes,
   slotStartIsInPastForClinic,
   snapScheduleGridStartMinute,
@@ -182,9 +183,6 @@ function ScheduleStatusMark({ status }: { status: string }) {
   return null;
 }
 
-/** Pixel height per hour on the day grid (scales total height with open–close range). */
-const GRID_PX_PER_HOUR = 2688 / 12;
-
 /** Header row above the time grid — must match provider/day column headers so times line up with blocks. */
 const SCHEDULE_GRID_HEADER_MIN_PX = 52;
 
@@ -197,7 +195,8 @@ function scheduleGridHours(dayEndMin: number): number {
 }
 
 function scheduleGridPx(dayEndMin: number): number {
-  return Math.round(GRID_PX_PER_HOUR * scheduleGridHours(dayEndMin));
+  // Shared scale with book-next panel (SCHEDULE_GRID_PX_PER_HOUR in admin-schedule-utils).
+  return scheduleGridPixelHeight(dayEndMin);
 }
 
 /** Snap Y position inside grid to nearest 15 min for hover readout. */

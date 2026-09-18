@@ -110,8 +110,12 @@ export function scheduleTotalMinutes(dayEndMin: number = SCHEDULE_DAY_END_MIN): 
   return dayEndMin - SCHEDULE_DAY_START_MIN;
 }
 
-/** Same vertical scale as the admin/doctor day schedule grid (~224px per hour). */
-export const SCHEDULE_GRID_PX_PER_HOUR = 2688 / 12;
+/**
+ * Vertical scale for day/week schedule grids (px per hour).
+ * Higher = taller hours so short appointments have more room to show labels.
+ * Book-next and the main calendar both use this so they stay in sync.
+ */
+export const SCHEDULE_GRID_PX_PER_HOUR = 300;
 
 export function scheduleGridPixelHeight(dayEndMin: number = SCHEDULE_DAY_END_MIN): number {
   const hours = (dayEndMin - SCHEDULE_DAY_START_MIN) / 60;
