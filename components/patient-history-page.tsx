@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { clinicTodayIso } from "@/lib/format-date";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { parseMoneyAmount } from "@/lib/record-cash-prompt";
-import { ChartNoteReader, ChartNoteWorkspace } from "@/components/chart-note-document";
+import { ChartNoteReaderPanel, ChartNoteWorkspace } from "@/components/chart-note-document";
 import { formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import {
   ArrowLeft,
@@ -826,9 +826,20 @@ function VisitRecordCard({
 
               {a.visit.doctor_notes?.trim() ? (
                 <div className="space-y-3 border-t border-[#e8e8e8] pt-6">
-                  <p className="text-xs font-semibold text-[#949494]">CHART NOTES</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[#949494]">CHART NOTES</p>
+                  </div>
                   <div className="min-h-28 rounded-lg border border-[#e8e8e8] bg-white p-4">
-                    <ChartNoteReader text={a.visit.doctor_notes} />
+                    {/* Includes “Open wide view” for a larger readable popup */}
+                    <ChartNoteReaderPanel
+                      text={a.visit.doctor_notes}
+                      title="Chart notes"
+                      meta={{
+                        dateLabel: `${dateLabel} at ${a.start_time}`,
+                        provider: a.provider ?? undefined,
+                        service: a.service ?? undefined,
+                      }}
+                    />
                   </div>
                   {a.visit.completed_at ? (
                     <p className="text-xs text-[#949494]">
