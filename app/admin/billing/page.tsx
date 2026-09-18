@@ -1,8 +1,6 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
 import { useAppFeedback } from "@/components/app-feedback";
-import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { SquareTerminalCheckoutPoller } from "@/components/square-terminal-checkout";
 import { Button } from "@/components/ui/button";
@@ -29,7 +27,8 @@ import {
   formatMonthDayYear,
 } from "@/lib/format-date";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, Clock, Search } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 type BillingInvoiceRow = {
@@ -96,6 +95,56 @@ const KIND_FILTER_OPTIONS: { value: KindFilter; label: string }[] = [
   { value: "late_cancel_fee", label: "Late cancel fee" },
 ];
 
+const LIST_FILTER_OPTIONS: { value: ListFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open / unpaid" },
+  { value: "overdue", label: "Overdue" },
+  { value: "paid", label: "Paid" },
+];
+
+type SummaryTone = "amber" | "red" | "green";
+
+function BillingSummaryCard({
+  label,
+  value,
+  tone,
+  icon,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  tone: SummaryTone;
+  icon: ReactNode;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  const iconWrap: Record<SummaryTone, string> = {
+    amber: "bg-[#fef3c7] text-[#92400e]",
+    red: "bg-[#fee2e2] text-[#991b1b]",
+    green: "bg-[#f0fdf4] text-[#166534]",
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex min-w-0 flex-1 items-center gap-4 rounded-lg border bg-white px-5 py-4 text-left transition hover:border-[#16a349]/40 hover:shadow-sm",
+        active ? "border-[#16a349]/50 ring-2 ring-[#16a349]/15" : "border-[#d1e8d8]",
+      )}
+    >
+      <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", iconWrap[tone])}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-2xl font-bold leading-none tabular-nums text-[#0d1f14]">{value}</p>
+        <p className="mt-1 truncate text-xs text-[#5a7a62]">{label}</p>
+      </div>
+    </button>
+  );
+}
+
 type BillingInvoicesResponse = {
   count: number;
   next: string | null;
@@ -160,11 +209,11 @@ function BillingCollapsible({
   title: string;
   summary?: string;
   defaultOpen?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-slate-200/90 bg-white">
+    <div className="rounded-xl border border-[#d1e8d8] bg-white">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -172,12 +221,12 @@ function BillingCollapsible({
         aria-expanded={open}
       >
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-900">{title}</p>
-          {summary ? <p className="mt-0.5 text-xs text-slate-500">{summary}</p> : null}
+          <p className="text-sm font-semibold text-[#0d1f14]">{title}</p>
+          {summary ? <p className="mt-0.5 text-xs text-[#5a7a62]">{summary}</p> : null}
         </div>
-        <span className="shrink-0 text-xs font-semibold text-[#0d5c2e]">{open ? "Hide" : "Show"}</span>
+        <span className="shrink-0 text-xs font-semibold text-[#16a349]">{open ? "Hide" : "Show"}</span>
       </button>
-      {open ? <div className="border-t border-slate-100 px-4 py-3">{children}</div> : null}
+      {open ? <div className="border-t border-[#d1e8d8] px-4 py-3">{children}</div> : null}
     </div>
   );
 }
@@ -372,6 +421,7 @@ export default function AdminBillingPage() {
       setPayRef("");
       setCreditTerminalCheckoutId(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via selected?.id / amount fields
   }, [selected?.id, selected?.remaining_client_responsibility_total, selected?.total_amount, selected?.patient_charge_total, selected?.payments_received_total]);
 
   const canRecordPayment =
@@ -489,229 +539,166 @@ export default function AdminBillingPage() {
       : null;
 
   return (
-    <div className="space-y-6">
-      <AdminPageIntro
-        title="Invoices & billing"
-        description="Collect what patients owe, clear overdue invoices, and open any row to record payment or print a bill."
-        pageHelp="Search by patient or invoice #. Use status chips for open or overdue. More filters cover invoice type, visit dates, and insurance lines. If cash was already recorded but the bill still looks open, use Payment reconciliation."
-      />
-      <p className="text-sm text-slate-600">
-        Cash paid but still showing outstanding?{" "}
-        <Link href="/admin/reconciliation" className="font-semibold text-[#0d5c2e] hover:underline">
-          Open payment reconciliation
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <BillingSummaryCard
+          label="Open / unpaid"
+          value={summary.open}
+          tone="amber"
+          icon={<Clock className="h-5 w-5" aria-hidden />}
+          active={listFilter === "open"}
+          onClick={() => setListFilter("open")}
+        />
+        <BillingSummaryCard
+          label="Overdue"
+          value={summary.overdue}
+          tone="red"
+          icon={<AlertTriangle className="h-5 w-5" aria-hidden />}
+          active={listFilter === "overdue"}
+          onClick={() => setListFilter("overdue")}
+        />
+        <BillingSummaryCard
+          label="Paid"
+          value={summary.paid}
+          tone="green"
+          icon={<CheckCircle2 className="h-5 w-5" aria-hidden />}
+          active={listFilter === "paid"}
+          onClick={() => setListFilter("paid")}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <Link href="/admin/reconciliation" className="font-semibold text-[#16a349] hover:underline">
+          Payment reconciliation
         </Link>
-      </p>
+        {emailStatus && !emailStatus.ready ? (
+          <span className="text-rose-800">
+            · Bill email not ready — {emailStatus.summary}
+          </span>
+        ) : null}
+        {error ? <span className="text-rose-800">· {error}</span> : null}
+      </div>
 
-      {emailStatus && !emailStatus.ready ? (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900">
-          <span className="font-bold">Bill email is not ready. </span>
-          {emailStatus.summary}
-        </p>
-      ) : null}
-
-      {error && (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
-      )}
-
-      {!loading && (summary.overdue > 0 || summary.open > 0) ? (
-        <section
-          className="rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3.5 shadow-sm ring-1 ring-amber-100"
-          aria-label="Needs attention"
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {summary.overdue > 0 ? (
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d1e8d8] px-5 py-4">
+          <h2 className="text-base font-semibold text-[#0d1f14]">Invoices</h2>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2.5 sm:max-w-none">
+            <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+              <Search
+                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5a7a62]"
+                aria-hidden
+              />
+              <input
+                type="search"
+                placeholder="Patient, invoice #…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoComplete="off"
+                aria-label="Search invoices"
+                className="w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] py-2.5 pl-10 pr-3 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              />
+            </div>
+            <select
+              value={listFilter}
+              onChange={(e) => setListFilter(e.target.value as ListFilter)}
+              aria-label="Filter by status"
+              className="min-w-[10.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            >
+              {LIST_FILTER_OPTIONS.map((o) => {
+                const count =
+                  o.value === "all"
+                    ? summary.total
+                    : o.value === "open"
+                      ? summary.open
+                      : o.value === "overdue"
+                        ? summary.overdue
+                        : summary.paid;
+                return (
+                  <option key={o.value} value={o.value}>
+                    {count > 0 || o.value === "all" ? `${o.label} (${count})` : o.label}
+                  </option>
+                );
+              })}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowMoreFilters((v) => !v)}
+              aria-expanded={showMoreFilters}
+              className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+            >
+              {showMoreFilters ? "Less" : "More"}
+            </button>
+            {filtersActive ? (
               <button
                 type="button"
-                onClick={() => setListFilter("overdue")}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                  listFilter === "overdue"
-                    ? "border-rose-400 bg-rose-100 text-rose-900"
-                    : "border-rose-200 bg-white text-rose-800 hover:bg-rose-50",
-                )}
+                onClick={() => {
+                  clearFilters();
+                  setShowMoreFilters(false);
+                }}
+                className="text-sm font-semibold text-[#16a349] hover:underline"
               >
-                Overdue ({summary.overdue})
+                Clear
               </button>
             ) : null}
-            {summary.open > 0 ? (
-              <button
-                type="button"
-                onClick={() => setListFilter("open")}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                  listFilter === "open"
-                    ? "border-amber-400 bg-amber-100 text-amber-950"
-                    : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
-                )}
-              >
-                Open / unpaid ({summary.open})
-              </button>
-            ) : null}
-          </div>
-          <p className="mt-2 text-xs text-amber-950/80">
-            Tap a chip to filter the list, then open a row to record payment.
-          </p>
-        </section>
-      ) : null}
-
-      <section className="admin-panel">
-        <div className="mb-4 space-y-3">
-          <AdminSectionLabel help="Each row is an invoice. Open one to see amount due and record payment if it is still open.">
-            Invoice list
-          </AdminSectionLabel>
-
-          <div className="space-y-3 rounded-xl border border-slate-200/90 bg-slate-50/40 p-3 sm:p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <label className="block min-w-0 flex-1 text-sm sm:max-w-md">
-                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Search
-                </span>
-                <input
-                  type="search"
-                  className="admin-input w-full"
-                  placeholder="Patient name, invoice #, or patient ID…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <p className="text-xs text-slate-500 sm:pb-2.5">
-                {summary.total} total · {summary.open} open · {summary.overdue} overdue · {summary.paid} paid
-              </p>
-            </div>
-
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
-              <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 text-sm">
-                {(
-                  [
-                    ["all", `All (${summary.total})`],
-                    ["open", `Open (${summary.open})`],
-                    ["overdue", `Overdue (${summary.overdue})`],
-                    ["paid", `Paid (${summary.paid})`],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setListFilter(key)}
-                    className={cn(
-                      "rounded-lg px-3 py-1.5 font-medium transition",
-                      listFilter === key
-                        ? "bg-[#ecfdf5] text-[#0d5c2e] shadow-sm ring-1 ring-[#16a349]/25"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowMoreFilters((v) => !v)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                aria-expanded={showMoreFilters}
-              >
-                {showMoreFilters ? "Hide filters" : "More filters"}
-              </button>
-              {filtersActive ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearFilters();
-                    setShowMoreFilters(false);
-                  }}
-                  className="text-xs font-semibold text-[#0d5c2e] hover:underline"
-                >
-                  Clear all filters
-                </button>
-              ) : null}
-            </div>
-
-            {showMoreFilters ? (
-              <div className="space-y-3 border-t border-slate-200/80 pt-3">
-                <div className="flex flex-wrap items-end gap-3">
-                  <label className="min-w-[10rem] flex-1 text-sm sm:max-w-[12rem]">
-                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Invoice type
-                    </span>
-                    <select
-                      className="admin-input w-full"
-                      value={kindFilter}
-                      onChange={(e) => setKindFilter(e.target.value as KindFilter)}
-                    >
-                      {KIND_FILTER_OPTIONS.map((o) => (
-                        <option key={o.value || "all"} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm">
-                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Visit date from
-                    </span>
-                    <input
-                      type="date"
-                      className="admin-input"
-                      value={visitDateFrom}
-                      onChange={(e) => setVisitDateFrom(e.target.value)}
-                    />
-                  </label>
-                  <label className="text-sm">
-                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Visit date to
-                    </span>
-                    <input
-                      type="date"
-                      className="admin-input"
-                      value={visitDateTo}
-                      onChange={(e) => setVisitDateTo(e.target.value)}
-                    />
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]/30"
-                      checked={insuranceOnly}
-                      onChange={(e) => setInsuranceOnly(e.target.checked)}
-                    />
-                    <span>Has insurance lines only</span>
-                    <HelpTip label="Insurance lines">
-                      Shows invoices where part of the bill is documented for insurance (not charged to the patient at the
-                      desk).
-                    </HelpTip>
-                  </label>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="border-t border-slate-200/80 pt-3 text-sm text-slate-600">
-              {totalCount === 0 ? (
-                "No invoices match"
-              ) : (
-                <>
-                  Showing{" "}
-                  <span className="font-semibold tabular-nums text-slate-900">
-                    {rangeStart}&ndash;{rangeEnd}
-                  </span>{" "}
-                  of <span className="font-semibold tabular-nums text-slate-900">{totalCount}</span>{" "}
-                  invoice{totalCount === 1 ? "" : "s"}
-                </>
-              )}
-            </div>
           </div>
         </div>
+
+        {showMoreFilters ? (
+          <div className="border-b border-[#d1e8d8] bg-[#f8fdf9] px-5 py-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="min-w-[10rem] text-sm sm:max-w-[12rem]">
+                <span className="mb-1 block text-xs font-medium text-[#5a7a62]">Invoice type</span>
+                <select
+                  className="w-full rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+                  value={kindFilter}
+                  onChange={(e) => setKindFilter(e.target.value as KindFilter)}
+                >
+                  {KIND_FILTER_OPTIONS.map((o) => (
+                    <option key={o.value || "all"} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-medium text-[#5a7a62]">Visit from</span>
+                <input
+                  type="date"
+                  className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+                  value={visitDateFrom}
+                  onChange={(e) => setVisitDateFrom(e.target.value)}
+                />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-medium text-[#5a7a62]">Visit to</span>
+                <input
+                  type="date"
+                  className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+                  value={visitDateTo}
+                  onChange={(e) => setVisitDateTo(e.target.value)}
+                />
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm text-[#0d1f14]">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]/30"
+                  checked={insuranceOnly}
+                  onChange={(e) => setInsuranceOnly(e.target.checked)}
+                />
+                Insurance lines only
+              </label>
+            </div>
+          </div>
+        ) : null}
+
         {loading ? (
-          <Loader variant="page" label="Loading invoices" sublabel="Fetching billing data…" />
+          <div className="flex flex-1 items-center justify-center py-12">
+            <Loader variant="page" label="Loading invoices" sublabel="Fetching billing data…" />
+          </div>
         ) : summary.total === 0 && !filtersActive ? (
-          <p className="py-8 text-center text-sm text-slate-500">No invoices yet. They appear when visits are completed.</p>
+          <p className="py-12 text-center text-sm text-[#5a7a62]">No invoices yet.</p>
         ) : totalCount === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-500">
+          <div className="py-12 text-center text-sm text-[#5a7a62]">
             <p>No invoices match your filters.</p>
             {filtersActive ? (
               <button
@@ -724,134 +711,130 @@ export default function AdminBillingPage() {
             ) : null}
           </div>
         ) : (
-          <div className="space-y-3">
-            <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
-              <div className="max-h-[min(520px,65vh)] overflow-y-auto overscroll-contain">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
-                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-3 pl-4">Patient</th>
-                      <th className="hidden px-3 py-3 md:table-cell">Visit</th>
-                      <th className="hidden px-3 py-3 lg:table-cell">Type</th>
-                      <th className="px-3 py-3">Status</th>
-                      <th className="px-3 py-3 text-right">
-                        <span className="inline-flex items-center justify-end gap-1">
-                          Patient owes
-                          <HelpTip label="Patient owes">
-                            Amount still due from the patient at the desk (client responsibility remaining).
-                          </HelpTip>
-                        </span>
-                      </th>
-                      <th className="hidden px-3 py-3 text-right xl:table-cell">
-                        <span className="inline-flex items-center justify-end gap-1">
-                          Insurance
-                          <HelpTip label="Insurance">Portion documented for insurance (not charged to patient).</HelpTip>
-                        </span>
-                      </th>
-                      <th className="w-[4.5rem] px-2 py-3 pr-4 text-right">Open</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invoices.map((inv) => {
-                      const due = amountDueNum(inv);
-                      const isOverdue = inv.status === "overdue";
-                      const isOpen = inv.status === "issued" || inv.status === "draft" || isOverdue;
-                      const hasDue = isOpen && due > 0.009;
-                      return (
-                        <tr
-                          key={inv.id}
-                          className={cn(
-                            "cursor-pointer border-t border-slate-100 transition",
-                            isOverdue
-                              ? "bg-rose-50/70 hover:bg-rose-50"
-                              : hasDue
-                                ? "bg-amber-50/40 hover:bg-amber-50/70"
-                                : "hover:bg-slate-50/80",
-                          )}
-                          onClick={() => openInvoice(inv)}
-                        >
-                          <td className="px-3 py-3 pl-4 align-middle">
-                            <p className="font-medium text-slate-900">
-                              <PatientNameWithProfile
-                                name={inv.patient_name}
-                                profile={inv.patient_payment_profile}
-                                irisTag={inv.patient_iris_tag}
-                                compactBadge
-                              />
-                            </p>
-                            <p className="mt-0.5 font-mono text-[11px] text-slate-400">{inv.invoice_number}</p>
-                            <p className="mt-0.5 text-xs text-slate-500 md:hidden">
-                              Visit {formatMonthDayYear(inv.appointment_date)}
-                            </p>
-                          </td>
-                          <td className="hidden whitespace-nowrap px-3 py-3 align-middle text-slate-600 md:table-cell">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead className="sticky top-0 z-[1] border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                  <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">
+                    <th className="px-5 py-3">Patient</th>
+                    <th className="hidden px-3 py-3 md:table-cell">Visit</th>
+                    <th className="hidden px-3 py-3 lg:table-cell">Type</th>
+                    <th className="px-3 py-3">Status</th>
+                    <th className="px-3 py-3 text-right">Patient owes</th>
+                    <th className="hidden px-3 py-3 text-right xl:table-cell">Insurance</th>
+                    <th className="w-[6.5rem] px-5 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.map((inv) => {
+                    const due = amountDueNum(inv);
+                    const isOverdue = inv.status === "overdue";
+                    const isOpen = inv.status === "issued" || inv.status === "draft" || isOverdue;
+                    const hasDue = isOpen && due > 0.009;
+                    const showCollect = hasDue;
+                    return (
+                      <tr
+                        key={inv.id}
+                        className={cn(
+                          "cursor-pointer border-b border-[#d1e8d8] transition last:border-b-0",
+                          isOverdue
+                            ? "bg-red-50/50 hover:bg-[#f8fdf9]"
+                            : hasDue
+                              ? "bg-amber-50/30 hover:bg-[#f8fdf9]"
+                              : "hover:bg-[#f8fdf9]",
+                        )}
+                        onClick={() => openInvoice(inv)}
+                      >
+                        <td className="px-5 py-3.5 align-middle">
+                          <p className="font-medium text-[#0d1f14]">
+                            <PatientNameWithProfile
+                              name={inv.patient_name}
+                              profile={inv.patient_payment_profile}
+                              irisTag={inv.patient_iris_tag}
+                              compactBadge
+                            />
+                          </p>
+                          <p className="mt-0.5 font-mono text-[11px] text-[#5a7a62]">{inv.invoice_number}</p>
+                          <p className="mt-0.5 text-xs text-[#5a7a62] md:hidden">
                             {formatMonthDayYear(inv.appointment_date)}
-                          </td>
-                          <td className="hidden px-3 py-3 align-middle text-slate-600 lg:table-cell">
-                            {invoiceKindLabel(inv.kind)}
-                          </td>
-                          <td className="px-3 py-3 align-middle">
-                            <StatusChipView status={inv.status} />
-                          </td>
-                          <td
-                            className={cn(
-                              "px-3 py-3 text-right align-middle font-semibold tabular-nums",
-                              isOverdue
-                                ? "text-rose-800"
-                                : hasDue
-                                  ? "text-amber-900"
-                                  : "text-slate-700",
-                            )}
-                          >
-                            {isOpen ? formatMoney(amountDueStr(inv)) : formatMoney("0")}
-                            {isOverdue ? (
-                              <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wide text-rose-700">
-                                Overdue
-                              </span>
-                            ) : hasDue ? (
-                              <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wide text-amber-700">
-                                Due
-                              </span>
-                            ) : null}
-                          </td>
-                          <td className="hidden px-3 py-3 text-right align-middle tabular-nums text-slate-600 xl:table-cell">
-                            {parseMoneyNum(inv.insurance_remaining_total) > 0.009
-                              ? formatMoney(inv.insurance_remaining_total!)
-                              : "—"}
-                          </td>
-                          <td className="px-2 py-3 pr-4 text-right align-middle">
+                          </p>
+                        </td>
+                        <td className="hidden whitespace-nowrap px-3 py-3.5 align-middle text-[#5a7a62] md:table-cell">
+                          {formatMonthDayYear(inv.appointment_date)}
+                        </td>
+                        <td className="hidden px-3 py-3.5 align-middle text-[#5a7a62] lg:table-cell">
+                          {invoiceKindLabel(inv.kind)}
+                        </td>
+                        <td className="px-3 py-3.5 align-middle">
+                          <StatusChipView status={inv.status} />
+                        </td>
+                        <td
+                          className={cn(
+                            "px-3 py-3.5 text-right align-middle font-semibold tabular-nums",
+                            isOverdue ? "text-[#991b1b]" : hasDue ? "text-[#92400e]" : "text-[#0d1f14]",
+                          )}
+                        >
+                          {isOpen ? formatMoney(amountDueStr(inv)) : formatMoney("0")}
+                        </td>
+                        <td className="hidden px-3 py-3.5 text-right align-middle tabular-nums text-[#5a7a62] xl:table-cell">
+                          {parseMoneyNum(inv.insurance_remaining_total) > 0.009
+                            ? formatMoney(inv.insurance_remaining_total!)
+                            : "—"}
+                        </td>
+                        <td className="px-5 py-3.5 text-right align-middle">
+                          {showCollect ? (
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openInvoice(inv);
                               }}
-                              className="text-xs font-semibold text-[#16a349] underline-offset-2 hover:underline"
+                              className="rounded-lg bg-[#e9982f] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#d48828]"
                             >
-                              Open
+                              Collect
                             </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openInvoice(inv);
+                              }}
+                              className="text-xs font-semibold text-[#16a349] hover:underline"
+                            >
+                              View
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            {totalPages > 1 ? (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-slate-500">
-                  Page <span className="font-semibold tabular-nums text-slate-700">{page}</span> of{" "}
-                  <span className="tabular-nums">{totalPages}</span>
-                  <span className="mx-2 text-slate-300">·</span>
-                  <span className="text-slate-400">{BILLING_PAGE_SIZE} per page</span>
-                </p>
+            <div className="flex flex-col gap-2 border-t border-[#d1e8d8] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-[#5a7a62]">
+                {totalCount === 0 ? (
+                  "No invoices"
+                ) : (
+                  <>
+                    {rangeStart}&ndash;{rangeEnd} of {totalCount}
+                    {totalPages > 1 ? (
+                      <>
+                        {" "}
+                        · Page {page} of {totalPages}
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </p>
+              {totalPages > 1 ? (
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
+                    className="h-9 rounded-lg border-[#d1e8d8] bg-white px-4 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9]"
                     disabled={page <= 1 || loading}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     aria-label="Previous page"
@@ -861,7 +844,7 @@ export default function AdminBillingPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
+                    className="h-9 rounded-lg border-[#d1e8d8] bg-white px-4 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9]"
                     disabled={page >= totalPages || loading}
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     aria-label="Next page"
@@ -869,8 +852,8 @@ export default function AdminBillingPage() {
                     Next
                   </Button>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         )}
       </section>
@@ -984,9 +967,6 @@ export default function AdminBillingPage() {
                     >
                       {payBusy ? "Saving…" : "Record payment"}
                     </button>
-                    <HelpTip label="Record payment">
-                      Marks the invoice paid, logs a payment row, and sets the linked appointment to completed if needed.
-                    </HelpTip>
                   </div>
                 </div>
               ) : (

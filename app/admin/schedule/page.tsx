@@ -1,6 +1,7 @@
 "use client";
 
-import { AdminPageIntro } from "@/components/admin-shell";
+import { AppointmentStatusBadge } from "@/components/status-chip";
+import { Plus } from "lucide-react";
 import {
   AdminScheduleCalendar,
   navigateFocusDate,
@@ -107,9 +108,7 @@ import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { useRecordCashPayment } from "@/components/record-cash-payment-modal";
 import { estimatedPriceFromSnapshot, type VisitSnapshot } from "@/lib/visit-panel-types";
-import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
 type Appointment = {
@@ -350,6 +349,7 @@ function AdminSchedulePageContent() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when id changes only
   }, [selected?.id]);
 
   useEffect(() => {
@@ -372,6 +372,7 @@ function AdminSchedulePageContent() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when id changes only
   }, [selected?.id]);
 
   const saveStaffNotes = async () => {
@@ -430,6 +431,7 @@ function AdminSchedulePageContent() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via selected?.id / status / invoice_kind
   }, [selected?.id, selected?.status, selected?.invoice_kind]);
 
   useEffect(() => {
@@ -570,6 +572,7 @@ function AdminSchedulePageContent() {
       setResProviderId(String(selected.provider));
       setAdjustEndTime(apiTimeToTimeInputValue(selected.end_time));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when id changes only
   }, [selected?.id]);
 
   const adjustDurationPreviewMin = useMemo(() => {
@@ -939,172 +942,198 @@ function AdminSchedulePageContent() {
     setRecordingCash(false);
   };
 
+  const openNewAppointment = () => {
+    const day = new Date();
+    setFocusDate(day);
+    setView("day");
+    const p = providers[0];
+    if (!p) return;
+    const now = new Date();
+    let startMin = now.getHours() * 60 + now.getMinutes();
+    startMin = Math.ceil(startMin / 15) * 15;
+    const dayStart = 8 * 60;
+    if (startMin < dayStart) startMin = dayStart;
+    if (startMin > SCHEDULE_DESK_DAY_END_MIN - 15) startMin = dayStart;
+    setDeskBookSeed({
+      providerId: p.id,
+      providerName: p.provider_name,
+      dateIso: toIsoDate(day),
+      startMinute: startMin,
+      gapStartMin: dayStart,
+      gapEndMin: SCHEDULE_DESK_DAY_END_MIN,
+    });
+  };
+
   return (
-    <div className="space-y-6">
-      <AdminPageIntro
-        title="Schedule"
-        description="See who is coming in, filter by doctor or status, and check patients in from the front desk when they arrive."
-        pageHelp={
-          <>
-            <strong>Day</strong> — time grid; click open white space to book (staff hours through 9:00 PM). Gray stripes = online-only blocks.{" "}
-            <strong>Week</strong> — Mon–Fri overview. <strong>Month</strong> — visit list per day; click a day for Day view. On each visit block, a blue{" "}
-            <strong>eye</strong> means insurance and an amber <strong>Cash</strong> tag means self-pay (set when you open a visit). Provider and status filters reload
-            from the server. Cancelled and no-show appear in <strong>red</strong> on the day grid but still leave that time open for new bookings. Click a visit for check-in,
-            reschedule, and billing.
-          </>
-        }
-      />
-      <section className="admin-panel w-full max-w-none">
-        <div className="sticky top-0 z-10 mb-4 rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-sm ring-1 ring-slate-100/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <div
-              className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5"
-              role="tablist"
-              aria-label="Calendar view"
-            >
-              {(["day", "week", "month"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === mode}
-                  onClick={() => setView(mode)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition ${
-                    view === mode
-                      ? "bg-[#16a349] text-white shadow-sm"
-                      : "text-slate-600 hover:bg-white/80 hover:text-slate-900"
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      {/* Banani-style schedule toolbar — left date nav, right actions */}
+      <div className="grid w-full gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-8">
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5 sm:gap-3">
+          <h2 className="shrink-0 text-lg font-bold tracking-tight text-[#0d1f14]">Schedule</h2>
 
-            <div className="inline-flex min-w-0 items-center rounded-lg border border-slate-200 bg-white shadow-sm">
-              <button
-                type="button"
-                aria-label="Previous period"
-                onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
-                className="rounded-l-lg px-2.5 py-2 text-slate-600 hover:bg-slate-50"
-              >
-                ←
-              </button>
-              <span className="max-w-[min(14rem,42vw)] truncate border-x border-slate-100 px-3 py-2 text-center text-sm font-semibold text-slate-800 sm:max-w-none">
-                {schedulePeriodLabel(view, focusDate)}
-              </span>
-              <button
-                type="button"
-                aria-label="Next period"
-                onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
-                className="rounded-r-lg px-2.5 py-2 text-slate-600 hover:bg-slate-50"
-              >
-                →
-              </button>
-            </div>
-
+          <div className="inline-flex min-w-0 items-center rounded-lg border border-[#d1e8d8] bg-white shadow-sm">
             <button
               type="button"
-              onClick={() => setFocusDate(new Date())}
-              className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              aria-label="Previous period"
+              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
+              className="rounded-l-lg px-2.5 py-2 text-[#5a7a62] hover:bg-[#f8fdf9]"
             >
-              Today
+              ←
             </button>
-
-            <span className="hidden h-8 w-px shrink-0 bg-slate-200 sm:block" aria-hidden />
-
-            <label className="sr-only" htmlFor="schedule-provider-filter">
-              Provider
-            </label>
-            <select
-              id="schedule-provider-filter"
-              value={providerFilter}
-              onChange={(e) => setProviderFilter(e.target.value)}
-              title="Filter by provider"
-              className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:max-w-[12rem] sm:flex-none"
+            <span className="max-w-[min(16rem,50vw)] truncate border-x border-[#d1e8d8] px-3 py-2 text-center text-sm font-semibold text-[#0d1f14] sm:max-w-none">
+              {schedulePeriodLabel(view, focusDate)}
+            </span>
+            <button
+              type="button"
+              aria-label="Next period"
+              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
+              className="rounded-r-lg px-2.5 py-2 text-[#5a7a62] hover:bg-[#f8fdf9]"
             >
-              <option value="">All providers</option>
-              {providers.map((p) => (
-                <option key={p.id} value={String(p.id)}>
-                  {p.provider_name}
-                </option>
-              ))}
-            </select>
-
-            <label className="sr-only" htmlFor="schedule-status-filter">
-              Visit status
-            </label>
-            <select
-              id="schedule-status-filter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              title="Filter by visit status"
-              className="min-w-0 max-w-[11rem] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:max-w-[12rem] sm:flex-none"
-            >
-              {STATUS_OPTIONS.map((o) => (
-                <option key={o.value || "all"} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              →
+            </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setFocusDate(new Date())}
+            className="shrink-0 rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+          >
+            Today
+          </button>
         </div>
 
-        {error && (
-          <div className="mb-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800">
-            {error}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 lg:justify-end">
+          <select
+            id="schedule-view"
+            value={view}
+            onChange={(e) => setView(e.target.value as "day" | "week" | "month")}
+            title="Calendar view"
+            aria-label="Calendar view"
+            className="min-w-[7.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+          >
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+          </select>
 
-        {dragUndo ? (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
-            <p>
-              <strong>{dragUndo.label}</strong> was moved on the calendar. Undo to put it back at the previous time?
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void undoDragMove()}
-                className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-800"
-              >
-                Undo move
-              </button>
-              <button
-                type="button"
-                onClick={() => setDragUndo(null)}
-                className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm font-semibold text-sky-900 hover:bg-sky-100/80"
-              >
-                Dismiss
-              </button>
+          <select
+            id="schedule-provider-filter"
+            value={providerFilter}
+            onChange={(e) => setProviderFilter(e.target.value)}
+            title="Filter by provider"
+            className="min-w-[9.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+          >
+            <option value="">All providers</option>
+            {providers.map((p) => (
+              <option key={p.id} value={String(p.id)}>
+                {p.provider_name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            id="schedule-status-filter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            title="Filter by visit status"
+            className="min-w-[9.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+          >
+            {STATUS_OPTIONS.map((o) => (
+              <option key={o.value || "all"} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={openNewAppointment}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Appointment
+          </button>
+        </div>
+      </div>
+
+      {/* Status legend — Banani */}
+      <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+        {(
+          [
+            "scheduled",
+            "checked_in",
+            "in_consultation",
+            "awaiting_payment",
+            "completed",
+            "no_show",
+            "cancelled",
+          ] as const
+        ).map((s) => (
+          <AppointmentStatusBadge key={s} status={s} size="xs" className="normal-case" />
+        ))}
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+      )}
+
+      {dragUndo ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <p>
+            <strong>{dragUndo.label}</strong> was moved on the calendar. Undo to put it back at the previous time?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void undoDragMove()}
+              className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-800"
+            >
+              Undo move
+            </button>
+            <button
+              type="button"
+              onClick={() => setDragUndo(null)}
+              className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm font-semibold text-sky-900 hover:bg-sky-100/80"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+          {loading ? (
+            <div className="p-6">
+              <Loader variant="page" label="Loading schedule" sublabel="Fetching your calendar…" />
             </div>
-          </div>
-        ) : null}
-
-        {loading ? (
-          <Loader variant="page" label="Loading schedule" sublabel="Fetching your calendar…" />
-        ) : (
-          <AdminScheduleCalendar
-            view={view}
-            focusDate={focusDate}
-            appointments={calendarAppointments}
-            providers={providers}
-            providerFilter={providerFilter}
-            blocks={blocks}
-            selectedId={selected?.id ?? null}
-            onSelect={(row) => {
-              const full = appointments.find((x) => x.id === row.id);
-              if (!full) return;
-              setSelected(full);
-            }}
-            onPickDayInMonth={(d) => {
-              setFocusDate(d);
-              setView("day");
-            }}
-            onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
-            onRescheduleAppointment={
-              view === "day" || view === "week" ? (pick) => void handleRescheduleFromGrid(pick) : undefined
-            }
-          />
-        )}
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <AdminScheduleCalendar
+                view={view}
+                focusDate={focusDate}
+                appointments={calendarAppointments}
+                providers={providers}
+                providerFilter={providerFilter}
+                blocks={blocks}
+                selectedId={selected?.id ?? null}
+                onSelect={(row) => {
+                  const full = appointments.find((x) => x.id === row.id);
+                  if (!full) return;
+                  setSelected(full);
+                }}
+                onPickDayInMonth={(d) => {
+                  setFocusDate(d);
+                  setView("day");
+                }}
+                onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
+                onRescheduleAppointment={
+                  view === "day" || view === "week" ? (pick) => void handleRescheduleFromGrid(pick) : undefined
+                }
+              />
+            </div>
+          )}
+        </div>
       </section>
 
       <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
@@ -1112,7 +1141,7 @@ function AdminSchedulePageContent() {
           <SheetContent
             side="right"
             showCloseButton
-            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[480px]"
+            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-[#d1e8d8] bg-white p-0 shadow-2xl sm:max-w-[480px]"
           >
             <VisitSummaryHeader
               patientName={selected.patient_name}

@@ -32,7 +32,10 @@ type PendingConfirm = {
 export function useAppointmentActionConfirm() {
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const pendingRef = useRef<PendingConfirm | null>(null);
-  pendingRef.current = pending;
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
 
   const settle = useCallback((value: boolean) => {
     const p = pendingRef.current;

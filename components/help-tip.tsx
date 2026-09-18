@@ -56,6 +56,7 @@ export function HelpTip({
       window.removeEventListener("scroll", onMove, true);
       window.removeEventListener("resize", onMove);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: updateTipPosition only needed when open/align change
   }, [open, align]);
 
   useEffect(() => {

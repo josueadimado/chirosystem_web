@@ -1,6 +1,5 @@
 "use client";
 
-import { AdminPageIntro } from "@/components/admin-shell";
 import { Loader } from "@/components/loader";
 import { PatientNoShowBadge } from "@/components/status-chip";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
@@ -11,6 +10,7 @@ import { ApiError, apiGetAuth, apiPost, apiUploadAuth } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
 import { isNewNavBadgeActive } from "@/lib/staff-announcements";
 import { cn } from "@/lib/utils";
+import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
@@ -79,17 +79,13 @@ type PatientListFilter =
   | "no_show_history"
   | "no_phone";
 
-/** Primary filters shown as one-click chips (less crowding than a long dropdown). */
-const PATIENT_QUICK_FILTERS: { value: PatientListFilter; label: string }[] = [
-  { value: "", label: "All" },
+/** Filters for the patient list dropdown. */
+const PATIENT_FILTER_OPTIONS: { value: PatientListFilter; label: string }[] = [
+  { value: "", label: "All patients" },
   { value: "balance_due", label: "Balance due" },
   { value: "overdue", label: "Overdue" },
   { value: "penalty_fees", label: "Penalty fees" },
   { value: "no_phone", label: "No phone" },
-];
-
-/** Extra filters kept in “More…” so rarer cases stay available. */
-const PATIENT_MORE_FILTER_OPTIONS: { value: PatientListFilter; label: string }[] = [
   { value: "no_show_fee", label: "Owes no-show fee" },
   { value: "late_cancel_fee", label: "Owes cancellation fee" },
   { value: "no_show_history", label: "Has no-show on record" },
@@ -600,164 +596,27 @@ export default function AdminPatientsPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <AdminPageIntro
-          title="Patients"
-          description="Find charts quickly, spot balances that need collection, and add new patients."
-          pageHelp={
-            <>
-              Use the chips to focus on overdue bills or fees. Click a row or <strong>View</strong> to open the chart.
-              Press <strong>Enter</strong> on a highlighted row, or <strong>Esc</strong> to close the chart.
-            </>
-          }
-        />
-        <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
-          <Link
-            href="/admin/patients/merge"
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-          >
-            Merge patients
-            {isNewNavBadgeActive("/admin/patients/merge") ? (
-              <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                New
-              </span>
-            ) : null}
-          </Link>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={openImportModal}
-            className="h-10 rounded-xl border-slate-200 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-          >
-            Import Excel
-          </Button>
-          <Button
-            type="button"
-            onClick={openAddModal}
-            className="h-10 rounded-xl bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d]"
-          >
-            Add patient
-          </Button>
-        </div>
-      </div>
-
-      {error && (
-        <p className="rounded-lg bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>
-      )}
-
-      {!loading && attentionCounts.total > 0 ? (
-        <div className="space-y-2">
-          {(attentionCounts.overdue > 0 ||
-            attentionCounts.balanceDue > 0 ||
-            attentionCounts.penaltyFees > 0) && (
-            <section
-              className="rounded-xl border border-amber-200/90 bg-amber-50/80 px-3.5 py-3"
-              aria-label="Needs attention"
-            >
-              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {attentionCounts.overdue > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setListFilter("overdue")}
-                    className={cn(
-                      "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                      listFilter === "overdue"
-                        ? "border-rose-400 bg-rose-100 text-rose-900"
-                        : "border-rose-200 bg-white text-rose-800 hover:bg-rose-50",
-                    )}
-                  >
-                    Overdue ({attentionCounts.overdue})
-                  </button>
-                ) : null}
-                {attentionCounts.balanceDue > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setListFilter("balance_due")}
-                    className={cn(
-                      "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                      listFilter === "balance_due"
-                        ? "border-amber-400 bg-amber-100 text-amber-950"
-                        : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
-                    )}
-                  >
-                    Balance due ({attentionCounts.balanceDue})
-                  </button>
-                ) : null}
-                {attentionCounts.penaltyFees > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setListFilter("penalty_fees")}
-                    className={cn(
-                      "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                      listFilter === "penalty_fees"
-                        ? "border-amber-400 bg-amber-100 text-amber-950"
-                        : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
-                    )}
-                  >
-                    Penalty fees ({attentionCounts.penaltyFees})
-                  </button>
-                ) : null}
-              </div>
-            </section>
-          )}
-          <p className="text-xs text-slate-500">
-            <span className="font-semibold tabular-nums text-slate-700">{attentionCounts.total}</span> patients
-            {attentionCounts.overdue > 0 ? (
-              <>
-                {" "}
-                ·{" "}
-                <span className="font-semibold tabular-nums text-rose-700">{attentionCounts.overdue}</span> overdue
-              </>
-            ) : null}
-            {attentionCounts.penaltyFees > 0 ? (
-              <>
-                {" "}
-                ·{" "}
-                <span className="font-semibold tabular-nums text-amber-800">{attentionCounts.penaltyFees}</span> with
-                penalty fees
-              </>
-            ) : null}
-            {attentionCounts.noShowHistory > 0 ? (
-              <>
-                {" "}
-                ·{" "}
-                <span className="tabular-nums text-slate-600">{attentionCounts.noShowHistory}</span> with no-show on
-                record
-              </>
-            ) : null}
-            {attentionCounts.noPhone > 0 ? (
-              <>
-                {" "}
-                ·{" "}
-                <button
-                  type="button"
-                  onClick={() => setListFilter("no_phone")}
-                  className="font-semibold tabular-nums text-slate-700 underline-offset-2 hover:underline"
-                >
-                  {attentionCounts.noPhone} missing phone
-                </button>
-              </>
-            ) : null}
-          </p>
-        </div>
-      ) : null}
-
-      <div className="sticky top-0 z-20 space-y-3 border-b border-slate-200/80 bg-background/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/90">
-          <div className="relative w-full min-w-0 max-w-md">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {/* Toolbar: search + filter + sort | actions */}
+      <div className="grid w-full gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-6">
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+          <div className="relative min-w-[12rem] flex-1">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5a7a62]"
+              aria-hidden
+            />
             <input
               type="search"
               placeholder="Search by name, phone, or email"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 py-2 pl-3 pr-10 text-sm"
+              className="w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] py-2.5 pl-10 pr-10 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
               aria-label="Search patients"
             />
             {search.trim() ? (
               <button
                 type="button"
-                className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#5a7a62] hover:bg-white hover:text-[#0d1f14]"
                 aria-label="Clear search"
                 onClick={() => setSearch("")}
               >
@@ -768,155 +627,141 @@ export default function AdminPatientsPage() {
             ) : null}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Quick filters">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Filter</span>
-              {PATIENT_QUICK_FILTERS.map((chip) => {
-                const active = listFilter === chip.value;
-                const count =
-                  chip.value === "overdue"
-                    ? attentionCounts.overdue
-                    : chip.value === "balance_due"
-                      ? attentionCounts.balanceDue
-                      : chip.value === "penalty_fees"
-                        ? attentionCounts.penaltyFees
-                        : chip.value === "no_phone"
-                          ? attentionCounts.noPhone
+          <select
+            id="patient-list-filter"
+            value={listFilter}
+            onChange={(e) => setListFilter(e.target.value as PatientListFilter)}
+            className="min-w-[10.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            aria-label="Filter patients"
+          >
+            {PATIENT_FILTER_OPTIONS.map((o) => {
+              const count =
+                o.value === "overdue"
+                  ? attentionCounts.overdue
+                  : o.value === "balance_due"
+                    ? attentionCounts.balanceDue
+                    : o.value === "penalty_fees"
+                      ? attentionCounts.penaltyFees
+                      : o.value === "no_phone"
+                        ? attentionCounts.noPhone
+                        : o.value === "no_show_history"
+                          ? attentionCounts.noShowHistory
                           : null;
-                return (
-                  <button
-                    key={chip.value || "all"}
-                    type="button"
-                    onClick={() => setListFilter(chip.value)}
-                    className={cn(
-                      "rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition",
-                      active
-                        ? "border-[#16a349]/50 bg-[#ecfdf5] text-[#0d5c2e]"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                    )}
-                  >
-                    {chip.label}
-                    {count != null && count > 0 ? (
-                      <span className="ml-1 tabular-nums text-slate-500">({count})</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-              <label className="sr-only" htmlFor="patient-list-more-filter">
-                More filters
-              </label>
-              <select
-                id="patient-list-more-filter"
-                value={PATIENT_MORE_FILTER_OPTIONS.some((o) => o.value === listFilter) ? listFilter : ""}
-                onChange={(e) => {
-                  const v = e.target.value as PatientListFilter;
-                  if (v) setListFilter(v);
-                }}
-                className="max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
-                aria-label="More patient filters"
-              >
-                <option value="">More…</option>
-                {PATIENT_MORE_FILTER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sort</span>
-              <select
-                value={sortMode}
-                onChange={(e) => setSortMode(e.target.value as SortMode)}
-                className="max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
-                aria-label="Sort patients"
-              >
-                <option value="name_asc">Last name (A–Z)</option>
-                <option value="visit_desc">Last visit (newest first)</option>
-                <option value="visit_asc">Last visit (oldest first)</option>
-                <option value="balance_desc">Balance (high to low)</option>
-                <option value="balance_asc">Balance (low to high)</option>
-              </select>
-            </div>
-          </div>
-          {hasActiveFilters ? (
-            <button
-              type="button"
-              onClick={() => {
-                setSearch("");
-                setListFilter("");
-              }}
-              className="text-xs font-semibold text-[#0d5c2e] hover:underline"
-            >
-              Clear search & filters
-            </button>
-          ) : null}
+              return (
+                <option key={o.value || "all"} value={o.value}>
+                  {count != null && count > 0 ? `${o.label} (${count})` : o.label}
+                </option>
+              );
+            })}
+          </select>
+
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+            className="min-w-[10.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            aria-label="Sort patients"
+          >
+            <option value="name_asc">Last name (A–Z)</option>
+            <option value="visit_desc">Last visit (newest)</option>
+            <option value="visit_asc">Last visit (oldest)</option>
+            <option value="balance_desc">Balance (high–low)</option>
+            <option value="balance_asc">Balance (low–high)</option>
+          </select>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
+          <Link
+            href="/admin/patients/merge"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d1e8d8] bg-white px-4 text-sm font-semibold text-[#0d1f14] hover:bg-[#f8fdf9]"
+          >
+            Merge
+            {isNewNavBadgeActive("/admin/patients/merge") ? (
+              <span className="rounded-full bg-[#dbeafe] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1d4ed8]">
+                New
+              </span>
+            ) : null}
+          </Link>
+          <button
+            type="button"
+            onClick={openImportModal}
+            className="inline-flex h-10 items-center rounded-lg border border-[#d1e8d8] bg-white px-4 text-sm font-semibold text-[#0d1f14] hover:bg-[#f8fdf9]"
+          >
+            Import
+          </button>
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="inline-flex h-10 items-center rounded-lg bg-[#16a349] px-4 text-sm font-semibold text-white hover:bg-[#13823d]"
+          >
+            Add patient
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
+      )}
+
+      {/* Results toolbar + table */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
         {loading ? (
-          <Loader variant="page" label="Loading patients" sublabel="Gathering patient records…" />
+          <div className="rounded-lg border border-[#d1e8d8] bg-white p-6">
+            <Loader variant="page" label="Loading patients" sublabel="Gathering patient records…" />
+          </div>
         ) : sortedList.length === 0 ? (
-          <div className="animate-fade-in py-8 text-center">
-            <p className="text-slate-500">
-              {hasActiveFilters
-                ? "No patients match your filters. Try clearing search or choosing a different filter."
-                : "No patients yet."}
+          <div className="rounded-lg border border-[#d1e8d8] bg-white py-12 text-center">
+            <p className="text-[#5a7a62]">
+              {hasActiveFilters ? "No matching patients." : "No patients yet."}
             </p>
-            {hasActiveFilters && (
-              <Button
+            {hasActiveFilters ? (
+              <button
                 type="button"
-                variant="outline"
-                className="mt-4 rounded-xl"
+                className="mt-4 text-sm font-semibold text-[#16a349] hover:underline"
                 onClick={() => {
                   setSearch("");
                   setListFilter("");
                 }}
               >
                 Clear filters
-              </Button>
-            )}
-            {!hasActiveFilters && (
-              <Button
+              </button>
+            ) : (
+              <button
                 type="button"
                 onClick={openAddModal}
-                className="mt-5 h-11 rounded-xl bg-[#16a349] px-6 text-sm font-semibold text-white hover:bg-[#13823d]"
+                className="mt-5 inline-flex h-10 items-center rounded-lg bg-[#16a349] px-5 text-sm font-semibold text-white hover:bg-[#13823d]"
               >
                 Add your first patient
-              </Button>
+              </button>
             )}
           </div>
         ) : (
-          <div className="animate-fade-in space-y-3">
+          <>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                Showing{" "}
-                <span className="font-semibold tabular-nums text-slate-600">
-                  {rangeStart}&ndash;{rangeEnd}
+              <p className="text-xs text-[#5a7a62]">
+                <span className="tabular-nums text-[#0d1f14]">
+                  {rangeStart}–{rangeEnd}
                 </span>{" "}
-                of <span className="tabular-nums text-slate-600">{totalFiltered}</span>{" "}
-                {hasActiveFilters ? "matching patients" : "patients"}
+                of <span className="tabular-nums text-[#0d1f14]">{totalFiltered}</span>
               </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
+              <div className="flex flex-wrap items-center gap-3">
+                <button
                   type="button"
-                  variant="outline"
                   disabled={sortedList.length === 0}
                   onClick={exportCurrentList}
-                  className="h-9 rounded-lg border-slate-200 px-3 text-xs font-semibold text-slate-800"
+                  className="text-sm font-medium text-[#16a349] hover:underline disabled:opacity-50"
                 >
-                  Export spreadsheet
-                </Button>
-                <label className="flex items-center gap-2 text-xs text-slate-600">
-                  <span className="font-medium text-slate-500">Rows</span>
+                  Export
+                </button>
+                <label className="flex items-center gap-2 text-xs text-[#5a7a62]">
                   <select
                     value={pageSize}
                     onChange={(e) => setPageSizeAndRemember(Number(e.target.value) as PageSize)}
-                    className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-800 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
+                    className="h-9 rounded-lg border border-[#d1e8d8] bg-white px-2.5 text-sm font-semibold text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
                     aria-label="Rows per page"
                   >
                     {PAGE_SIZE_OPTIONS.map((n) => (
                       <option key={n} value={n}>
-                        {n}
+                        {n} rows
                       </option>
                     ))}
                   </select>
@@ -924,20 +769,20 @@ export default function AdminPatientsPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <div className="max-h-[min(70vh,860px)] overflow-y-auto overscroll-contain">
-                <table className="w-full min-w-[880px] border-collapse text-sm">
-                  <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90">
-                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-3 pl-1 align-bottom">Patient</th>
-                      <th className="hidden px-3 py-3 align-bottom xl:table-cell">Established</th>
-                      <th className="px-3 py-3 align-bottom">Last visit</th>
-                      <th className="px-3 py-3 text-center align-bottom">Visits</th>
-                      <th className="hidden px-3 py-3 align-bottom xl:table-cell">Last service</th>
-                      <th className="hidden px-3 py-3 align-bottom lg:table-cell">Next appointment</th>
-                      <th className="py-3 pr-2 text-right align-bottom">Balance</th>
-                      <th className="w-[4.5rem] px-2 py-3 pr-1 text-right align-bottom" scope="col">
-                        Open
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#d1e8d8] bg-white">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <table className="w-full min-w-[920px] border-collapse text-sm">
+                  <thead className="sticky top-0 z-[1] border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                    <tr className="text-left text-[11px] font-bold uppercase tracking-wide text-[#5a7a62]">
+                      <th className="px-5 py-3.5">Patient</th>
+                      <th className="hidden px-4 py-3.5 xl:table-cell">Established</th>
+                      <th className="px-4 py-3.5">Last visit</th>
+                      <th className="px-4 py-3.5 text-center">Visits</th>
+                      <th className="hidden px-4 py-3.5 xl:table-cell">Last service</th>
+                      <th className="hidden px-4 py-3.5 lg:table-cell">Next appointment</th>
+                      <th className="px-4 py-3.5 text-right">Balance</th>
+                      <th className="w-20 px-4 py-3.5 text-right" scope="col">
+                        <span className="sr-only">Open</span>
                       </th>
                     </tr>
                   </thead>
@@ -958,12 +803,12 @@ export default function AdminPatientsPage() {
                           key={p.id}
                           tabIndex={0}
                           className={cn(
-                            "group cursor-pointer border-t border-slate-100 transition",
+                            "group cursor-pointer border-b border-[#d1e8d8] transition last:border-b-0",
                             isOverdue
                               ? "bg-rose-50/70 hover:bg-rose-50 focus-visible:bg-rose-50"
                               : hasBalance
-                                ? "bg-amber-50/40 hover:bg-amber-50/70 focus-visible:bg-amber-50/70"
-                                : "hover:bg-emerald-50/50 focus-visible:bg-emerald-50/50",
+                                ? "bg-amber-50/40 hover:bg-[#f8fdf9] focus-visible:bg-[#f8fdf9]"
+                                : "hover:bg-[#f8fdf9] focus-visible:bg-[#f8fdf9]",
                             "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#16a349]",
                           )}
                           onClick={() => openChart(p.id)}
@@ -975,22 +820,22 @@ export default function AdminPatientsPage() {
                           }}
                           aria-label={`Open chart for ${last}, ${first}`}
                         >
-                          <td className="px-3 py-3 pl-1 align-middle">
+                          <td className="px-5 py-4 align-middle">
                             <div className="flex items-center gap-3">
                               <div
-                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] text-[10px] font-bold uppercase tracking-[0.08em] text-[#065f46] shadow-inner ring-1 ring-[#16a349]/15 md:h-10 md:w-10 md:rounded-xl md:text-[11px]"
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#16a349] text-[11px] font-bold uppercase tracking-wide text-white"
                                 aria-hidden
                               >
                                 {patientInitials(p)}
                               </div>
                               <div className="min-w-0">
-                                <p className="flex flex-wrap items-center gap-2 leading-snug text-slate-900">
+                                <p className="flex flex-wrap items-center gap-2 leading-snug text-[#0d1f14]">
                                   <PatientNameWithProfile
                                     name={
                                       <span>
                                         <span className="font-semibold tracking-tight">{last}</span>
-                                        <span className="font-normal text-slate-400">, </span>
-                                        <span className="font-medium text-slate-700">{first}</span>
+                                        <span className="font-normal text-[#5a7a62]/70">, </span>
+                                        <span className="font-medium text-[#0d1f14]/90">{first}</span>
                                       </span>
                                     }
                                     profile={p.payment_profile}
@@ -999,88 +844,77 @@ export default function AdminPatientsPage() {
                                   />
                                   <PatientNoShowBadge count={noShows} />
                                 </p>
-                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
-                                  <span className="font-mono tabular-nums text-slate-400">
+                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-[#5a7a62]">
+                                  <span className="font-mono tabular-nums">
                                     PT-{String(p.id).padStart(4, "0")}
                                   </span>
                                   {phoneLine ? (
                                     <>
-                                      <span className="text-slate-300" aria-hidden>
-                                        ·
-                                      </span>
-                                      <span className="tabular-nums text-slate-500">{phoneLine}</span>
+                                      <span aria-hidden>·</span>
+                                      <span className="tabular-nums">{phoneLine}</span>
                                     </>
                                   ) : null}
                                 </p>
                                 {nextAppt ? (
-                                  <p className="mt-1 text-xs font-medium text-[#047857] lg:hidden">
+                                  <p className="mt-1 text-xs font-medium text-[#16a349] lg:hidden">
                                     Next: {nextAppt}
                                   </p>
                                 ) : null}
                                 {service ? (
-                                  <p className="mt-0.5 truncate text-xs text-slate-500 xl:hidden">{service}</p>
+                                  <p className="mt-0.5 truncate text-xs text-[#5a7a62] xl:hidden">{service}</p>
                                 ) : null}
                               </div>
                             </div>
                           </td>
-                          <td className="hidden whitespace-nowrap px-3 py-3 align-middle tabular-nums text-slate-600 xl:table-cell">
+                          <td className="hidden whitespace-nowrap px-4 py-4 align-middle tabular-nums text-[#0d1f14] xl:table-cell">
                             {establishedLabel(p)}
                           </td>
-                          <td className="max-w-[11rem] whitespace-normal px-3 py-3 align-middle text-slate-700">
+                          <td className="max-w-[11rem] whitespace-normal px-4 py-4 align-middle text-[#0d1f14]">
                             <span
                               className={cn(
                                 "text-sm tabular-nums leading-snug",
-                                !p.last_visit && "italic text-slate-500",
+                                !p.last_visit && "italic text-[#5a7a62]",
                               )}
                             >
                               {lastVisitLabel(p)}
                             </span>
                           </td>
-                          <td className="px-3 py-3 align-middle text-center">
-                            <span
-                              className={cn(
-                                "inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 text-sm font-semibold tabular-nums",
-                                visits > 0 ? "bg-slate-100 text-slate-800" : "bg-slate-50 text-slate-400",
-                              )}
-                            >
-                              {visits}
-                            </span>
+                          <td className="px-4 py-4 align-middle text-center">
+                            <span className="text-sm font-semibold tabular-nums text-[#0d1f14]">{visits}</span>
                           </td>
-                          <td className="hidden max-w-[12rem] truncate px-3 py-3 align-middle text-slate-600 xl:table-cell">
-                            {service || <span className="text-slate-400">—</span>}
+                          <td className="hidden max-w-[12rem] truncate px-4 py-4 align-middle text-[#0d1f14] xl:table-cell">
+                            {service || <span className="text-[#5a7a62]">—</span>}
                           </td>
-                          <td className="hidden px-3 py-3 align-middle lg:table-cell">
+                          <td className="hidden px-4 py-4 align-middle lg:table-cell">
                             {nextAppt ? (
-                              <span className="text-sm font-medium text-[#047857]">{nextAppt}</span>
+                              <span className="text-sm font-medium text-[#16a349]">{nextAppt}</span>
                             ) : (
-                              <span className="text-slate-400">—</span>
+                              <span className="text-[#5a7a62]">—</span>
                             )}
                           </td>
                           <td
                             className={cn(
-                              "py-3 pr-2 text-right align-middle text-sm font-medium tabular-nums",
+                              "px-4 py-4 text-right align-middle text-sm font-medium tabular-nums",
                               isOverdue
-                                ? "font-semibold text-rose-800"
+                                ? "font-semibold text-rose-700"
                                 : hasBalance
-                                  ? "font-semibold text-amber-900"
-                                  : "text-slate-700",
+                                  ? "font-semibold text-orange-600"
+                                  : "text-[#0d1f14]",
                             )}
                           >
                             {hasBalance ? (
-                              <span className="inline-flex flex-col items-end gap-0.5 sm:inline-flex">
+                              <span className="inline-flex flex-col items-end gap-0.5">
                                 <span>{formatBalance(p.balance)}</span>
                                 <span
                                   className={cn(
-                                    "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                                    isOverdue
-                                      ? "bg-rose-100 text-rose-800"
-                                      : "bg-amber-100 text-amber-800",
+                                    "text-[10px] font-bold uppercase tracking-wide",
+                                    isOverdue ? "text-rose-700" : "text-orange-600",
                                   )}
                                 >
                                   {isOverdue ? "Overdue" : "Due"}
                                 </span>
                                 {dueHints.length > 0 ? (
-                                  <span className="max-w-[8.5rem] text-right text-[10px] font-medium leading-tight text-slate-500">
+                                  <span className="max-w-[8.5rem] text-right text-[10px] font-medium leading-tight text-[#5a7a62]">
                                     {dueHints.join(" · ")}
                                   </span>
                                 ) : null}
@@ -1089,10 +923,10 @@ export default function AdminPatientsPage() {
                               formatBalance(p.balance)
                             )}
                           </td>
-                          <td className="px-2 py-3 pr-1 text-right align-middle">
+                          <td className="px-4 py-4 text-right align-middle">
                             <button
                               type="button"
-                              className="text-xs font-semibold text-[#16a349] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#16a349]"
+                              className="text-sm font-medium text-[#16a349] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#16a349]"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openChart(p.id);
@@ -1107,58 +941,39 @@ export default function AdminPatientsPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
 
-            {(totalPages > 1 || totalFiltered > PAGE_SIZE_OPTIONS[0]) && (
-              <div className="flex flex-col gap-3 border-t border-slate-200/80 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-slate-500">
-                  Page{" "}
-                  <span className="font-semibold tabular-nums text-slate-700">{page}</span> of{" "}
-                  <span className="tabular-nums">{totalPages}</span>
-                  <span className="mx-2 text-slate-300">·</span>
-                  <span className="text-slate-400">{pageSize} per page</span>
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="mr-1 flex items-center gap-2 text-xs text-slate-600 sm:hidden">
-                    <span>Rows</span>
-                    <select
-                      value={pageSize}
-                      onChange={(e) => setPageSizeAndRemember(Number(e.target.value) as PageSize)}
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold"
-                      aria-label="Rows per page"
+              {(totalPages > 1 || totalFiltered > PAGE_SIZE_OPTIONS[0]) && (
+                <div className="flex flex-col gap-3 border-t border-[#d1e8d8] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-[#5a7a62]">
+                    Page <span className="font-semibold tabular-nums text-[#0d1f14]">{page}</span> of{" "}
+                    <span className="tabular-nums">{totalPages}</span>
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="h-9 rounded-lg border border-[#d1e8d8] bg-white px-4 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-40"
+                      disabled={page <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      aria-label="Previous page"
                     >
-                      {PAGE_SIZE_OPTIONS.map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    aria-label="Previous page"
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 rounded-lg border-slate-200 px-4 text-xs font-semibold"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    aria-label="Next page"
-                  >
-                    Next
-                  </Button>
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="h-9 rounded-lg border border-[#d1e8d8] bg-white px-4 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-40"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      aria-label="Next page"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          </>
         )}
+      </div>
 
       {detailPatientId && (
         <PatientDetailModal

@@ -315,7 +315,6 @@ function VisitBillPanel({
   onEditBilling,
   hasChargeableSavedCard,
   cardLast4,
-  cardBrand,
   cardDisplayOnly,
   savedCards,
   chargeSavedCardId,
@@ -960,6 +959,7 @@ export function PatientHistoryPage({
 
   useEffect(() => {
     void loadDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when patientId / detailPath change only
   }, [patientId, detailPath]);
 
   const billEmail = usePatientBillEmail(
@@ -998,6 +998,7 @@ export function PatientHistoryPage({
         setSyncingInvoiceId(null);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: loadDetail omitted to avoid re-creating on every detail refresh
     [invoiceSyncPath],
   );
 
@@ -1019,6 +1020,7 @@ export function PatientHistoryPage({
         setConfirmingInvoiceId(null);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: loadDetail omitted to avoid re-creating on every detail refresh
     [invoiceConfirmPaidPath],
   );
 
@@ -1056,6 +1058,7 @@ export function PatientHistoryPage({
       );
       setChargingSavedCardInvoiceId(null);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: loadDetail omitted to avoid re-creating on every detail refresh
     [invoiceChargeSavedCardPath, runWithFeedback],
   );
 
@@ -1106,6 +1109,7 @@ export function PatientHistoryPage({
       );
       setRecordingCashInvoiceId(null);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: loadDetail omitted to avoid re-creating on every detail refresh
     [requestCashAmount, runWithFeedback],
   );
 

@@ -214,7 +214,7 @@ function KioskNoticeCard({ notice }: { notice: Notice }) {
       ) : null}
       {(notice.tone === "rose" || notice.tone === "amber") && (
         <p className="mt-4 text-sm font-medium sm:text-base">
-          <Link href="/" className="text-primary underline-offset-4 hover:underline">
+          <Link href="/book" className="text-primary underline-offset-4 hover:underline">
             Book online
           </Link>{" "}
           · front desk
@@ -402,7 +402,7 @@ export default function KioskPage() {
       />
       <div className="content-fade-in relative z-[1] w-full max-w-lg">
         <p className="mb-3 text-center">
-          <Link href="/start" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+          <Link href="/" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
             ← Portal menu
           </Link>
         </p>
@@ -575,7 +575,7 @@ export default function KioskPage() {
             {!successVisible ? (
               <p className="border-t border-border/70 pt-5 text-sm leading-relaxed text-muted-foreground">
                 Need to book first?{" "}
-                <Link href="/" className="font-semibold text-primary underline-offset-4 hover:underline">
+                <Link href="/book" className="font-semibold text-primary underline-offset-4 hover:underline">
                   Book online
                 </Link>{" "}
                 — then you can use check-in here on the day of your visit.
@@ -584,7 +584,7 @@ export default function KioskPage() {
           </div>
         </div>
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          <Link href="/start" className="font-medium text-primary underline-offset-2 hover:underline">
+          <Link href="/" className="font-medium text-primary underline-offset-2 hover:underline">
             Portal menu
           </Link>
           <span className="mx-1.5" aria-hidden>

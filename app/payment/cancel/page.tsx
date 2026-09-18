@@ -26,7 +26,7 @@ function PaymentCancelInner() {
           Pending invoice #{invoiceId} — you can try paying again when you&apos;re ready.
         </p>
       )}
-      <Link href="/" className="text-sm font-semibold text-[#16a349] hover:underline">
+      <Link href="/book" className="text-sm font-semibold text-[#16a349] hover:underline">
         Back to booking
       </Link>
     </main>

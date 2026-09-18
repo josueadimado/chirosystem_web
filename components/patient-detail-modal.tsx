@@ -218,7 +218,6 @@ export function PatientDetailModal({
   /** Local text for “chart / handoff” notes per appointment row (synced when detail loads). */
   const [handoffEdits, setHandoffEdits] = useState<Record<number, string>>({});
   const [savingHandoffId, setSavingHandoffId] = useState<number | null>(null);
-  const [handoffMsg, setHandoffMsg] = useState("");
   const [activeHistoryAppointmentId, setActiveHistoryAppointmentId] = useState<number | null>(null);
   const [activeIntakeSection, setActiveIntakeSection] = useState<
     "contact" | "address" | "emergency" | "dob" | "insurance"
@@ -329,19 +328,18 @@ export function PatientDetailModal({
 
   const saveAppointmentHandoff = async (appointmentId: number) => {
     setSavingHandoffId(appointmentId);
-    setHandoffMsg("");
     try {
       await apiPatch(handoffSavePath, {
         appointment_id: appointmentId,
         clinical_handoff_notes: handoffEdits[appointmentId] ?? "",
       });
-      setHandoffMsg("Chart note saved.");
       if (patientId) {
         const refreshed = await apiGetAuth<PatientDetail>(`${detailPath}/?patient_id=${patientId}`);
         setDetail(refreshed);
       }
     } catch (e) {
-      setHandoffMsg(e instanceof ApiError ? e.message : "Could not save chart note.");
+      // Surface via alert — this modal has no toast wiring.
+      window.alert(e instanceof ApiError ? e.message : "Could not save chart note.");
     } finally {
       setSavingHandoffId(null);
     }

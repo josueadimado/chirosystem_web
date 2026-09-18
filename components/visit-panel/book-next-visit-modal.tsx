@@ -23,9 +23,11 @@ export function BookNextVisitModal({
 }) {
   const [portalReady, setPortalReady] = useState(false);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- mark document ready for createPortal after mount */
   useEffect(() => {
     setPortalReady(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!bookNext.isOpen || !portalReady || typeof document === "undefined") return null;
 

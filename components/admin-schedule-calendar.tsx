@@ -41,7 +41,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type Ref,
 } from "react";
@@ -100,7 +99,7 @@ function formatTimeShort(t: string): string {
   return `${h12}:${min} ${ampm}`;
 }
 
-function statusBlockStyles(status: string, baseColor: string): { wrap: string; text: string } {
+function statusBlockStyles(status: string): { wrap: string; text: string } {
   if (status === "cancelled") {
     return {
       wrap: "border border-rose-200 bg-rose-100/90 text-rose-950 shadow-sm",
@@ -233,7 +232,7 @@ function snapOpenSlotStartMinute(clientY: number, gapRect: DOMRect, gapStartMin:
   const h = Math.max(gapRect.height, 1);
   const frac = Math.max(0, Math.min(1, (clientY - gapRect.top) / h));
   const continuous = gapStartMin + frac * (gapEndMin - gapStartMin);
-  let snapped = Math.round(continuous / step) * step;
+  const snapped = Math.round(continuous / step) * step;
   const maxStart = Math.max(gapStartMin, gapEndMin - step);
   return Math.max(gapStartMin, Math.min(snapped, maxStart));
 }
@@ -733,27 +732,14 @@ export function AdminScheduleCalendar({
 
   if (visibleProviders.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-600">
+      <div className="rounded-xl border border-dashed border-[#d1e8d8] bg-[#f8fdf9] px-4 py-8 text-center text-sm text-[#5a7a62]">
         No providers loaded. Add providers or refresh the page.
       </div>
     );
   }
 
-  const showDeskHint = (view === "day" || view === "week") && !!onPickOpenSlot;
-
   return (
-    <div className="space-y-2">
-      {showDeskHint ? (
-        <p className="text-sm text-slate-600">
-          <span className="font-medium text-[#0d5c2e]">Desk booking:</span> in{" "}
-          <strong>Day</strong> or <strong>Week</strong> view, click open white space on the grid, or open a visit and use{" "}
-          <strong>Book another patient in this slot</strong> to double-book a time that already has someone. Schedule runs
-          through <strong>9:00 PM</strong> for staff.
-        </p>
-      ) : null}
-
-      <ScheduleCalendarGuide providers={visibleProviders} showDeskDetails={showDeskHint} />
-
+    <div className={cn(view === "month" && "flex h-full min-h-0 flex-col")}>
       {view === "day" && (
         <DayGrid
           focusDate={focusDate}
@@ -855,74 +841,6 @@ function ScheduleGridColumnBody({
   );
 }
 
-function ScheduleCalendarGuide({
-  providers,
-  showDeskDetails,
-}: {
-  providers: ProviderRow[];
-  showDeskDetails: boolean;
-}) {
-  return (
-    <details className="group rounded-xl border border-slate-200/90 bg-slate-50/50 text-sm ring-1 ring-slate-100/80 open:bg-white">
-      <summary className="cursor-pointer list-none px-3 py-2 font-medium text-slate-600 marker:content-none [&::-webkit-details-marker]:hidden">
-        <span className="inline-flex items-center gap-2">
-          <span
-            className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-white text-xs text-slate-500 shadow-sm ring-1 ring-slate-200 transition group-open:rotate-180"
-            aria-hidden
-          >
-            ▾
-          </span>
-          Color key &amp; tips
-          <span className="font-normal text-slate-400">(providers, cancelled, blocked)</span>
-        </span>
-      </summary>
-      <div className="space-y-2 border-t border-slate-100 px-3 py-2.5">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          {providers.map((p) => {
-            const c = providerColorForId(p.id);
-            return (
-              <span key={p.id} className="inline-flex items-center gap-1.5">
-                <span className="h-3 w-3 shrink-0 rounded-sm shadow-sm" style={{ backgroundColor: c }} />
-                <span className="font-medium text-slate-800">{p.provider_name}</span>
-              </span>
-            );
-          })}
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-rose-200 ring-1 ring-rose-300" />
-            <span className="text-slate-600">Cancelled</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className="h-2.5 w-8 shrink-0 rounded-sm ring-1 ring-slate-300"
-              style={{ backgroundImage: STRIPE_BG, backgroundColor: "#e5e7eb" }}
-            />
-            <span className="text-slate-600">Blocked (online only)</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <PatientPaymentProfileBadge profile="insurance" compact />
-            <span className="text-slate-600">Insurance</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <PatientPaymentProfileBadge profile="cash" compact />
-            <span className="text-slate-600">Cash / self-pay</span>
-          </span>
-        </div>
-        {showDeskDetails ? (
-          <p className="text-xs leading-relaxed text-slate-500">
-            Gray stripes block online booking only — staff can still book in open white areas in <strong>Day</strong> or{" "}
-            <strong>Week</strong> view. Cancelled and no-show visits appear in red; that time stays open for a new booking unless another
-            active visit is there. Drag to reschedule works in <strong>Day</strong> and <strong>Week</strong> view.
-          </p>
-        ) : (
-          <p className="text-xs leading-relaxed text-slate-500">
-            Month view summarizes visits. Use <strong>Day</strong> or <strong>Week</strong> to book open slots or drag appointments to a new time.
-          </p>
-        )}
-      </div>
-    </details>
-  );
-}
-
 function TimeLabelsColumn({ dayEndMin, gridPx }: { dayEndMin: number; gridPx: number }) {
   const rows: number[] = [];
   const totalMin = scheduleTotalMinutes(dayEndMin);
@@ -930,9 +848,9 @@ function TimeLabelsColumn({ dayEndMin, gridPx }: { dayEndMin: number; gridPx: nu
     rows.push(m);
   }
   return (
-    <div className="flex w-[5.25rem] shrink-0 flex-col border-r border-slate-200 bg-slate-50/50">
+    <div className="flex w-[5.25rem] shrink-0 flex-col border-r border-[#d1e8d8] bg-[#f8fdf9]/80">
       <div
-        className="flex shrink-0 items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5"
+        className="flex shrink-0 items-center justify-center border-b border-[#d1e8d8] bg-[#f8fdf9] px-2 py-2.5"
         style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
         aria-hidden
       >
@@ -1054,7 +972,7 @@ function DayGrid({
   }, [dragActive]);
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
+    <div className="overflow-x-auto bg-white">
       <div className="flex min-w-[840px]">
         <TimeLabelsColumn dayEndMin={dayEndMin} gridPx={gridPx} />
         <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${providers.length}, minmax(140px, 1fr))` }}>
@@ -1110,7 +1028,6 @@ function DayProviderColumn({
   dayEndMin,
   gridPx,
   onPickOpenSlot,
-  onRescheduleAppointment: _onRescheduleAppointment,
   drag,
   dragActive,
   onAppointmentPointerDown,
@@ -1199,7 +1116,7 @@ function DayProviderColumn({
           return [];
         });
     return [...ap, ...bl].filter((x) => x.endMin > x.startMin);
-  }, [appointments, blockingAppointments, blocks, drag, dragActive, dayEndMin, onPickOpenSlot, provider.id]);
+  }, [blockingAppointments, blocks, drag, dragActive, dayEndMin, onPickOpenSlot, provider.id]);
 
   const openGaps = useMemo(
     () => computeOpenGaps(busyIntervals, SCHEDULE_DAY_START_MIN, dayEndMin),
@@ -1218,7 +1135,7 @@ function DayProviderColumn({
       data-schedule-provider-name={provider.provider_name}
     >
       <div
-        className="flex min-h-0 shrink-0 items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
+        className="flex min-h-0 shrink-0 items-center justify-center border-b border-[#d1e8d8] bg-[#f8fdf9] px-2 py-2.5 text-center"
         style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
       >
         <p className="text-[15px] font-semibold leading-snug text-slate-800">{provider.provider_name}</p>
@@ -1348,7 +1265,7 @@ function DayProviderColumn({
               const dur = appointmentDurationMinutes(a.start_time, a.end_time);
               const { topPct, heightPct } = timePositionPercent(st, dur, dayEndMin);
               const uiStatus = scheduleAppointmentUiStatus(a);
-              const styles = statusBlockStyles(uiStatus, base);
+              const styles = statusBlockStyles(uiStatus);
               const bg = blockBackground(uiStatus, base);
               const selected = selectedId === a.id;
               const startShown = a.start_time_display || formatTimeShort(a.start_time);
@@ -1573,7 +1490,7 @@ function WeekGrid({
   }, [dragActive]);
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/50 ring-1 ring-slate-100/80">
+    <div className="overflow-x-auto bg-white">
       <div className="flex min-w-[980px]">
         <TimeLabelsColumn dayEndMin={dayEndMin} gridPx={gridPx} />
         <div
@@ -1712,7 +1629,7 @@ function WeekDayColumn({
       data-schedule-date-iso={iso}
     >
       <div
-        className="flex shrink-0 flex-col items-center justify-center border-b border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80 px-2 py-2.5 text-center"
+        className="flex shrink-0 flex-col items-center justify-center border-b border-[#d1e8d8] bg-[#f8fdf9] px-2 py-2.5 text-center"
         style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
       >
         {dayLabel}
@@ -1933,7 +1850,6 @@ function WeekDayStack({
       <div className="relative h-full min-w-full" style={{ width: innerMinW }}>
         {entries.map((entry) => {
           if (entry.kind === "block") {
-            const b = entry.block;
             const { topPct, heightPct } = timePositionPercent(entry.start, entry.end - entry.start, dayEndMin);
             const lane = laneByKey.get(entry.key) ?? 0;
             const leftPx = lane * (laneW + LANE_GAP_PX);
@@ -1965,7 +1881,7 @@ function WeekDayStack({
           const lane = laneByKey.get(entry.key) ?? 0;
           const base = providerColorForId(a.provider);
           const bg = blockBackground(uiStatus, base);
-          const styles = statusBlockStyles(uiStatus, base);
+          const styles = statusBlockStyles(uiStatus);
           const selected = selectedId === a.id;
           const leftPx = lane * (laneW + LANE_GAP_PX);
           const startShown = a.start_time_display || formatTimeShort(a.start_time);
@@ -2094,60 +2010,76 @@ function MonthGrid({
     cells.push({ date: addDays(last, 1), inMonth: false });
   }
 
+  const rowCount = Math.max(1, Math.ceil(cells.length / 7));
+
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="grid grid-cols-7 gap-px bg-slate-200 text-center text-[10px] font-semibold uppercase text-slate-500">
+    <div className="flex h-full min-h-0 flex-col bg-white">
+      <div className="grid shrink-0 grid-cols-7 border-b border-[#d1e8d8] bg-[#f8fdf9] text-center text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((x) => (
-          <div key={x} className="bg-slate-50 py-2">
+          <div key={x} className="border-r border-[#d1e8d8] px-2 py-3 last:border-r-0">
             {x}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-px bg-slate-200">
+      <div
+        className="grid min-h-0 flex-1 grid-cols-7 gap-px bg-[#d1e8d8]"
+        style={{ gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))` }}
+      >
         {cells.map(({ date, inMonth }, idx) => {
-          if (!date) return <div key={idx} className="min-h-[88px] bg-white" />;
+          if (!date) return <div key={idx} className="bg-white" />;
           const iso = toIsoDate(date);
           const list = byDate[iso] || [];
           const count = list.length;
+          const isToday = inMonth && isSameDay(date, new Date());
           return (
             <button
               key={idx}
               type="button"
               onClick={() => onPickDay(date)}
               className={cn(
-                "flex min-h-[88px] flex-col items-stretch bg-white p-1.5 text-left transition hover:bg-emerald-50/50",
-                !inMonth && "bg-slate-50/80 text-slate-400",
-                inMonth && isSameDay(date, new Date()) && "bg-emerald-50/60 ring-1 ring-inset ring-emerald-200",
+                "flex min-h-0 flex-col items-stretch gap-1.5 bg-white p-2.5 text-left transition hover:bg-[#ecfdf5]/70 sm:p-3",
+                !inMonth && "bg-[#f8fdf9]/80 text-[#5a7a62]/70",
+                isToday && "bg-[#ecfdf5] ring-1 ring-inset ring-[#16a349]/30",
               )}
             >
-              <span className={cn("text-xs font-bold", inMonth ? "text-slate-900" : "text-slate-400")}>
+              <span
+                className={cn(
+                  "inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold",
+                  isToday && "bg-[#16a349] text-white",
+                  !isToday && inMonth && "text-[#0d1f14]",
+                  !inMonth && "text-[#5a7a62]/60",
+                )}
+              >
                 {date.getDate()}
               </span>
-              {count === 0 ? (
-                <span className="mt-1 text-[10px] text-slate-400">—</span>
-              ) : (
-                <>
-                  <span className="mt-0.5 text-[10px] font-medium text-slate-600">{count} appt{count === 1 ? "" : "s"}</span>
-                  <ul className="mt-1 min-w-0 space-y-0.5">
+              {count > 0 ? (
+                <div className="min-h-0 flex-1 space-y-1 overflow-hidden">
+                  <ul className="min-w-0 space-y-1">
                     {list.slice(0, 3).map((a) => {
                       const ui = scheduleAppointmentUiStatus(a);
                       const shortName = formatPatientNameShort(a.patient_name);
                       return (
                         <li
                           key={a.id}
-                          className="truncate text-[9px] font-semibold leading-tight text-slate-800"
+                          className="truncate rounded-md border border-[#d1e8d8] bg-white px-1.5 py-1 text-[10px] font-medium leading-tight text-[#0d1f14]"
                           title={`${a.patient_name}${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag) ? ` · ${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag)}` : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
                         >
-                          <PatientNameWithProfile name={shortName} profile={a.patient_payment_profile} irisTag={a.patient_iris_tag} compactBadge />
+                          <span className="text-[#5a7a62]">{formatTimeShort(a.start_time)}</span>{" "}
+                          <PatientNameWithProfile
+                            name={shortName}
+                            profile={a.patient_payment_profile}
+                            irisTag={a.patient_iris_tag}
+                            compactBadge
+                          />
                         </li>
                       );
                     })}
                   </ul>
                   {list.length > 3 ? (
-                    <span className="mt-0.5 text-[9px] text-slate-500">+{list.length - 3} more</span>
+                    <span className="block text-[10px] font-medium text-[#5a7a62]">+{list.length - 3} more</span>
                   ) : null}
-                </>
-              )}
+                </div>
+              ) : null}
             </button>
           );
         })}

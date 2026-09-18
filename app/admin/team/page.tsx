@@ -1,24 +1,23 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { IconMoreVertical, IconUserPlus } from "@/components/icons";
 import { useAppFeedback } from "@/components/app-feedback";
-import { HelpTip } from "@/components/help-tip";
-import { IconUserPlus } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { getRoleCookie } from "@/lib/auth";
+import { cn } from "@/lib/utils";
+import { Pencil, Search, UserX } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type TeamRole = "owner_admin" | "doctor" | "staff";
 
@@ -28,7 +27,6 @@ type TeamMember = {
   email: string;
   full_name: string;
   phone?: string;
-  /** chiropractic | massage for doctors; null/undefined for other roles */
   doctor_booking_category?: string | null;
   role: TeamRole;
   is_active: boolean;
@@ -36,20 +34,27 @@ type TeamMember = {
 };
 
 const ROLE_LABEL: Record<TeamRole, string> = {
-  owner_admin: "Owner / admin",
+  owner_admin: "Owner",
   doctor: "Doctor",
-  staff: "Staff (desk)",
+  staff: "Front desk",
 };
+
+const fieldLabel = "mb-1.5 block text-sm font-medium text-[#0d1f14]";
+const inputClass =
+  "w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] px-3.5 py-2.5 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20";
+
+const GRID =
+  "grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,0.55fr)] gap-2";
 
 function RoleBadge({ role }: { role: TeamRole }) {
   const cls =
     role === "owner_admin"
-      ? "bg-violet-100 text-violet-900 ring-violet-200"
+      ? "bg-[#ede9fe] text-[#5b21b6]"
       : role === "doctor"
-        ? "bg-emerald-100 text-emerald-900 ring-emerald-200"
-        : "bg-slate-100 text-slate-800 ring-slate-200";
+        ? "bg-[#ecfdf5] text-[#0d5c2e]"
+        : "bg-[#ffedd5] text-[#9a3412]";
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${cls}`}>
+    <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-medium", cls)}>
       {ROLE_LABEL[role]}
     </span>
   );
@@ -61,6 +66,8 @@ export default function AdminTeamPage() {
   const [rows, setRows] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | TeamRole>("all");
 
   const [addOpen, setAddOpen] = useState(false);
   const [addSubmitting, setAddSubmitting] = useState(false);
@@ -87,9 +94,36 @@ export default function AdminTeamPage() {
     is_active: true,
   });
 
+  const [deactivateMember, setDeactivateMember] = useState<TeamMember | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     setIsOwner(getRoleCookie() === "owner_admin");
   }, []);
+
+  useEffect(() => {
+    if (menuOpenId == null) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpenId(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpenId]);
+
+  useEffect(() => {
+    setMenuOpenId(null);
+  }, [search, roleFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,8 +142,21 @@ export default function AdminTeamPage() {
 
   useEffect(() => {
     if (isOwner !== true) return;
-    load();
+    void load();
   }, [isOwner, load]);
+
+  const filtered = useMemo(() => {
+    let list = rows;
+    if (roleFilter !== "all") list = list.filter((m) => m.role === roleFilter);
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (m) =>
+        (m.full_name || "").toLowerCase().includes(q) ||
+        (m.email || "").toLowerCase().includes(q) ||
+        (m.username || "").toLowerCase().includes(q),
+    );
+  }, [rows, search, roleFilter]);
 
   const openEdit = (m: TeamMember) => {
     setEditing(m);
@@ -162,7 +209,7 @@ export default function AdminTeamPage() {
         await load();
       },
       {
-        loadingMessage: "Creating account…",
+        loadingMessage: "Creating account...",
         successMessage: "Team member added.",
         errorFallback: "Could not create this user.",
       },
@@ -195,7 +242,7 @@ export default function AdminTeamPage() {
         await load();
       },
       {
-        loadingMessage: "Saving…",
+        loadingMessage: "Saving...",
         successMessage: "Saved.",
         errorFallback: "Could not save changes.",
       },
@@ -203,31 +250,27 @@ export default function AdminTeamPage() {
     setEditSubmitting(false);
   };
 
-  const deactivate = async (m: TeamMember) => {
-    if (
-      !window.confirm(
-        `Deactivate “${m.full_name || m.username}”? They won’t be able to sign in. You can reactivate later by editing the account.`,
-      )
-    ) {
-      return;
-    }
+  const confirmDeactivate = async () => {
+    if (!deactivateMember) return;
+    setDeactivating(true);
     await runWithFeedback(
       async () => {
-        await apiDelete(`/team/${m.id}/`);
+        await apiDelete(`/team/${deactivateMember.id}/`);
+        setDeactivateMember(null);
         await load();
       },
       {
-        loadingMessage: "Deactivating…",
+        loadingMessage: "Deactivating...",
         successMessage: "User deactivated.",
         errorFallback: "Could not deactivate.",
       },
     );
+    setDeactivating(false);
   };
 
   if (isOwner === null) {
     return (
-      <div className="space-y-6">
-        <AdminPageIntro title="Team & logins" description="Loading…" />
+      <div className="flex min-h-0 flex-1 items-center justify-center p-8">
         <Loader variant="page" label="Loading" />
       </div>
     );
@@ -235,16 +278,16 @@ export default function AdminTeamPage() {
 
   if (!isOwner) {
     return (
-      <div className="space-y-6">
-        <AdminPageIntro
-          title="Team & logins"
-          description="Only the clinic owner can create administrators and staff logins here."
-          pageHelp="Desk staff can still add doctors under Providers — that page creates doctor logins and booking profiles."
-        />
-        <div className="admin-panel border-amber-200 bg-amber-50 text-amber-950">
-          <p className="text-sm font-medium">You’re signed in as staff. Ask an owner to add owner or staff accounts, or use Doctors & providers to add doctors.</p>
-          <Link href="/admin/providers" className="mt-3 inline-block text-sm font-semibold text-[#0d5c2e] hover:underline">
-            Go to Doctors & providers →
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className="rounded-xl border border-[#fde68a] bg-[#fffbeb] px-5 py-4">
+          <p className="text-sm font-medium text-[#92400e]">
+            Only the clinic owner can manage team logins here.
+          </p>
+          <Link
+            href="/admin/providers"
+            className="mt-2 inline-block text-sm font-semibold text-[#16a349] hover:underline"
+          >
+            Go to Doctors & providers
           </Link>
         </div>
       </div>
@@ -252,151 +295,207 @@ export default function AdminTeamPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <AdminPageIntro
-        title="Team & logins"
-        description="Create owner admins, doctors, and desk staff. Doctors also get a scheduling profile — you can refine visit types on Doctors & providers."
-        pageHelp={
-          <>
-            <strong>Doctors</strong> should usually be added under{" "}
-            <Link href="/admin/providers" className="font-semibold text-[#0d5c2e] hover:underline">
-              Doctors & providers
-            </Link>{" "}
-            so online booking services are assigned. Use this page when you need <strong>staff</strong> or extra{" "}
-            <strong>owner</strong> accounts, or to manage roles in one list.
-          </>
-        }
-      />
-
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <AdminSectionLabel help="Everyone who can sign in to the admin or doctor apps (except patients).">
-          Accounts
-        </AdminSectionLabel>
-        <Button
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-[#5a7a62]">
+            {filtered.length} {filtered.length === 1 ? "account" : "accounts"}
+          </p>
+          <span className="inline-flex items-center rounded-lg border border-[#ffedd5] bg-[#fff7ed] px-2.5 py-1 text-xs font-medium text-[#9a3412]">
+            Owner-only
+          </span>
+          <Link href="/admin/providers" className="text-sm font-semibold text-[#16a349] hover:underline">
+            Doctors & providers
+          </Link>
+        </div>
+        <button
           type="button"
           onClick={() => setAddOpen(true)}
-          className="gap-2 bg-[#16a349] hover:bg-[#13823d]"
+          className="inline-flex items-center gap-2 rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
         >
           <IconUserPlus className="h-4 w-4" />
           Add team member
-        </Button>
+        </button>
       </div>
 
-      {error && (
-        <div className="admin-panel border-rose-200 bg-rose-50 text-sm text-rose-800">
+      {error && !addOpen && !editOpen ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
           {error}
-        </div>
-      )}
+        </p>
+      ) : null}
 
-      {loading ? (
-        <Loader variant="page" label="Loading team" sublabel="Fetching accounts…" />
-      ) : (
-        <div className="admin-panel overflow-x-auto p-0">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Username</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                    No team members yet. Click “Add team member”.
-                  </td>
-                </tr>
-              ) : (
-                rows.map((m) => (
-                  <tr key={m.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-900">{m.full_name || "—"}</div>
-                      <div className="text-xs text-slate-500">
-                        {m.email || "No email"}
-                        {m.phone ? ` · ${m.phone}` : ""}
-                        {m.role === "doctor" && m.doctor_booking_category ? (
-                          <span className="ml-1 text-slate-400">
-                            · {m.doctor_booking_category === "massage" ? "Massage" : "Chiropractic"}
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{m.username}</td>
-                    <td className="px-4 py-3">
-                      <RoleBadge role={m.role} />
-                    </td>
-                    <td className="px-4 py-3">
-                      {m.is_active ? (
-                        <span className="text-emerald-700">Active</span>
-                      ) : (
-                        <span className="text-slate-500">Inactive</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(m)}
-                        className="mr-2 text-sm font-medium text-[#16a349] hover:underline"
-                      >
-                        Edit
-                      </button>
-                      {m.is_active && (
-                        <button
-                          type="button"
-                          onClick={() => deactivate(m)}
-                          className="text-sm font-medium text-rose-600 hover:underline"
-                        >
-                          Deactivate
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#d1e8d8] px-5 py-3">
+          <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5a7a62]"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, email, or username..."
+              className="w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] py-2.5 pl-10 pr-3 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              aria-label="Search team"
+            />
+          </div>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as "all" | TeamRole)}
+            className="min-w-[9rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            aria-label="Filter by role"
+          >
+            <option value="all">All roles</option>
+            <option value="owner_admin">Owner</option>
+            <option value="doctor">Doctor</option>
+            <option value="staff">Front desk</option>
+          </select>
         </div>
-      )}
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {loading ? (
+            <div className="p-8">
+              <Loader variant="page" label="Loading" />
+            </div>
+          ) : (
+            <div className="flex h-full min-h-0 flex-col overflow-x-auto">
+              <div className="min-w-[900px] shrink-0 border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                <div className={cn(GRID, "px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]")}>
+                  <span>Name</span>
+                  <span>Role</span>
+                  <span>Email</span>
+                  <span>Username</span>
+                  <span>Status</span>
+                  <span className="text-right">Actions</span>
+                </div>
+              </div>
+
+              <div className="min-h-0 min-w-[900px] flex-1 overflow-auto">
+                {filtered.length === 0 ? (
+                  <p className="px-5 py-12 text-center text-sm text-[#5a7a62]">
+                    {rows.length === 0 ? "No team members yet." : "No accounts match."}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-[#d1e8d8]">
+                    {filtered.map((m) => (
+                      <li key={m.id} className={cn(GRID, "items-center px-5 py-3.5 hover:bg-[#f8fdf9]")}>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#0d1f14]">{m.full_name || "-"}</p>
+                          {m.role === "doctor" && m.doctor_booking_category ? (
+                            <p className="mt-0.5 text-xs text-[#5a7a62]">
+                              {m.doctor_booking_category === "massage" ? "Massage" : "Chiropractic"}
+                            </p>
+                          ) : null}
+                        </div>
+                        <div>
+                          <RoleBadge role={m.role} />
+                        </div>
+                        <div className="min-w-0 truncate text-[#5a7a62]">{m.email || "-"}</div>
+                        <div className="min-w-0 font-mono text-xs text-[#5a7a62]">{m.username}</div>
+                        <div>
+                          <span
+                            className={cn(
+                              "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
+                              m.is_active
+                                ? "bg-[#f0fdf4] text-[#166534]"
+                                : "bg-[#fee2e2] text-[#991b1b]",
+                            )}
+                          >
+                            {m.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                        <div className="flex justify-end">
+                          <div
+                            className="relative inline-flex"
+                            ref={menuOpenId === m.id ? menuRef : undefined}
+                          >
+                            <button
+                              type="button"
+                              aria-haspopup="menu"
+                              aria-expanded={menuOpenId === m.id}
+                              aria-label={`Actions for ${m.full_name || m.username}`}
+                              onClick={() =>
+                                setMenuOpenId((id) => (id === m.id ? null : m.id))
+                              }
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1e8d8] bg-white text-[#5a7a62] hover:bg-[#f8fdf9] hover:text-[#0d1f14]"
+                            >
+                              <IconMoreVertical className="h-4 w-4" />
+                            </button>
+                            {menuOpenId === m.id ? (
+                              <div
+                                role="menu"
+                                className="absolute right-0 top-full z-20 mt-1.5 w-48 overflow-hidden rounded-xl border border-[#d1e8d8] bg-white py-1 shadow-lg"
+                              >
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    openEdit(m);
+                                  }}
+                                  className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+                                >
+                                  <Pencil className="h-4 w-4 text-[#5a7a62]" aria-hidden />
+                                  Edit
+                                </button>
+                                {m.is_active ? (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      setDeactivateMember(m);
+                                    }}
+                                    className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#991b1b] hover:bg-[#fef2f2]"
+                                  >
+                                    <UserX className="h-4 w-4" aria-hidden />
+                                    Deactivate
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       <Dialog open={addOpen} onOpenChange={(o) => !addSubmitting && setAddOpen(o)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add team member</DialogTitle>
-            <DialogDescription>
-              Choose a role and login. Password must be at least 8 characters. Add a real email for staff and doctors — a
-              sign-in code is sent there after the password step.
+            <DialogTitle className="text-[#0d1f14]">Add team member</DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              Password must be at least 8 characters.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 pt-2">
-            <div>
-              <Label htmlFor="role">Role</Label>
+          <div className="grid gap-4 py-1">
+            {error && addOpen ? (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</p>
+            ) : null}
+            <label>
+              <span className={fieldLabel}>Role</span>
               <select
-                id="role"
-                className="admin-input mt-1 w-full py-2"
+                className={inputClass}
                 value={form.role}
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as TeamRole }))}
               >
                 <option value="doctor">Doctor</option>
-                <option value="staff">Staff (desk)</option>
+                <option value="staff">Front desk</option>
                 <option value="owner_admin">Owner / administrator</option>
               </select>
-              <p className="mt-1 text-xs text-slate-500">
-                For doctors who see patients online, consider also opening{" "}
-                <Link href="/admin/providers" className="text-[#0d5c2e] underline">
-                  Doctors & providers
-                </Link>{" "}
-                to assign visit types.
-              </p>
-            </div>
-            {form.role === "doctor" && (
-              <div>
-                <Label htmlFor="doc_cat">Doctor type (online booking)</Label>
+            </label>
+            {form.role === "doctor" ? (
+              <label>
+                <span className={fieldLabel}>Doctor type</span>
                 <select
-                  id="doc_cat"
-                  className="admin-input mt-1 w-full py-2"
+                  className={inputClass}
                   value={form.doctor_booking_category}
                   onChange={(e) =>
                     setForm((f) => ({
@@ -405,105 +504,107 @@ export default function AdminTeamPage() {
                     }))
                   }
                 >
-                  <option value="chiropractic">Chiropractic doctor</option>
-                  <option value="massage">Massage therapist</option>
+                  <option value="chiropractic">Chiropractic</option>
+                  <option value="massage">Massage</option>
                 </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Controls which public visit types they are listed under (chiropractic vs massage).
-                </p>
-              </div>
-            )}
-            <div>
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                className="mt-1"
+              </label>
+            ) : null}
+            <label>
+              <span className={fieldLabel}>Username</span>
+              <input
+                className={inputClass}
                 value={form.username}
                 onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
                 autoComplete="off"
               />
-            </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
+            </label>
+            <label>
+              <span className={fieldLabel}>Password</span>
+              <input
                 type="password"
-                className="mt-1"
+                className={inputClass}
                 value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                 autoComplete="new-password"
               />
-            </div>
-            <div>
-              <Label htmlFor="full_name">Full name</Label>
-              <Input
-                id="full_name"
-                className="mt-1"
+            </label>
+            <label>
+              <span className={fieldLabel}>Full name</span>
+              <input
+                className={inputClass}
                 value={form.full_name}
                 onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
               />
-            </div>
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
+            </label>
+            <label>
+              <span className={fieldLabel}>Email</span>
+              <input
                 type="email"
-                className="mt-1"
+                className={inputClass}
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               />
-            </div>
-            <div>
-              <Label htmlFor="phone">Phone (optional)</Label>
-              <Input
-                id="phone"
+            </label>
+            <label>
+              <span className={fieldLabel}>Phone</span>
+              <input
                 type="tel"
-                className="mt-1"
-                placeholder="e.g. +15551234567"
+                className={inputClass}
+                placeholder="Optional"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               />
-              <p className="mt-1 text-xs text-slate-500">For doctors, we also use this for SMS alerts if configured.</p>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)} disabled={addSubmitting}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={submitAdd} disabled={addSubmitting} className="bg-[#16a349] hover:bg-[#13823d]">
-                {addSubmitting ? "Saving…" : "Create"}
-              </Button>
-            </div>
+            </label>
           </div>
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={addSubmitting}
+              onClick={() => setAddOpen(false)}
+              className="border-[#d1e8d8]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={addSubmitting}
+              onClick={() => void submitAdd()}
+              className="bg-[#16a349] text-white hover:bg-[#13823d]"
+            >
+              {addSubmitting ? "Saving..." : "Create"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={(o) => !editSubmitting && setEditOpen(o)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit {editing?.username}</DialogTitle>
-            <DialogDescription>Username cannot be changed. Leave password blank to keep the current one.</DialogDescription>
+            <DialogTitle className="text-[#0d1f14]">Edit {editing?.username}</DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              Username cannot be changed. Leave password blank to keep it.
+            </DialogDescription>
           </DialogHeader>
-          {editing && (
-            <div className="grid gap-3 pt-2">
-              <div>
-                <Label htmlFor="erole">Role</Label>
+          {editing ? (
+            <div className="grid gap-4 py-1">
+              <label>
+                <span className={fieldLabel}>Role</span>
                 <select
-                  id="erole"
-                  className="admin-input mt-1 w-full py-2"
+                  className={inputClass}
                   value={editForm.role}
                   onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value as TeamRole }))}
                 >
                   <option value="doctor">Doctor</option>
-                  <option value="staff">Staff (desk)</option>
+                  <option value="staff">Front desk</option>
                   <option value="owner_admin">Owner / administrator</option>
                 </select>
-              </div>
-              {editForm.role === "doctor" && (
-                <div>
-                  <Label htmlFor="edoc_cat">Doctor type (online booking)</Label>
+              </label>
+              {editForm.role === "doctor" ? (
+                <label>
+                  <span className={fieldLabel}>Doctor type</span>
                   <select
-                    id="edoc_cat"
-                    className="admin-input mt-1 w-full py-2"
+                    className={inputClass}
                     value={editForm.doctor_booking_category}
                     onChange={(e) =>
                       setEditForm((f) => ({
@@ -512,70 +613,132 @@ export default function AdminTeamPage() {
                       }))
                     }
                   >
-                    <option value="chiropractic">Chiropractic doctor</option>
-                    <option value="massage">Massage therapist</option>
+                    <option value="chiropractic">Chiropractic</option>
+                    <option value="massage">Massage</option>
                   </select>
-                </div>
-              )}
-              <div>
-                <Label htmlFor="efull">Full name</Label>
-                <Input
-                  id="efull"
+                </label>
+              ) : null}
+              <label>
+                <span className={fieldLabel}>Full name</span>
+                <input
+                  className={inputClass}
                   value={editForm.full_name}
                   onChange={(e) => setEditForm((f) => ({ ...f, full_name: e.target.value }))}
                 />
-              </div>
-              <div>
-                <Label htmlFor="eemail">Email</Label>
-                <Input
-                  id="eemail"
+              </label>
+              <label>
+                <span className={fieldLabel}>Email</span>
+                <input
                   type="email"
+                  className={inputClass}
                   value={editForm.email}
                   onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
                 />
-              </div>
-              <div>
-                <Label htmlFor="ephone">Phone</Label>
-                <Input
-                  id="ephone"
+              </label>
+              <label>
+                <span className={fieldLabel}>Phone</span>
+                <input
                   type="tel"
+                  className={inputClass}
                   value={editForm.phone}
                   onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
                 />
-              </div>
-              <div>
-                <Label htmlFor="epw">New password</Label>
-                <Input
-                  id="epw"
+              </label>
+              <label>
+                <span className={fieldLabel}>New password</span>
+                <input
                   type="password"
+                  className={inputClass}
                   placeholder="Leave blank to keep current"
                   value={editForm.password}
                   onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
                 />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  id="eactive"
-                  type="checkbox"
-                  checked={editForm.is_active}
-                  onChange={(e) => setEditForm((f) => ({ ...f, is_active: e.target.checked }))}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                <Label htmlFor="eactive" className="font-normal">
-                  Active (can sign in)
-                </Label>
-                <HelpTip label="Active">Uncheck to block login without deleting history.</HelpTip>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={editSubmitting}>
-                  Cancel
-                </Button>
-                <Button type="button" onClick={submitEdit} disabled={editSubmitting} className="bg-[#16a349] hover:bg-[#13823d]">
-                  {editSubmitting ? "Saving…" : "Save"}
-                </Button>
+              </label>
+              <div className="flex items-center justify-between rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-[#0d1f14]">Active</p>
+                  <p className="text-xs text-[#5a7a62]">Can sign in</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={editForm.is_active}
+                  onClick={() => setEditForm((f) => ({ ...f, is_active: !f.is_active }))}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors",
+                    editForm.is_active ? "bg-[#16a349]" : "bg-[#d1e8d8]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                      editForm.is_active ? "left-[1.375rem]" : "left-0.5",
+                    )}
+                  />
+                </button>
               </div>
             </div>
-          )}
+          ) : null}
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={editSubmitting}
+              onClick={() => setEditOpen(false)}
+              className="border-[#d1e8d8]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={editSubmitting}
+              onClick={() => void submitEdit()}
+              className="bg-[#16a349] text-white hover:bg-[#13823d]"
+            >
+              {editSubmitting ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deactivateMember != null}
+        onOpenChange={(open) => {
+          if (!open && !deactivating) setDeactivateMember(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {deactivateMember ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-[#0d1f14]">
+                  Deactivate {deactivateMember.full_name || deactivateMember.username}?
+                </DialogTitle>
+                <DialogDescription className="text-[#5a7a62]">
+                  They will not be able to sign in. You can reactivate later by editing the account.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={deactivating}
+                  onClick={() => setDeactivateMember(null)}
+                  className="border-[#d1e8d8]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={deactivating}
+                  onClick={() => void confirmDeactivate()}
+                  className="bg-[#991b1b] text-white hover:bg-[#7f1d1d]"
+                >
+                  {deactivating ? "Deactivating..." : "Deactivate"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

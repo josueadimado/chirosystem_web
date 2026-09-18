@@ -193,7 +193,7 @@ export function snapMinuteInsideOpenGap(
   const h = Math.max(gapRect.height, 1);
   const frac = Math.max(0, Math.min(1, (clientY - gapRect.top) / h));
   const continuous = gapStartMin + frac * (gapEndMin - gapStartMin);
-  let snapped = Math.round(continuous / step) * step;
+  const snapped = Math.round(continuous / step) * step;
   const maxStart = Math.max(gapStartMin, gapEndMin - step);
   return Math.max(gapStartMin, Math.min(snapped, maxStart));
 }

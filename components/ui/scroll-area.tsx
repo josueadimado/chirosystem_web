@@ -14,7 +14,8 @@ function ScrollArea({ className, children, ...props }: React.ComponentProps<"div
   )
 }
 
-function ScrollBar({ className, ...props }: React.ComponentProps<"div">) {
+function ScrollBar(_props: React.ComponentProps<"div">) {
+  void _props;
   return null
 }
 

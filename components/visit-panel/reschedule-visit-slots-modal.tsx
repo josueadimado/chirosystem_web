@@ -18,9 +18,11 @@ export function RescheduleVisitSlotsModal({
   const [portalReady, setPortalReady] = useState(false);
   const src = reschedule.source;
 
+  /* eslint-disable react-hooks/set-state-in-effect -- mark document ready for createPortal after mount */
   useEffect(() => {
     setPortalReady(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!reschedule.isOpen || !src || !portalReady || typeof document === "undefined") return null;
 

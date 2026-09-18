@@ -1,43 +1,39 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { IconMoreVertical } from "@/components/icons";
 import { useAppFeedback } from "@/components/app-feedback";
-import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
-import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type ServiceType = "chiropractic" | "massage";
 
 type Service = {
   id: number;
   name: string;
-  /** If set, patients see this on the booking site & confirmations instead of name. Staff still see name. */
   public_booking_name?: string;
   description: string;
   duration_minutes: number;
   price: string;
   billing_code: string;
   is_active: boolean;
-  /** If false: doctor can still bill it; patients never see it on the booking site. */
   show_in_public_booking?: boolean;
-  /** In-room bill: chiropractic doctors see this line when true. */
   visible_to_chiropractic_staff?: boolean;
-  /** In-room bill: massage therapists see this line when true. */
   visible_to_massage_staff?: boolean;
   service_type?: ServiceType;
-  /** Chiropractic-only: marks the service as new-patient intake (booking site / eligibility logic). */
   is_new_client_intake?: boolean;
-  /** If false: line appears on printed bill for insurance but does not add to patient invoice total. */
   charges_patient?: boolean;
 };
 
@@ -63,12 +59,16 @@ const emptyForm = {
   charges_patient: true,
 };
 
-const fieldLabel =
-  "mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500";
-const inputWrap = "rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80 transition focus-within:border-[#16a349]/35 focus-within:ring-2 focus-within:ring-[#16a349]/12";
+const fieldLabel = "mb-1.5 block text-sm font-medium text-[#0d1f14]";
+const inputClass =
+  "w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] px-3.5 py-2.5 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20";
 
-/** Visit types shown per page — keeps the list easy to scan */
 const SERVICES_PAGE_SIZE = 12;
+
+type QuickFilter = "all" | "active" | "inactive" | "chiropractic" | "massage";
+
+const GRID =
+  "grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.55fr)_minmax(0,0.55fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.7fr)] gap-2";
 
 export default function AdminServicesPage() {
   const { runWithFeedback } = useAppFeedback();
@@ -80,9 +80,31 @@ export default function AdminServicesPage() {
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
-  type QuickFilter = "all" | "active" | "inactive" | "chiropractic" | "massage";
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [listPage, setListPage] = useState(0);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (menuOpenId == null) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpenId(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpenId]);
 
   const load = async () => {
     setLoading(true);
@@ -108,11 +130,8 @@ export default function AdminServicesPage() {
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
-
-  const activeCount = useMemo(() => services.filter((s) => s.is_active !== false).length, [services]);
-  const inactiveCount = services.length - activeCount;
 
   const filtered = useMemo(() => {
     let list = services;
@@ -133,7 +152,6 @@ export default function AdminServicesPage() {
   }, [services, search, quickFilter]);
 
   const listPageCount = Math.max(1, Math.ceil(filtered.length / SERVICES_PAGE_SIZE));
-
   const pagedFiltered = useMemo(() => {
     const start = listPage * SERVICES_PAGE_SIZE;
     return filtered.slice(start, start + SERVICES_PAGE_SIZE);
@@ -141,27 +159,12 @@ export default function AdminServicesPage() {
 
   useEffect(() => {
     setListPage(0);
+    setMenuOpenId(null);
   }, [search, quickFilter]);
 
   useEffect(() => {
     if (listPage >= listPageCount) setListPage(Math.max(0, listPageCount - 1));
   }, [listPage, listPageCount]);
-
-  const listSummary = useMemo(() => {
-    const total = services.length;
-    const n = filtered.length;
-    if (total === 0) return null;
-    const rangeStart = n === 0 ? 0 : listPage * SERVICES_PAGE_SIZE + 1;
-    const rangeEnd = Math.min((listPage + 1) * SERVICES_PAGE_SIZE, n);
-    const pagePart = listPageCount > 1 ? ` · page ${listPage + 1} of ${listPageCount}` : "";
-    if (n === total && !search.trim() && quickFilter === "all") {
-      if (listPageCount <= 1) {
-        return `Showing all ${total} visit type${total === 1 ? "" : "s"}`;
-      }
-      return `Showing ${rangeStart}–${rangeEnd} of ${total} visit types${pagePart}`;
-    }
-    return `Showing ${rangeStart}–${rangeEnd} of ${n} matching (${total} total)${pagePart}`;
-  }, [services.length, filtered.length, search, quickFilter, listPage, listPageCount]);
 
   const closeForm = () => {
     setFormOpen(false);
@@ -232,635 +235,565 @@ export default function AdminServicesPage() {
         closeForm();
       },
       {
-        loadingMessage: isEdit ? "Updating visit type…" : "Adding visit type…",
-        successMessage: isEdit ? "Visit type updated." : "New visit type added.",
+        loadingMessage: isEdit ? "Updating..." : "Adding...",
+        successMessage: isEdit ? "Service updated." : "Service added.",
         errorFallback: "Could not save this service.",
       },
     );
     setIsSaving(false);
   };
 
-  const remove = async (id: number) => {
-    if (!confirm("Remove this service? It will no longer appear in booking options.")) return;
+  const confirmDelete = async () => {
+    if (deleteId == null) return;
+    setDeleting(true);
     await runWithFeedback(
       async () => {
-        await apiDelete(`/services/${id}/`);
+        await apiDelete(`/services/${deleteId}/`);
         await load();
-        if (editing?.id === id) closeForm();
+        if (editing?.id === deleteId) closeForm();
+        setDeleteId(null);
       },
       {
-        loadingMessage: "Removing visit type…",
-        successMessage: "Visit type removed.",
+        loadingMessage: "Removing...",
+        successMessage: "Service removed.",
         errorFallback: "Could not delete this service.",
       },
     );
+    setDeleting(false);
   };
 
-  const formDirty =
-    editing !== null &&
-    (form.name !== editing.name ||
-      (form.public_booking_name || "").trim() !== (editing.public_booking_name || "").trim() ||
-      (form.billing_code || "") !== (editing.billing_code || "") ||
-      form.duration_minutes !== editing.duration_minutes ||
-      form.price !== String(editing.price) ||
-      (form.description || "") !== (editing.description || "") ||
-      form.is_active !== (editing.is_active !== false) ||
-      form.show_in_public_booking !== (editing.show_in_public_booking !== false) ||
-      form.visible_to_chiropractic_staff !== (editing.visible_to_chiropractic_staff !== false) ||
-      form.visible_to_massage_staff !== (editing.visible_to_massage_staff !== false) ||
-      form.service_type !== (editing.service_type === "massage" ? "massage" : "chiropractic") ||
-      (form.service_type === "chiropractic" && form.is_new_client_intake !== (editing.is_new_client_intake === true)) ||
-      form.charges_patient !== (editing.charges_patient !== false));
+  const toggleActive = async (s: Service) => {
+    setTogglingId(s.id);
+    await runWithFeedback(
+      async () => {
+        await apiPatch(`/services/${s.id}/`, { is_active: !(s.is_active !== false) });
+        await load();
+      },
+      {
+        loadingMessage: "Updating...",
+        successMessage: s.is_active !== false ? "Marked inactive." : "Marked active.",
+        errorFallback: "Could not update status.",
+      },
+    );
+    setTogglingId(null);
+  };
 
+  const rangeStart = filtered.length === 0 ? 0 : listPage * SERVICES_PAGE_SIZE + 1;
+  const rangeEnd = Math.min((listPage + 1) * SERVICES_PAGE_SIZE, filtered.length);
   const isNew = editing === null;
+  const deleteName = services.find((s) => s.id === deleteId)?.name;
 
   return (
-    <div className="space-y-6">
-      <AdminPageIntro
-        title="Services & codes"
-        description="Manage visit types: duration, price, billing code, and where each one appears (booking site, doctor bill, chiro vs massage)."
-        pageHelp={
-          <>
-            These records power the public booking flow and invoices. <strong>Billing code</strong> is the identifier your clinic uses
-            for that visit type (for example a CPT-style code).
-            <br />
-            <br />
-            <strong>Active</strong> means patients can choose this visit type (if a doctor offers it) and it appears as a column on{" "}
-            <strong>Admin → Providers & services</strong>. <strong>Inactive</strong> hides it there and on the public booking page; old
-            links on provider profiles show a short reminder until you clean them up or turn the service back on.
-            <br />
-            <br />
-            <strong>Visit kind</strong> controls booking rules: chiropractic visits use one assigned doctor; massage lets the patient pick
-            from doctors who offer that service.
-          </>
-        }
-      />
-
-      {error && (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
-      )}
-
-      {!loading && services.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-3 stagger-children">
-          <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white to-[#ecfdf5]/40 px-4 py-3 shadow-sm ring-1 ring-[#16a349]/10">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#13823d]">Active visit types</p>
-            <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{activeCount}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Inactive / hidden</p>
-            <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-700">{inactiveCount}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 shadow-sm">
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="text-sm font-semibold text-[#16a349] hover:text-[#13823d]"
-            >
-              Refresh list
-            </button>
-            <span className="text-slate-300">·</span>
-            <Link href="/admin/providers" className="text-sm font-semibold text-slate-600 hover:text-[#0d5c2e]">
-              Assign to providers →
-            </Link>
-          </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 text-sm text-[#5a7a62]">
+          <span>
+            {filtered.length} {filtered.length === 1 ? "service" : "services"}
+          </span>
+          <Link href="/admin/providers" className="font-semibold text-[#16a349] hover:underline">
+            Assign to providers
+          </Link>
         </div>
-      )}
-
-      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 ring-1 ring-slate-100/80">
-          <div className="sticky top-0 z-10 border-b border-slate-200/90 bg-white/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/85">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <AdminSectionLabel help="Use filters and search to narrow the list. Edit or Add service opens a popup form — close with Esc, X, or Cancel when done.">
-                Visit types
-              </AdminSectionLabel>
-              <button
-                type="button"
-                onClick={openCreate}
-                className="shrink-0 rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-[#13823d]"
-              >
-                Add service
-              </button>
-            </div>
-            <div className="relative mt-3 max-w-lg">
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search name, patient label, code…"
-                className="admin-input w-full py-2.5 pr-10 text-sm"
-                aria-label="Filter services"
-              />
-              {search.trim() ? (
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                  aria-label="Clear search"
-                  onClick={() => setSearch("")}
-                >
-                  <span className="text-lg leading-none" aria-hidden>
-                    ×
-                  </span>
-                </button>
-              ) : null}
-            </div>
-            {services.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(
-                  [
-                    { id: "all" as const, label: "All" },
-                    { id: "active" as const, label: "Active" },
-                    { id: "inactive" as const, label: "Inactive" },
-                    { id: "chiropractic" as const, label: "Chiropractic" },
-                    { id: "massage" as const, label: "Massage" },
-                  ] as const
-                ).map(({ id, label }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setQuickFilter(id)}
-                    className={cn(
-                      "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                      quickFilter === id
-                        ? "border-[#16a349] bg-[#ecfdf5] text-[#0d5c2e] ring-1 ring-[#16a349]/25"
-                        : "border-slate-200 bg-slate-50/80 text-slate-600 hover:border-slate-300 hover:bg-white",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {listSummary ? (
-              <p className="mt-2 text-xs font-medium text-slate-500">{listSummary}</p>
-            ) : null}
-          </div>
-          <div className="p-4 sm:p-5">
-            {loading ? (
-              <div className="flex min-h-[200px] items-center justify-center py-8">
-                <Loader variant="page" label="Loading services" sublabel="Fetching visit types from the server…" />
-              </div>
-            ) : services.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-12 text-center">
-                <p className="font-semibold text-slate-800">No services yet</p>
-                <p className="mt-2 text-sm text-slate-500">Add your first visit type to enable booking and provider assignment.</p>
-                <button
-                  type="button"
-                  onClick={openCreate}
-                  className="mt-6 rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
-                >
-                  Add service
-                </button>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="py-10 text-center">
-                <p className="text-sm font-medium text-slate-600">No visit types match filters or search.</p>
-                <button
-                  type="button"
-                  className="mt-3 text-sm font-semibold text-[#16a349] hover:text-[#13823d]"
-                  onClick={() => {
-                    setSearch("");
-                    setQuickFilter("all");
-                  }}
-                >
-                  Clear filters & search
-                </button>
-              </div>
-            ) : (
-              <>
-              <ul className="space-y-2">
-                {pagedFiltered.map((s, idx) => {
-                  const selected = formOpen && editing?.id === s.id;
-                  const st = s.service_type === "massage" ? "Massage" : "Chiropractic";
-                  const visChiro = s.visible_to_chiropractic_staff !== false;
-                  const visMassage = s.visible_to_massage_staff !== false;
-                  const staffScope =
-                    visChiro && visMassage ? null : visChiro ? "chiro" : visMassage ? "massage" : "none";
-                  return (
-                    <li key={s.id}>
-                      <div
-                        className={cn(
-                          "flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3.5 transition",
-                          selected
-                            ? "border-[#16a349]/45 bg-[#ecfdf5]/50 ring-1 ring-[#16a349]/20"
-                            : "border-slate-200/90 hover:border-slate-300/90",
-                          !selected && idx % 2 === 1 && "bg-slate-50/50",
-                          !selected && idx % 2 === 0 && "bg-white",
-                          !selected && "hover:bg-slate-50/80",
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="min-w-0">
-                              <p className="font-semibold text-slate-900">{s.name}</p>
-                              {(s.public_booking_name || "").trim() ? (
-                                <p className="mt-0.5 text-xs text-slate-500">
-                                  Patients see: <span className="font-medium text-slate-700">{(s.public_booking_name || "").trim()}</span>
-                                </p>
-                              ) : null}
-                            </div>
-                            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                              {st}
-                            </span>
-                            {s.service_type !== "massage" && s.is_new_client_intake && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                                Intake / reactivation
-                              </span>
-                            )}
-                            {!s.is_active && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                                Inactive
-                              </span>
-                            )}
-                            {s.is_active && s.show_in_public_booking === false && (
-                              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-900">
-                                Bill-only
-                              </span>
-                            )}
-                            {s.is_active && s.charges_patient === false && (
-                              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-900">
-                                Insurance / no patient charge
-                              </span>
-                            )}
-                            {s.is_active && staffScope === "chiro" && (
-                              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900">
-                                Chiro doctors
-                              </span>
-                            )}
-                            {s.is_active && staffScope === "massage" && (
-                              <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-900">
-                                Massage doctors
-                              </span>
-                            )}
-                            {s.is_active && staffScope === "none" && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                                No doctor picker
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1 text-sm text-slate-500">
-                            <span className="tabular-nums">{s.duration_minutes} min</span>
-                            <span className="mx-1.5 text-slate-300">·</span>
-                            <span className="font-medium text-slate-700">{formatPrice(String(s.price))}</span>
-                            {s.billing_code ? (
-                              <>
-                                <span className="mx-1.5 text-slate-300">·</span>
-                                <span className="font-mono text-xs text-slate-500">{s.billing_code}</span>
-                              </>
-                            ) : null}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(s)}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => remove(s.id)}
-                            className="rounded-xl border border-rose-200/90 bg-white px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-              {listPageCount > 1 ? (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-                  <button
-                    type="button"
-                    disabled={listPage === 0}
-                    onClick={() => setListPage((p) => Math.max(0, p - 1))}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-                  <p className="text-xs font-medium text-slate-500">
-                    {listPage * SERVICES_PAGE_SIZE + 1}–
-                    {Math.min((listPage + 1) * SERVICES_PAGE_SIZE, filtered.length)} of {filtered.length}
-                  </p>
-                  <button
-                    type="button"
-                    disabled={listPage >= listPageCount - 1}
-                    onClick={() => setListPage((p) => Math.min(listPageCount - 1, p + 1))}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Next
-                  </button>
-                </div>
-              ) : null}
-              </>
-            )}
-          </div>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="inline-flex items-center gap-2 rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
+        >
+          <Plus className="h-4 w-4" aria-hidden />
+          Add service
+        </button>
       </div>
 
-      <Dialog open={formOpen} onOpenChange={(open) => !open && closeForm()}>
-        <DialogContent
-          className={cn(
-            "flex w-[calc(100%-2rem)] max-h-[min(92dvh,52rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0",
-            "top-[max(1rem,4dvh)] translate-y-0 sm:min-w-[32rem]",
-          )}
-        >
-          <DialogHeader className="shrink-0 border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 pr-12 sm:px-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#13823d]">
-              {isNew ? "Create" : "Editing"}
-            </p>
-            <DialogTitle className="mt-1 text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
-              {isNew ? "New visit type" : editing?.name ?? "Service"}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              {isNew
-                ? "Fill in at least the name, then save. You can refine flags after."
-                : `ID ${editing?.id} · Save updates booking and billing everywhere this type is used.`}
-            </DialogDescription>
-            <div className="absolute top-4 right-12 hidden sm:block">
-              <HelpTip label="Form overview" align="center">
-                <strong>Service name</strong> is what doctors and schedules use. <strong>Patient-facing name</strong> (optional) overrides
-                the label on the public booking site and patient texts only. Duration and price apply everywhere. Billing code is internal.
-              </HelpTip>
+      {error && !formOpen ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#d1e8d8] px-5 py-3">
+          <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5a7a62]"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name or code..."
+              className="w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] py-2.5 pl-10 pr-3 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              aria-label="Search services"
+            />
+          </div>
+          <select
+            value={quickFilter}
+            onChange={(e) => setQuickFilter(e.target.value as QuickFilter)}
+            className="min-w-[10rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            aria-label="Filter services"
+          >
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="chiropractic">Chiropractic</option>
+            <option value="massage">Massage</option>
+          </select>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {loading ? (
+            <div className="p-8">
+              <Loader variant="page" label="Loading" />
             </div>
+          ) : (
+            <div className="flex h-full min-h-0 flex-col overflow-x-auto">
+              <div className="min-w-[920px] shrink-0 border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                <div className={cn(GRID, "px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]")}>
+                  <span>Service name</span>
+                  <span>Category</span>
+                  <span>Duration</span>
+                  <span>Price</span>
+                  <span>Code</span>
+                  <span>Status</span>
+                  <span className="text-right">Actions</span>
+                </div>
+              </div>
+
+              <div className="min-h-0 min-w-[920px] flex-1 overflow-auto">
+                {services.length === 0 ? (
+                  <div className="px-5 py-12 text-center">
+                    <p className="text-sm text-[#5a7a62]">No services yet.</p>
+                    <button
+                      type="button"
+                      onClick={openCreate}
+                      className="mt-3 text-sm font-semibold text-[#16a349] hover:underline"
+                    >
+                      Add service
+                    </button>
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div className="px-5 py-12 text-center">
+                    <p className="text-sm text-[#5a7a62]">No services match.</p>
+                    <button
+                      type="button"
+                      className="mt-3 text-sm font-semibold text-[#16a349] hover:underline"
+                      onClick={() => {
+                        setSearch("");
+                        setQuickFilter("all");
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-[#d1e8d8]">
+                    {pagedFiltered.map((s) => {
+                      const active = s.is_active !== false;
+                      const category = s.service_type === "massage" ? "Massage" : "Chiropractic";
+                      return (
+                        <li key={s.id} className={cn(GRID, "items-center px-5 py-3.5 hover:bg-[#f8fdf9]")}>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-[#0d1f14]">{s.name}</p>
+                            {(s.public_booking_name || "").trim() ? (
+                              <p className="mt-0.5 truncate text-xs text-[#5a7a62]">
+                                Patients see: {(s.public_booking_name || "").trim()}
+                              </p>
+                            ) : null}
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {s.service_type !== "massage" && s.is_new_client_intake ? (
+                                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-[#fef3c7] text-[#92400e]">
+                                  Intake
+                                </span>
+                              ) : null}
+                              {active && s.show_in_public_booking === false ? (
+                                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-[#dbeafe] text-[#1d4ed8]">
+                                  Bill-only
+                                </span>
+                              ) : null}
+                              {active && s.charges_patient === false ? (
+                                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-[#ede9fe] text-[#5b21b6]">
+                                  No patient charge
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="inline-flex rounded-full bg-[#ecfdf5] px-2.5 py-1 text-xs font-medium text-[#0d5c2e]">
+                              {category}
+                            </span>
+                          </div>
+                          <div className="tabular-nums text-[#0d1f14]">{s.duration_minutes} min</div>
+                          <div className="font-semibold tabular-nums text-[#0d1f14]">
+                            {formatPrice(String(s.price))}
+                          </div>
+                          <div className="font-mono text-xs text-[#5a7a62]">{s.billing_code || "-"}</div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={active}
+                              aria-label={active ? "Active" : "Inactive"}
+                              disabled={togglingId === s.id}
+                              onClick={() => void toggleActive(s)}
+                              className={cn(
+                                "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50",
+                                active ? "bg-[#16a349]" : "bg-[#d1e8d8]",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                                  active ? "left-[1.375rem]" : "left-0.5",
+                                )}
+                              />
+                            </button>
+                            <span className="text-xs text-[#5a7a62]">{active ? "Active" : "Inactive"}</span>
+                          </div>
+                          <div className="flex justify-end">
+                            <div
+                              className="relative inline-flex"
+                              ref={menuOpenId === s.id ? menuRef : undefined}
+                            >
+                              <button
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={menuOpenId === s.id}
+                                aria-label={`Actions for ${s.name}`}
+                                onClick={() =>
+                                  setMenuOpenId((id) => (id === s.id ? null : s.id))
+                                }
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1e8d8] bg-white text-[#5a7a62] hover:bg-[#f8fdf9] hover:text-[#0d1f14]"
+                              >
+                                <IconMoreVertical className="h-4 w-4" />
+                              </button>
+                              {menuOpenId === s.id ? (
+                                <div
+                                  role="menu"
+                                  className="absolute right-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-xl border border-[#d1e8d8] bg-white py-1 shadow-lg"
+                                >
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      openEdit(s);
+                                    }}
+                                    className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+                                  >
+                                    <Pencil className="h-4 w-4 text-[#5a7a62]" aria-hidden />
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      setDeleteId(s.id);
+                                    }}
+                                    className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#991b1b] hover:bg-[#fef2f2]"
+                                  >
+                                    <Trash2 className="h-4 w-4" aria-hidden />
+                                    Delete
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              {filtered.length > 0 ? (
+                <div className="flex shrink-0 flex-col gap-2 border-t border-[#d1e8d8] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-[#5a7a62]">
+                    <span className="tabular-nums text-[#0d1f14]">
+                      {rangeStart}-{rangeEnd}
+                    </span>{" "}
+                    of <span className="tabular-nums text-[#0d1f14]">{filtered.length}</span>
+                  </p>
+                  {listPageCount > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={listPage === 0}
+                        onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                        className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={listPage >= listPageCount - 1}
+                        onClick={() => setListPage((p) => Math.min(listPageCount - 1, p + 1))}
+                        className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <Dialog open={formOpen} onOpenChange={(open) => !open && closeForm()}>
+        <DialogContent className="flex max-h-[min(92dvh,52rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <DialogHeader className="shrink-0 border-b border-[#d1e8d8] bg-[#f8fdf9] px-6 py-4 pr-12">
+            <DialogTitle className="text-[#0d1f14]">
+              {isNew ? "Add service" : "Edit service"}
+            </DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              {isNew ? "Create a visit type for booking and billing." : editing?.name}
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-6">
-              <div className="rounded-xl border border-slate-200/80 bg-slate-50/40 p-4 ring-1 ring-slate-100/60">
-                <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">Basics</p>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="svc-name" className={fieldLabel}>
-                      Service name <span className="text-rose-600">*</span>
-                    </label>
-                    <div className={inputWrap}>
-                      <input
-                        id="svc-name"
-                        className="admin-input border-0 bg-transparent shadow-none ring-0 focus:ring-0"
-                        placeholder="e.g. Miscellaneous (shown to doctors & schedule)"
-                        value={form.name}
-                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="svc-public-name" className={fieldLabel}>
-                      Patient-facing name <span className="font-normal normal-case text-slate-400">(optional)</span>
-                    </label>
-                    <div className={inputWrap}>
-                      <input
-                        id="svc-public-name"
-                        className="admin-input border-0 bg-transparent shadow-none ring-0 focus:ring-0"
-                        placeholder="Leave blank to use service name everywhere — e.g. Chiropractic Visit"
-                        value={form.public_booking_name}
-                        onChange={(e) => setForm((f) => ({ ...f, public_booking_name: e.target.value }))}
-                      />
-                    </div>
-                    <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                      When set, the public booking page, voice assistant, and patient SMS/email use this label. Doctor portal and billing
-                      still use <strong className="font-medium text-slate-600">Service name</strong> above.
-                    </p>
-                  </div>
-                  <div>
-                    <label htmlFor="svc-desc" className={fieldLabel}>
-                      Description <span className="font-normal normal-case text-slate-400">(optional)</span>
-                    </label>
-                    <div className={inputWrap}>
-                      <textarea
-                        id="svc-desc"
-                        className="admin-input min-h-[5rem] resize-y border-0 bg-transparent shadow-none ring-0 focus:ring-0"
-                        placeholder="Short text for staff or future patient-facing copy"
-                        rows={3}
-                        value={form.description}
-                        onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+            {error && formOpen ? (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</p>
+            ) : null}
 
-              <div className="rounded-xl border border-slate-200/80 bg-white p-4 ring-1 ring-slate-100/60">
-                <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">Time & price</p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor="svc-duration" className={fieldLabel}>
-                      Duration (minutes)
-                    </label>
-                    <div className={inputWrap}>
-                      <input
-                        id="svc-duration"
-                        type="number"
-                        min={5}
-                        step={5}
-                        className="admin-input border-0 bg-transparent shadow-none ring-0 focus:ring-0"
-                        value={form.duration_minutes}
-                        onChange={(e) => setForm((f) => ({ ...f, duration_minutes: Number(e.target.value) || 0 }))}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="svc-price" className={fieldLabel}>
-                      Price (USD)
-                    </label>
-                    <div className={inputWrap}>
-                      <input
-                        id="svc-price"
-                        inputMode="decimal"
-                        className="admin-input border-0 bg-transparent shadow-none ring-0 focus:ring-0"
-                        placeholder="0.00"
-                        value={form.price}
-                        onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <label>
+              <span className={fieldLabel}>
+                Service name <span className="text-[#991b1b]">*</span>
+              </span>
+              <input
+                className={inputClass}
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Follow-up Adjustment"
+              />
+            </label>
 
-              <div className="rounded-xl border border-slate-200/80 bg-slate-50/40 p-4 ring-1 ring-slate-100/60">
-                <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">Billing & booking</p>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="svc-code" className={fieldLabel}>
-                      Billing / procedure code
-                    </label>
-                    <div className={inputWrap}>
-                      <input
-                        id="svc-code"
-                        className="admin-input border-0 bg-transparent font-mono text-sm shadow-none ring-0 focus:ring-0"
-                        placeholder="e.g. 98941"
-                        value={form.billing_code}
-                        onChange={(e) => setForm((f) => ({ ...f, billing_code: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-indigo-200/80 bg-indigo-50/40 p-3">
-                    <input
-                      type="checkbox"
-                      checked={form.charges_patient}
-                      onChange={(e) => setForm((f) => ({ ...f, charges_patient: e.target.checked }))}
-                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-800">
-                        Count toward patient invoice (patient pays)
-                      </span>
-                      <span className="mt-1 block text-xs leading-relaxed text-slate-600">
-                        Uncheck for procedures that should appear on the printed bill with CPT/code for insurance reimbursement but{" "}
-                        <strong>should not</strong> increase what the patient owes in this system. Checked = normal billable visit or product.
-                      </span>
-                    </span>
-                  </label>
-                  <div>
-                    <label htmlFor="svc-type" className={fieldLabel}>
-                      Visit kind
-                    </label>
-                    <div className={inputWrap}>
-                      <select
-                        id="svc-type"
-                        className="admin-input cursor-pointer border-0 bg-transparent py-3 shadow-none ring-0 focus:ring-0"
-                        value={form.service_type}
-                        onChange={(e) => {
-                          const service_type = e.target.value as ServiceType;
-                          setForm((f) => ({
-                            ...f,
-                            service_type,
-                            ...(service_type === "massage" ? { is_new_client_intake: false } : {}),
-                          }));
-                        }}
-                      >
-                        <option value="chiropractic">Chiropractic — one doctor assigned by the clinic</option>
-                        <option value="massage">Massage — patient picks from doctors who offer it</option>
-                      </select>
-                    </div>
-                  </div>
-                  {form.service_type === "chiropractic" && (
-                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200/80 bg-amber-50/50 p-3">
-                      <input
-                        type="checkbox"
-                        checked={form.is_new_client_intake}
-                        onChange={(e) => setForm((f) => ({ ...f, is_new_client_intake: e.target.checked }))}
-                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
-                      />
-                      <span>
-                        <span className="block text-sm font-semibold text-slate-800">
-                          New patient / reactivation visit (long-gap rule)
-                        </span>
-                        <span className="mt-1 block text-xs leading-relaxed text-slate-600">
-                          Check this for the visit type returning patients must book online if they have not had a completed chiropractic
-                          visit in over two years (for example &quot;New patient exam&quot; or &quot;Reactivation&quot;). Only applies when
-                          this service is shown on public booking. Massage visit types ignore this flag.
-                        </span>
-                      </span>
-                    </label>
-                  )}
-                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200/80 bg-white/80 p-3">
-                    <input
-                      type="checkbox"
-                      checked={form.show_in_public_booking}
-                      onChange={(e) => setForm((f) => ({ ...f, show_in_public_booking: e.target.checked }))}
-                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-800">Show on public booking website</span>
-                      <span className="mt-1 block text-xs leading-relaxed text-slate-600">
-                        Uncheck for CPT / fee rows that only appear on the doctor&apos;s visit bill (like modalities and no-show fees).
-                        Those stay available in the doctor dashboard for clicking onto the bill.
-                      </span>
-                    </span>
-                  </label>
-                  <div className="rounded-lg border border-slate-200/80 bg-white/80 p-3">
-                    <p className="text-sm font-semibold text-slate-800">Who sees this on the in-room bill?</p>
-                    <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                      Clinic admins always see every service here in Admin. These checkboxes control the list each doctor gets when they
-                      finish a visit. Use them so chiropractic-only codes don&apos;t clutter massage therapists&apos; screens, and vice versa.
-                    </p>
-                    <div className="mt-3 space-y-2">
-                      <label className="flex cursor-pointer items-start gap-3">
-                        <input
-                          type="checkbox"
-                          checked={form.visible_to_chiropractic_staff}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, visible_to_chiropractic_staff: e.target.checked }))
-                          }
-                          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
-                        />
-                        <span className="text-sm text-slate-700">Chiropractic doctors</span>
-                      </label>
-                      <label className="flex cursor-pointer items-start gap-3">
-                        <input
-                          type="checkbox"
-                          checked={form.visible_to_massage_staff}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, visible_to_massage_staff: e.target.checked }))
-                          }
-                          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
-                        />
-                        <span className="text-sm text-slate-700">Massage doctors / therapists</span>
-                      </label>
-                    </div>
-                    {!form.visible_to_chiropractic_staff && !form.visible_to_massage_staff && (
-                      <p className="mt-2 text-xs font-medium text-amber-800">
-                        Warning: no doctor role will see this line—only admins can use it until you check at least one box above.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
+            <label>
+              <span className={fieldLabel}>Patient-facing name</span>
+              <input
+                className={inputClass}
+                value={form.public_booking_name}
+                onChange={(e) => setForm((f) => ({ ...f, public_booking_name: e.target.value }))}
+                placeholder="Optional label for the booking site"
+              />
+            </label>
 
-              <div className="rounded-xl border border-[#16a349]/20 bg-[#ecfdf5]/35 p-4 ring-1 ring-emerald-100/50">
-                <label className="flex cursor-pointer items-start gap-3">
+            <label>
+              <span className={fieldLabel}>Description</span>
+              <textarea
+                className={cn(inputClass, "min-h-[4.5rem] resize-y")}
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Optional"
+                rows={3}
+              />
+            </label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label>
+                <span className={fieldLabel}>Duration (minutes)</span>
+                <input
+                  type="number"
+                  min={5}
+                  step={5}
+                  className={inputClass}
+                  value={form.duration_minutes}
+                  onChange={(e) => setForm((f) => ({ ...f, duration_minutes: Number(e.target.value) || 0 }))}
+                />
+              </label>
+              <label>
+                <span className={fieldLabel}>Price (USD)</span>
+                <input
+                  inputMode="decimal"
+                  className={inputClass}
+                  value={form.price}
+                  onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                  placeholder="0.00"
+                />
+              </label>
+            </div>
+
+            <label>
+              <span className={fieldLabel}>Billing / procedure code</span>
+              <input
+                className={cn(inputClass, "font-mono")}
+                value={form.billing_code}
+                onChange={(e) => setForm((f) => ({ ...f, billing_code: e.target.value }))}
+                placeholder="e.g. 98941"
+              />
+            </label>
+
+            <label>
+              <span className={fieldLabel}>Category</span>
+              <select
+                className={inputClass}
+                value={form.service_type}
+                onChange={(e) => {
+                  const service_type = e.target.value as ServiceType;
+                  setForm((f) => ({
+                    ...f,
+                    service_type,
+                    ...(service_type === "massage" ? { is_new_client_intake: false } : {}),
+                  }));
+                }}
+              >
+                <option value="chiropractic">Chiropractic</option>
+                <option value="massage">Massage</option>
+              </select>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] p-3">
+              <input
+                type="checkbox"
+                checked={form.charges_patient}
+                onChange={(e) => setForm((f) => ({ ...f, charges_patient: e.target.checked }))}
+                className="mt-1 h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]"
+              />
+              <span>
+                <span className="block text-sm font-medium text-[#0d1f14]">Count toward patient invoice</span>
+                <span className="mt-0.5 block text-xs text-[#5a7a62]">
+                  Uncheck for insurance-only lines that should not increase what the patient owes.
+                </span>
+              </span>
+            </label>
+
+            {form.service_type === "chiropractic" ? (
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] p-3">
+                <input
+                  type="checkbox"
+                  checked={form.is_new_client_intake}
+                  onChange={(e) => setForm((f) => ({ ...f, is_new_client_intake: e.target.checked }))}
+                  className="mt-1 h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-[#0d1f14]">New patient / reactivation visit</span>
+                  <span className="mt-0.5 block text-xs text-[#5a7a62]">
+                    For returning patients with a long gap since their last chiropractic visit.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] p-3">
+              <input
+                type="checkbox"
+                checked={form.show_in_public_booking}
+                onChange={(e) => setForm((f) => ({ ...f, show_in_public_booking: e.target.checked }))}
+                className="mt-1 h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]"
+              />
+              <span>
+                <span className="block text-sm font-medium text-[#0d1f14]">Show on public booking</span>
+                <span className="mt-0.5 block text-xs text-[#5a7a62]">
+                  Uncheck for bill-only codes doctors add in-room.
+                </span>
+              </span>
+            </label>
+
+            <div className="rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] p-3">
+              <p className="text-sm font-medium text-[#0d1f14]">Who sees this on the in-room bill?</p>
+              <div className="mt-3 space-y-2">
+                <label className="flex cursor-pointer items-center gap-3">
                   <input
                     type="checkbox"
-                    checked={form.is_active}
-                    onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
-                    className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#16a349] focus:ring-[#16a349]"
+                    checked={form.visible_to_chiropractic_staff}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, visible_to_chiropractic_staff: e.target.checked }))
+                    }
+                    className="h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]"
                   />
-                  <span>
-                    <span className="block text-sm font-semibold text-[#0d5c2e]">Active (usable in the system)</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-slate-600">
-                      Inactive rows are hidden everywhere—including the doctor bill picker—until you turn them back on.
-                    </span>
-                  </span>
+                  <span className="text-sm text-[#0d1f14]">Chiropractic doctors</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={form.visible_to_massage_staff}
+                    onChange={(e) => setForm((f) => ({ ...f, visible_to_massage_staff: e.target.checked }))}
+                    className="h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]"
+                  />
+                  <span className="text-sm text-[#0d1f14]">Massage doctors</span>
                 </label>
               </div>
+              {!form.visible_to_chiropractic_staff && !form.visible_to_massage_staff ? (
+                <p className="mt-2 text-xs font-medium text-[#92400e]">
+                  Warning: no doctor role will see this line.
+                </p>
+              ) : null}
             </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-4 sm:px-6">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center justify-between rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-[#0d1f14]">Active</p>
+                <p className="text-xs text-[#5a7a62]">Usable for booking and billing</p>
+              </div>
               <button
                 type="button"
-                onClick={save}
-                disabled={isSaving}
-                className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-[#13823d] disabled:opacity-50"
+                role="switch"
+                aria-checked={form.is_active}
+                onClick={() => setForm((f) => ({ ...f, is_active: !f.is_active }))}
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors",
+                  form.is_active ? "bg-[#16a349]" : "bg-[#d1e8d8]",
+                )}
               >
-                {isSaving ? "Saving…" : isNew ? "Create visit type" : "Save changes"}
+                <span
+                  className={cn(
+                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    form.is_active ? "left-[1.375rem]" : "left-0.5",
+                  )}
+                />
               </button>
-              {!isNew && (
-                <button
-                  type="button"
-                  disabled={!formDirty || isSaving}
-                  onClick={() => editing && openEdit(editing)}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
-                >
-                  Reset
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={closeForm}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <HelpTip label="Save">
-                Writes to the server and refreshes the list. New rows appear immediately for provider assignment if active.
-              </HelpTip>
             </div>
-            {!isNew && formDirty && (
-              <span className="text-xs font-medium text-amber-800">You have unsaved changes</span>
-            )}
           </div>
+
+          <DialogFooter className="shrink-0 border-[#d1e8d8] bg-[#f8fdf9] px-6 py-4">
+            <Button type="button" variant="outline" disabled={isSaving} onClick={closeForm} className="border-[#d1e8d8]">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isSaving || !form.name.trim()}
+              onClick={() => void save()}
+              className="bg-[#16a349] text-white hover:bg-[#13823d]"
+            >
+              {isSaving ? "Saving..." : isNew ? "Create service" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteId != null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#0d1f14]">Delete {deleteName || "service"}?</DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              It will no longer appear in booking options.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setDeleteId(null)}
+              className="border-[#d1e8d8]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+              className="bg-[#991b1b] text-white hover:bg-[#7f1d1d]"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

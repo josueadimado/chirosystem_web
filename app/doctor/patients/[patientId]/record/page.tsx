@@ -144,7 +144,6 @@ export default function DoctorPatientRecordPage() {
   const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
   const [billLoadError, setBillLoadError] = useState("");
 
-  /* eslint-disable react-hooks/set-state-in-effect -- load chart when patient id changes */
   useEffect(() => {
     setSelectedVisit(null);
     if (!Number.isFinite(id) || id <= 0) {
@@ -161,7 +160,6 @@ export default function DoctorPatientRecordPage() {
       })
       .finally(() => setLoading(false));
   }, [id]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const appointmentDateBounds = useMemo(() => {
     if (!detail?.appointments?.length) return { min: "", max: "" };
@@ -169,7 +167,6 @@ export default function DoctorPatientRecordPage() {
     return { min: dates[0]!, max: dates[dates.length - 1]! };
   }, [detail]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- default print range when patient chart loads */
   useEffect(() => {
     if (!appointmentDateBounds.min) {
       setPrintStart("");
@@ -179,7 +176,6 @@ export default function DoctorPatientRecordPage() {
     setPrintStart(appointmentDateBounds.min);
     setPrintEnd(appointmentDateBounds.max);
   }, [detail?.id, appointmentDateBounds.min, appointmentDateBounds.max]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   /** All appointments, most recent first — full visit history on screen. */
   const visitsNewestFirst = useMemo(() => {

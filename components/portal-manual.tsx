@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminPageIntro } from "@/components/admin-shell";
 import {
   IconArrowRight,
   IconCalendar,
@@ -31,14 +30,14 @@ type ManualSection = {
   bullets?: string[];
   blocks?: ManualBlock[];
   tip?: string;
-  /** Public path under /guide/ — drop the PNG in apps/web/public/guide/ */
+  /** Public path under /guide/ - drop the PNG in apps/web/public/guide/ */
   image?: string;
   imageAlt?: string;
   /** Shown until the screenshot file exists at `image` */
   imagePlaceholder?: string;
-  /** Tall full-page captures (e.g. dashboard) — show more height in the preview */
+  /** Tall full-page captures (e.g. dashboard) - show more height in the preview */
   imageLayout?: "landscape" | "portrait";
-  /** In-app link shown as “Open this page →” */
+  /** In-app link shown as "Open this page ->" */
   href?: string;
   /** Short caption under the screenshot */
   imageCaption?: string;
@@ -51,9 +50,9 @@ const DOCTOR_WORKFLOW_ID = "doctor-workflow";
 const DOCTOR_DAILY_WORKFLOW = [
   { step: 1, text: "Open My Dashboard each morning." },
   { step: 2, text: "Check today's appointment list." },
-  { step: 3, text: "When the patient arrives — check them in (kiosk or Check in on the row)." },
+  { step: 3, text: "When the patient arrives - check them in (kiosk or Check in on the row)." },
   { step: 4, text: "Click Start Visit when ready." },
-  { step: 5, text: "Document the visit — notes, diagnosis, services." },
+  { step: 5, text: "Document the visit - notes, diagnosis, services." },
   { step: 6, text: "Click Complete Visit." },
   { step: 7, text: "Take payment (card reader, saved card, or payment link)." },
   { step: 8, text: "Book the next visit before the patient leaves." },
@@ -76,16 +75,21 @@ function ManualSectionBody({ section }: { section: ManualSection }) {
   return (
     <>
       {section.bullets?.length ? (
-        <ul className="manual-prose list-inside list-disc space-y-2.5 text-[15px] leading-relaxed text-foreground marker:text-primary sm:text-base">
+        <ul className="manual-prose list-inside list-disc space-y-2 text-sm leading-relaxed text-[#0d1f14] marker:text-[#16a349] sm:text-[15px]">
           {section.bullets.map((b, i) => (
             <li key={`${section.id}-top-${i}`}>{b}</li>
           ))}
         </ul>
       ) : null}
       {section.blocks?.map((block) => (
-        <section key={`${section.id}-${block.heading}`} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
-          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-foreground sm:text-sm">{block.heading}</h3>
-          <ul className="manual-prose mt-2 list-inside list-disc space-y-2.5 text-[15px] leading-relaxed text-foreground marker:text-primary sm:text-base">
+        <section
+          key={`${section.id}-${block.heading}`}
+          className="rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3"
+        >
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62] sm:text-xs">
+            {block.heading}
+          </h3>
+          <ul className="manual-prose mt-2 list-inside list-disc space-y-2 text-sm leading-relaxed text-[#0d1f14] marker:text-[#16a349] sm:text-[15px]">
             {block.bullets.map((b, i) => (
               <li key={`${section.id}-${block.heading}-${i}`}>{b}</li>
             ))}
@@ -93,7 +97,7 @@ function ManualSectionBody({ section }: { section: ManualSection }) {
         </section>
       ))}
       {section.tip ? (
-        <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-sm text-amber-950">
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           <span className="font-semibold">Tip: </span>
           {section.tip}
         </p>
@@ -251,7 +255,7 @@ const SECTIONS: ManualSection[] = [
       "Relief Chiropractic uses this app to manage schedules, patients, billing, and clinic operations.",
     bullets: [
       "Sign in at book.reliefchiropractic.net/auth/sign-in with the email and password your clinic owner gave you.",
-      "Install as an app on your iPad or computer for faster access: iPad/iPhone use Share → Add to Home Screen; Chrome use the install icon in the address bar.",
+      "Install as an app on your iPad or computer for faster access: iPad/iPhone use Share -> Add to Home Screen; Chrome use the install icon in the address bar.",
       "The bell icon (top right) shows alerts for check-ins and schedule changes.",
       "Always log out on shared computers.",
       "If something looks wrong, refresh the page. Contact your owner if it persists.",
@@ -269,7 +273,7 @@ const SECTIONS: ManualSection[] = [
     subtitle: "Front desk tablet",
     roles: ["admin"],
     description:
-      "The kiosk is a self-service check-in screen for patients who already have an appointment today. URL: book.reliefchiropractic.net/kiosk — bookmark this on your front desk tablet for one-tap access.",
+      "The kiosk is a self-service check-in screen for patients who already have an appointment today. URL: book.reliefchiropractic.net/kiosk - bookmark this on your front desk tablet for one-tap access.",
     blocks: [
       {
         heading: "How it works",
@@ -287,14 +291,14 @@ const SECTIONS: ManualSection[] = [
         bullets: [
           "The kiosk only shows today's appointments.",
           "It does not replace the public booking site.",
-          "If a patient cannot check in: wrong number, no appointment today, or cancelled visit — help them from the Schedule page.",
+          "If a patient cannot check in: wrong number, no appointment today, or cancelled visit - help them from the Schedule page.",
         ],
       },
     ],
     image: "/guide/admin-kiosk.png",
     imageAlt: "Kiosk check-in screen with phone number entry",
     imagePlaceholder: "Screenshot: Kiosk check-in screen",
-    imageCaption: "Front-desk tablet — patient enters the phone number from booking.",
+    imageCaption: "Front-desk tablet - patient enters the phone number from booking.",
     placeholderCompact: true,
     href: "/kiosk",
   },
@@ -353,12 +357,12 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Charts and summaries",
         bullets: [
-          "Revenue chart — monthly revenue for the last 6 months (collected vs outstanding).",
-          "Appointments this week — scheduled, completed, cancelled, no-show count and rate.",
-          "Billing summary — billed, collected, outstanding, no-show fees pending, collection rate.",
-          "Revenue by service — top 5 services by revenue this month.",
-          "Client health — active (last 30 days), at risk (60–89 days), inactive (90+ days).",
-          "AI voice summary — calls this month, booked via AI, failed or dropped calls.",
+          "Revenue chart - monthly revenue for the last 6 months (collected vs outstanding).",
+          "Appointments this week - scheduled, completed, cancelled, no-show count and rate.",
+          "Billing summary - billed, collected, outstanding, no-show fees pending, collection rate.",
+          "Revenue by service - top 5 services by revenue this month.",
+          "Client health - active (last 30 days), at risk (60-89 days), inactive (90+ days).",
+          "AI voice summary - calls this month, booked via AI, failed or dropped calls.",
         ],
       },
       {
@@ -403,7 +407,7 @@ const SECTIONS: ManualSection[] = [
         heading: "Visit panel actions",
         bullets: [
           "See patient contact details.",
-          "Check in the patient manually (same as kiosk — for walk-ins without the tablet).",
+          "Check in the patient manually (same as kiosk - for walk-ins without the tablet).",
           "View handoff / chart notes.",
           "Reschedule the appointment.",
           "Book next visit.",
@@ -427,8 +431,8 @@ const SECTIONS: ManualSection[] = [
     ],
     image: "/guide/admin-schedule.png",
     imageAlt: "Admin schedule week view with multiple providers",
-    imagePlaceholder: "Screenshot: Admin schedule calendar — week view with multiple providers",
-    imageCaption: "All providers on one calendar — click a block for the visit panel.",
+    imagePlaceholder: "Screenshot: Admin schedule calendar - week view with multiple providers",
+    imageCaption: "All providers on one calendar - click a block for the visit panel.",
     placeholderCompact: true,
     href: "/admin/schedule",
   },
@@ -451,12 +455,12 @@ const SECTIONS: ManualSection[] = [
         bullets: [
           "Click Add Patient at the top right.",
           "Fill in name, phone, email.",
-          "Phone number is required — it powers SMS reminders and kiosk lookup.",
+          "Phone number is required - it powers SMS reminders and kiosk lookup.",
         ],
       },
       {
         heading: "Patient row actions",
-        bullets: ["Open chart → full patient record.", "History → all visits and bills."],
+        bullets: ["Open chart -> full patient record.", "History -> all visits and bills."],
       },
       {
         heading: "Patient chart",
@@ -471,7 +475,7 @@ const SECTIONS: ManualSection[] = [
         heading: "Editing patient information",
         bullets: [
           "Admins can edit all patient fields.",
-          "Keep phone numbers accurate — used for SMS reminders, kiosk check-in, and AI voice recognition.",
+          "Keep phone numbers accurate - used for SMS reminders, kiosk check-in, and AI voice recognition.",
         ],
       },
       {
@@ -507,32 +511,32 @@ const SECTIONS: ManualSection[] = [
         heading: "Taking payment on an invoice",
         bullets: [
           "Find the invoice and click Pay.",
-          "Saved card on file — charge with one tap.",
-          "Square Terminal — sends to card reader.",
-          "Square POS — opens iPad POS app.",
-          "Payment link — sends text or email to patient.",
-          "Patient credit — apply existing balance.",
+          "Saved card on file - charge with one tap.",
+          "Square Terminal - sends to card reader.",
+          "Square POS - opens iPad POS app.",
+          "Payment link - sends text or email to patient.",
+          "Patient credit - apply existing balance.",
         ],
       },
       {
         heading: "Patient credit",
         bullets: [
           "Credit is a balance the patient has with the clinic.",
-          "To add credit: open the patient → Add Credit → enter amount and reason.",
-          "To use credit on an invoice: Pay → Apply Credit.",
+          "To add credit: open the patient -> Add Credit -> enter amount and reason.",
+          "To use credit on an invoice: Pay -> Apply Credit.",
         ],
       },
       {
         heading: "Credit top-up via Terminal",
         bullets: [
-          "Patient Credit Top-up → enter amount → sends to Square Terminal.",
+          "Patient Credit Top-up -> enter amount -> sends to Square Terminal.",
         ],
       },
       {
         heading: "Preview and print bills",
         bullets: [
-          "Preview — see the full bill before printing.",
-          "Print — get a printable version.",
+          "Preview - see the full bill before printing.",
+          "Print - get a printable version.",
         ],
       },
       {
@@ -546,9 +550,63 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/admin-billing.png",
     imageAlt: "Billing page with invoice list and payment options",
     imagePlaceholder: "Screenshot: Billing page with invoice list and payment options",
-    imageCaption: "Invoice desk — search, pay, credit, and print.",
+    imageCaption: "Invoice desk - search, pay, credit, and print.",
     placeholderCompact: true,
     href: "/admin/billing",
+  },
+  {
+    id: "admin-reconciliation",
+    title: "Payment reconciliation",
+    subtitle: "Match cash and card payments",
+    roles: ["admin"],
+    description: "Use this page to review payments and mark items paid when you have verified them.",
+    blocks: [
+      {
+        heading: "What you can do",
+        bullets: [
+          "Filter and search payment rows.",
+          "Open the row menu (three dots) for actions.",
+          "Mark paid after you confirm the payment (you will get a confirmation dialog).",
+        ],
+      },
+    ],
+    href: "/admin/reconciliation",
+  },
+  {
+    id: "admin-insurance-claims",
+    title: "Insurance claims",
+    subtitle: "Track claim status",
+    roles: ["admin"],
+    description: "Review insurance claims tied to visits and follow up on open items.",
+    bullets: [
+      "Search and filter claims in the list.",
+      "Use Edit or Delete from the row menu when you need to update a claim.",
+    ],
+    href: "/admin/insurance-claims",
+  },
+  {
+    id: "admin-insurance-companies",
+    title: "Insurance companies",
+    subtitle: "Payer directory",
+    roles: ["admin"],
+    description: "Maintain the list of insurance companies used on claims and patient records.",
+    bullets: [
+      "Add a company when you take a new payer.",
+      "Edit or remove companies from the row menu.",
+    ],
+    href: "/admin/insurance-companies",
+  },
+  {
+    id: "admin-intake",
+    title: "Intake forms",
+    subtitle: "Digital patient forms",
+    roles: ["admin"],
+    description: "See which patients still need intake forms and resend links when needed.",
+    bullets: [
+      "Open Intake forms from the sidebar.",
+      "Staff or doctors can send a personal intake link if a patient did not finish their forms.",
+    ],
+    href: "/admin/intake",
   },
   {
     id: "admin-services",
@@ -577,14 +635,14 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Editing and hiding",
         bullets: [
-          "Click any service to edit — changes apply to new bookings immediately.",
+          "Click any service to edit - changes apply to new bookings immediately.",
           "Uncheck Show in public booking to hide from the patient site without deleting; doctors can still bill for it.",
         ],
       },
       {
         heading: "Note",
         bullets: [
-          "Deleting a service that has existing appointments is not allowed — mark it inactive instead.",
+          "Deleting a service that has existing appointments is not allowed - mark it inactive instead.",
         ],
       },
     ],
@@ -594,6 +652,18 @@ const SECTIONS: ManualSection[] = [
     imageCaption: "Visit types for booking and billing.",
     placeholderCompact: true,
     href: "/admin/services",
+  },
+  {
+    id: "admin-diagnoses",
+    title: "Diagnoses & codes",
+    subtitle: "ICD codes for visits",
+    roles: ["admin"],
+    description: "Maintain diagnosis codes doctors can pick when documenting visits.",
+    bullets: [
+      "Search the list, then add or edit codes as needed.",
+      "Keep inactive codes out of day-to-day use when you no longer need them.",
+    ],
+    href: "/admin/diagnoses",
   },
   {
     id: "admin-providers",
@@ -613,7 +683,7 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Adding a provider",
         bullets: [
-          "Click Add Provider — fill in name, title, email, assign services, set active to show in booking.",
+          "Click Add Provider - fill in name, title, email, assign services, set active to show in booking.",
         ],
       },
       {
@@ -644,30 +714,34 @@ const SECTIONS: ManualSection[] = [
     subtitle: "Control when patients can book online",
     roles: ["admin"],
     description:
-      "Booking blocks prevent patients from booking appointments during specific times through the public booking site.",
+      "Booking blocks hide online booking times for a provider on chosen dates (or time ranges).",
     blocks: [
       {
         heading: "Use cases",
         bullets: [
           "Clinic closed for a holiday.",
-          "Provider unavailable for a day.",
-          "Limiting online booking to certain hours.",
-          "Blocking a lunch break.",
+          "Provider away for a day or a date range.",
+          "Block a lunch break or morning-only window.",
+          "Weekdays-only blocks across a longer range.",
         ],
       },
       {
         heading: "Adding a block",
         bullets: [
-          "Click Add Block.",
-          "Select provider (or all), date or date range, start and end time, reason (internal note only).",
-          "Patients will not see available slots during blocked times on the booking site.",
+          "Choose the provider from the dropdown.",
+          "Click Add block.",
+          "Pick From date and To date (same day is fine).",
+          "Optionally turn on Weekdays only (Mon-Fri).",
+          "Block entire day, or set From/Until times.",
+          "Save - patients will not see those slots on the public booking site.",
         ],
       },
       {
         heading: "Note",
         bullets: [
           "Blocks only affect the public booking site.",
-          "You can still manually book during blocked times from the Admin Schedule page.",
+          "You can still book from the Admin Schedule page during blocked times.",
+          "Remove a block anytime with the Remove button (confirm in the dialog).",
         ],
       },
     ],
@@ -697,9 +771,9 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Account roles",
         bullets: [
-          "Owner — full access including Team page and all clinic settings.",
-          "Staff/Admin — full access except Team page.",
-          "Doctor — doctor portal only.",
+          "Owner - full access including Team page and all clinic settings.",
+          "Staff/Admin - full access except Team page.",
+          "Doctor - doctor portal only.",
         ],
       },
       {
@@ -723,7 +797,7 @@ const SECTIONS: ManualSection[] = [
     image: "/guide/admin-team.png",
     imageAlt: "Team page with staff account list",
     imagePlaceholder: "Screenshot: Team page with staff account list",
-    imageCaption: "Owner-only — manage admin, staff, and doctor logins.",
+    imageCaption: "Owner-only - manage admin, staff, and doctor logins.",
     placeholderCompact: true,
     href: "/admin/team",
   },
@@ -787,7 +861,7 @@ const SECTIONS: ManualSection[] = [
         heading: "Clinic profile tab",
         bullets: [
           "Update clinic name, address, phone, and email.",
-          "This information appears on printed bills and patient receipts — keep it accurate.",
+          "This information appears on printed bills and patient receipts - keep it accurate.",
         ],
       },
       {
@@ -829,8 +903,8 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Morning (before clinic opens)",
         bullets: [
-          "Open the Dashboard — check today's appointment volume.",
-          "Open the Schedule — confirm all appointments are correct.",
+          "Open the Dashboard - check today's appointment volume.",
+          "Open the Schedule - confirm all appointments are correct.",
           "Make sure the kiosk tablet is on and showing the kiosk page.",
         ],
       },
@@ -862,14 +936,14 @@ const SECTIONS: ManualSection[] = [
         ],
       },
       {
-        heading: "Common tasks — quick reference",
+        heading: "Common tasks - quick reference",
         bullets: [
-          "Add a new patient: Patients → Add Patient.",
-          "Book manually: Schedule → click empty slot → fill form.",
-          "Check in a walk-in: Schedule → find appointment → Check In.",
-          "Reprint an old bill: Billing → search by patient or date → Print.",
-          "Add patient credit: Patients → open patient → Add Credit.",
-          "Block online booking: Booking Blocks → Add Block → select date.",
+          "Add a new patient: Patients -> Add Patient.",
+          "Book manually: Schedule -> click empty slot -> fill form.",
+          "Check in a walk-in: Schedule -> find appointment -> Check In.",
+          "Reprint an old bill: Billing -> search by patient or date -> Print.",
+          "Add patient credit: Patients -> open patient -> Add Credit.",
+          "Block online booking: Booking Blocks -> Add Block -> select date.",
         ],
       },
     ],
@@ -885,10 +959,10 @@ const SECTIONS: ManualSection[] = [
     title: "Welcome to your portal",
     roles: ["doctor"],
     description:
-      "Relief Chiropractic uses this app for your daily workflow — patients, schedule, visits, billing, and records.",
+      "Relief Chiropractic uses this app for your daily workflow - patients, schedule, visits, billing, and records.",
     bullets: [
       "Sign in at book.reliefchiropractic.net/auth/sign-in with the email and password your admin gave you.",
-      "Install as an app on your phone or iPad: tap Share → Add to Home Screen (iPhone) or use the install icon in Chrome (Android).",
+      "Install as an app on your phone or iPad: tap Share -> Add to Home Screen (iPhone) or use the install icon in Chrome (Android).",
       "The bell icon (top right) shows alerts for new check-ins and schedule changes.",
       "Always log out when using a shared device.",
       "If something looks wrong, refresh the page. Contact your admin if the problem continues.",
@@ -897,7 +971,7 @@ const SECTIONS: ManualSection[] = [
     imageAlt: "Sign-in page for the doctor portal",
     imagePlaceholder: "Screenshot: Sign-in page at /auth/sign-in",
     href: "/auth/sign-in",
-    imageCaption: "Staff sign-in — use the email and password your admin gave you.",
+    imageCaption: "Staff sign-in - use the email and password your admin gave you.",
   },
   {
     id: "doctor-dashboard",
@@ -907,10 +981,10 @@ const SECTIONS: ManualSection[] = [
     description: "The dashboard is where you run your day. It opens on today's date automatically.",
     image: "/guide/doctor-dashboard.png",
     imageAlt: "Doctor dashboard showing today's appointment list with action buttons",
-    imagePlaceholder: "Screenshot: Doctor dashboard — appointment list with action buttons",
+    imagePlaceholder: "Screenshot: Doctor dashboard - appointment list with action buttons",
     imageLayout: "portrait",
     href: "/doctor/dashboard",
-    imageCaption: "Today's list — check in, start visit, complete, and collect payment from each row.",
+    imageCaption: "Today's list - check in, start visit, complete, and collect payment from each row.",
     blocks: [
       {
         heading: "Viewing a different day",
@@ -922,10 +996,10 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Your daily stats",
         bullets: [
-          "Checked in — patients who have arrived.",
-          "In consultation — visits in progress.",
-          "Awaiting payment — completed, not yet paid.",
-          "Completed — fully done for the day.",
+          "Checked in - patients who have arrived.",
+          "In consultation - visits in progress.",
+          "Awaiting payment - completed, not yet paid.",
+          "Completed - fully done for the day.",
           "No shows and cancellations.",
         ],
       },
@@ -939,42 +1013,42 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Before patient arrives",
         bullets: [
-          "Reschedule — move to a different time.",
-          "Cancel — remove the appointment.",
-          "No-show — mark as did not attend.",
-          "Book next visit — schedule a follow-up.",
+          "Reschedule - move to a different time.",
+          "Cancel - remove the appointment.",
+          "No-show - mark as did not attend.",
+          "Book next visit - schedule a follow-up.",
         ],
       },
       {
         heading: "When patient arrives (checked in)",
         bullets: [
-          "Start Visit — begins the consultation.",
+          "Start Visit - begins the consultation.",
           "The patient must be checked in first (via kiosk or staff check-in).",
         ],
       },
       {
         heading: "During visit (in consultation)",
         bullets: [
-          "Reason for visit — what the patient says.",
-          "Chart / SOAP notes — your clinical notes.",
-          "Handoff notes — visible to other providers.",
+          "Reason for visit - what the patient says.",
+          "Chart / SOAP notes - your clinical notes.",
+          "Handoff notes - visible to other providers.",
           "Diagnosis field.",
-          "Billable services — select what was done.",
-          "Professional discount — apply if needed.",
-          "Complete Visit — finishes the visit.",
+          "Billable services - select what was done.",
+          "Professional discount - apply if needed.",
+          "Complete Visit - finishes the visit.",
         ],
       },
       {
         heading: "After visit (awaiting payment)",
         bullets: [
-          "Edit Billing — change services before payment.",
+          "Edit Billing - change services before payment.",
           "Charge saved card on file.",
-          "Square Terminal — sends payment to the card reader.",
-          "Square POS — opens the iPad POS app.",
-          "Payment link — send to the patient by text or email.",
-          "Apply patient credit — use existing balance.",
-          "Preview Bill — see the invoice before charging.",
-          "Print Bill — after payment is complete.",
+          "Square Terminal - sends payment to the card reader.",
+          "Square POS - opens the iPad POS app.",
+          "Payment link - send to the patient by text or email.",
+          "Apply patient credit - use existing balance.",
+          "Preview Bill - see the invoice before charging.",
+          "Print Bill - after payment is complete.",
         ],
       },
       {
@@ -991,13 +1065,13 @@ const SECTIONS: ManualSection[] = [
     title: "My Schedule",
     subtitle: "Your personal calendar",
     roles: ["doctor"],
-    description: "Your schedule shows only your appointments — filtered to your provider account.",
+    description: "Your schedule shows only your appointments - filtered to your provider account.",
     image: "/guide/doctor-schedule.png",
     imageAlt: "My Schedule week view with Day, Week, Month controls and appointment blocks",
-    imagePlaceholder: "Screenshot: My Schedule — week view with appointment blocks",
+    imagePlaceholder: "Screenshot: My Schedule - week view with appointment blocks",
     imageLayout: "portrait",
     href: "/doctor/schedule",
-    imageCaption: "Week view — click a block to open the appointment panel.",
+    imageCaption: "Week view - click a block to open the appointment panel.",
     blocks: [
       {
         heading: "Views",
@@ -1037,7 +1111,7 @@ const SECTIONS: ManualSection[] = [
         heading: "Google Calendar sync",
         bullets: [
           "Connect your personal Google Calendar to see clinic appointments alongside your other events.",
-          "Go to the side panel → Google Calendar → Connect and follow the prompts.",
+          "Go to the side panel -> Google Calendar -> Connect and follow the prompts.",
           "Once connected, Relief Chiropractic appointments sync automatically.",
           "Click Disconnect at any time to stop syncing.",
         ],
@@ -1052,7 +1126,7 @@ const SECTIONS: ManualSection[] = [
     description: "The Patients page shows all clinic patients you are authorized to view.",
     image: "/guide/doctor-patients.png",
     imageAlt: "Patient directory with search, filters, and Chart / History links",
-    imagePlaceholder: "Screenshot: Patients page — search bar, filters, and patient list",
+    imagePlaceholder: "Screenshot: Patients page - search bar, filters, and patient list",
     href: "/doctor/patients",
     imageCaption: "Search by name or phone; open Chart or History from each row.",
     blocks: [
@@ -1066,8 +1140,8 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Patient row actions",
         bullets: [
-          "Chart — opens the full patient record.",
-          "History — opens the visit history list.",
+          "Chart - opens the full patient record.",
+          "History - opens the visit history list.",
         ],
       },
     ],
@@ -1077,13 +1151,13 @@ const SECTIONS: ManualSection[] = [
     title: "Patient Chart",
     subtitle: "Full record for one patient",
     roles: ["doctor"],
-    description: "Open the chart from Patients → Chart or by clicking a patient name anywhere in the app.",
+    description: "Open the chart from Patients -> Chart or by clicking a patient name anywhere in the app.",
     image: "/guide/doctor-chart.png",
     imageAlt: "Patient chart with demographics, visit history, and print options",
-    imagePlaceholder: "Screenshot: Patient chart — demographics and visit history",
+    imagePlaceholder: "Screenshot: Patient chart - demographics and visit history",
     imageLayout: "portrait",
     href: "/doctor/patients",
-    imageCaption: "Full record — demographics, visits, and print patient file.",
+    imageCaption: "Full record - demographics, visits, and print patient file.",
     blocks: [
       {
         heading: "What you can see",
@@ -1124,7 +1198,7 @@ const SECTIONS: ManualSection[] = [
     description: "The Analytics page shows how your practice is performing.",
     image: "/guide/doctor-analytics.png",
     imageAlt: "My analytics with today stats, monthly KPIs, outreach lists, and session chart",
-    imagePlaceholder: "Screenshot: Analytics — monthly stats, needs-attention lists, weekly chart",
+    imagePlaceholder: "Screenshot: Analytics - monthly stats, needs-attention lists, weekly chart",
     imageLayout: "portrait",
     href: "/doctor/analytics",
     imageCaption: "KPIs, patients needing outreach, and the weekly sessions chart.",
@@ -1150,9 +1224,9 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Patients needing attention",
         bullets: [
-          "Missed 2+ sessions in a row — patients who may be at risk of discharge. Use Schedule to book them in.",
-          "Completing program soon — within 2 sessions of finishing. Check in about next steps.",
-          "No upcoming session scheduled — use Schedule to book them.",
+          "Missed 2+ sessions in a row - patients who may be at risk of discharge. Use Schedule to book them in.",
+          "Completing program soon - within 2 sessions of finishing. Check in about next steps.",
+          "No upcoming session scheduled - use Schedule to book them.",
         ],
       },
       {
@@ -1173,9 +1247,9 @@ const SECTIONS: ManualSection[] = [
       "The kiosk is a self-service check-in screen at the front desk. URL: book.reliefchiropractic.net/kiosk",
     image: "/guide/doctor-kiosk.png",
     imageAlt: "Kiosk check-in screen with phone number entry",
-    imagePlaceholder: "Screenshot: Kiosk check-in — phone lookup and confirm screen",
+    imagePlaceholder: "Screenshot: Kiosk check-in - phone lookup and confirm screen",
     href: "/kiosk",
-    imageCaption: "Front-desk tablet — patient enters the phone number used when booking.",
+    imageCaption: "Front-desk tablet - patient enters the phone number used when booking.",
     blocks: [
       {
         heading: "How it works",
@@ -1193,7 +1267,7 @@ const SECTIONS: ManualSection[] = [
         bullets: [
           "Bookmark the kiosk page on the tablet for one-tap access.",
           "The kiosk only shows today's appointments.",
-          "If a patient cannot check in: wrong phone number, no appointment today, appointment cancelled — check the admin schedule to help them.",
+          "If a patient cannot check in: wrong phone number, no appointment today, appointment cancelled - check the admin schedule to help them.",
         ],
       },
     ],
@@ -1206,26 +1280,26 @@ const SECTIONS: ManualSection[] = [
     description: "After you complete a visit, the payment panel appears automatically.",
     image: "/guide/doctor-payments.png",
     imageAlt: "Payment panel with Square Terminal, saved card, and bill preview options",
-    imagePlaceholder: "Screenshot: Payment panel after Complete Visit — Terminal, card, preview bill",
+    imagePlaceholder: "Screenshot: Payment panel after Complete Visit - Terminal, card, preview bill",
     imageLayout: "portrait",
     href: "/doctor/dashboard",
-    imageCaption: "After Complete Visit — charge card, Terminal, POS, or send a payment link.",
+    imageCaption: "After Complete Visit - charge card, Terminal, POS, or send a payment link.",
     blocks: [
       {
         heading: "Payment options",
         bullets: [
-          "Saved card on file — if the patient has a card from online booking, charge with one tap. Confirm the amount and tap Charge.",
-          "Square Terminal (card reader) — tap Use Card Reader. Payment goes to the Square Terminal at the front desk. Patient taps or inserts their card. Receipt prints automatically. Status updates on your screen when complete.",
-          "Square POS (iPad) — opens Square Point of Sale on the front-desk iPad. Complete payment there.",
-          "Payment link — sends a text or email link to pay online. Useful if the patient leaves without paying in person.",
-          "Patient credit — apply an existing balance from overpayment or refund toward this visit.",
+          "Saved card on file - if the patient has a card from online booking, charge with one tap. Confirm the amount and tap Charge.",
+          "Square Terminal (card reader) - tap Use Card Reader. Payment goes to the Square Terminal at the front desk. Patient taps or inserts their card. Receipt prints automatically. Status updates on your screen when complete.",
+          "Square POS (iPad) - opens Square Point of Sale on the front-desk iPad. Complete payment there.",
+          "Payment link - sends a text or email link to pay online. Useful if the patient leaves without paying in person.",
+          "Patient credit - apply an existing balance from overpayment or refund toward this visit.",
         ],
       },
       {
         heading: "Previewing and printing bills",
         bullets: [
-          "Preview Bill — see the invoice before charging to confirm everything is correct.",
-          "Print Bill — prints the invoice after payment is complete.",
+          "Preview Bill - see the invoice before charging to confirm everything is correct.",
+          "Print Bill - prints the invoice after payment is complete.",
         ],
       },
       {
@@ -1257,7 +1331,7 @@ const SECTIONS: ManualSection[] = [
       {
         heading: "Install as an app",
         bullets: [
-          "iPhone / iPad: Share → Add to Home Screen.",
+          "iPhone / iPad: Share -> Add to Home Screen.",
           "Android / Chrome: install icon in the address bar.",
           "Gives a full-screen app icon without the browser bar.",
         ],
@@ -1266,16 +1340,16 @@ const SECTIONS: ManualSection[] = [
         heading: "Google Calendar",
         bullets: [
           "Connect once and your schedule syncs automatically.",
-          "My Schedule → Google Calendar panel → Connect.",
+          "My Schedule -> Google Calendar panel -> Connect.",
           "Works with personal Gmail or Google Workspace.",
         ],
       },
       {
         heading: "Common issues",
         bullets: [
-          "Patient not on dashboard today — check the date is today; patient may not be checked in; appointment may be under another provider.",
-          "Cannot start visit — patient must be checked in first; use Check In on the row or the kiosk.",
-          "Terminal payment not working — check the terminal is on; try payment link; contact admin if the terminal is offline.",
+          "Patient not on dashboard today - check the date is today; patient may not be checked in; appointment may be under another provider.",
+          "Cannot start visit - patient must be checked in first; use Check In on the row or the kiosk.",
+          "Terminal payment not working - check the terminal is on; try payment link; contact admin if the terminal is offline.",
         ],
       },
     ],
@@ -1283,7 +1357,7 @@ const SECTIONS: ManualSection[] = [
 ];
 
 function sectionAnchorLabel(title: string) {
-  return title.replace(/^Admin — /, "");
+  return title.replace(/^Admin - /, "");
 }
 
 function sectionHasVisual(s: ManualSection) {
@@ -1303,35 +1377,37 @@ function GuideSectionCard({
   const stackImageBelow = section.placeholderCompact === true;
   const figureLabel =
     figureIndex != null && (section.imageCaption || section.image)
-      ? `Figure ${figureIndex} — ${section.title}`
+      ? `Figure ${figureIndex} - ${section.title}`
       : undefined;
 
   return (
     <Card
       id={section.id}
       size="sm"
-      className="scroll-mt-28 border-border/90 py-4 shadow-md shadow-black/[0.05] sm:py-5"
+      className="scroll-mt-28 border-[#d1e8d8] bg-white py-4 shadow-none sm:py-5"
     >
-      <CardHeader className="border-b border-border/60 bg-muted/30 px-4 sm:px-5 [.border-b]:pb-3">
+      <CardHeader className="border-b border-[#d1e8d8] bg-[#f8fdf9] px-4 sm:px-5 [.border-b]:pb-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <CardTitle className="text-xl font-semibold sm:text-[1.35rem]">{section.title}</CardTitle>
+            <CardTitle className="text-lg font-semibold text-[#0d1f14] sm:text-xl">{section.title}</CardTitle>
             {section.subtitle ? (
-              <p className="mt-0.5 text-[15px] font-medium text-muted-foreground sm:text-base">{section.subtitle}</p>
+              <p className="mt-0.5 text-sm font-medium text-[#5a7a62] sm:text-[15px]">{section.subtitle}</p>
             ) : null}
           </div>
           {section.href ? (
             <Link
               href={section.href}
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#16a349]/35 bg-[#ecfdf5] px-3 py-1.5 text-sm font-semibold text-[#0d5c2e] transition hover:bg-[#d1fae5]"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-sm font-semibold text-[#0d5c2e] transition hover:bg-[#ecfdf5]"
             >
-              Open this page
+              Open
               <IconArrowRight className="h-4 w-4" />
             </Link>
           ) : null}
         </div>
         {section.description ? (
-          <CardDescription className="mt-2 text-[15px] leading-relaxed sm:text-base">{section.description}</CardDescription>
+          <CardDescription className="mt-2 text-sm leading-relaxed text-[#5a7a62] sm:text-[15px]">
+            {section.description}
+          </CardDescription>
         ) : null}
       </CardHeader>
       <CardContent className="px-4 pt-4 sm:px-5 sm:pt-5">
@@ -1394,7 +1470,7 @@ function DoctorGuideHero() {
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#16a349]">Doctor portal</p>
           <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">User guide</h2>
           <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted-foreground sm:text-base">
-            Step-by-step help for your daily workflow — dashboard, schedule, patients, billing, and check-in.
+            Step-by-step help for your daily workflow - dashboard, schedule, patients, billing, and check-in.
           </p>
         </div>
         <p className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
@@ -1426,7 +1502,7 @@ function DoctorDailyWorkflow() {
       <CardHeader className="px-4 pb-2 sm:px-5">
         <CardTitle className="text-xl font-semibold sm:text-[1.35rem]">Daily workflow</CardTitle>
         <CardDescription className="text-[15px] sm:text-base">
-          Recommended order for a typical patient visit — start here each morning.
+          Recommended order for a typical patient visit - start here each morning.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-4 sm:px-5">
@@ -1524,7 +1600,7 @@ function DoctorPortalManual({ sections }: { sections: ManualSection[] }) {
     <div className="w-full space-y-5 pb-6">
       <DoctorGuideHero />
 
-      {/* Mobile TOC — horizontal scroll */}
+      {/* Mobile TOC - horizontal scroll */}
       <div className="sticky top-[3.25rem] z-20 -mx-1 rounded-xl border border-border/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur-md lg:hidden">
         <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {tocItems.map((item) => (
@@ -1564,10 +1640,10 @@ function DoctorPortalManual({ sections }: { sections: ManualSection[] }) {
 
       <p className="text-center text-sm text-muted-foreground">
         Public booking:{" "}
-        <Link href="/" className="font-medium text-primary underline-offset-4 hover:underline">
+        <Link href="/book" className="font-medium text-primary underline-offset-4 hover:underline">
           open booking site
         </Link>
-        {" · "}
+        {" | "}
         Kiosk check-in:{" "}
         <Link href="/kiosk" className="font-medium text-primary underline-offset-4 hover:underline">
           /kiosk
@@ -1579,29 +1655,20 @@ function DoctorPortalManual({ sections }: { sections: ManualSection[] }) {
 
 function AdminGuideHero() {
   return (
-    <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card px-4 py-5 shadow-sm sm:px-6 sm:py-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Admin portal</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">User guide</h2>
-          <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted-foreground sm:text-base">
-            Front desk and owner help — schedule, patients, billing, kiosk, team, and settings.
-          </p>
-        </div>
-        <p className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
-          ~12 min read
-        </p>
-      </div>
-      <div className="mt-5 flex flex-wrap gap-2">
+    <div className="rounded-xl border border-[#d1e8d8] bg-white px-4 py-4 sm:px-5 sm:py-5">
+      <p className="max-w-2xl text-sm leading-relaxed text-[#5a7a62] sm:text-[15px]">
+        Front desk and owner help for schedule, patients, billing, kiosk, team, and settings.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
         {ADMIN_QUICK_LINKS.map((link) => {
           const Icon = link.icon;
           return (
             <Link
               key={link.href}
               href={link.href}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+              className="inline-flex items-center gap-2 rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-3.5 py-2 text-sm font-semibold text-[#0d1f14] transition hover:border-[#16a349]/40 hover:bg-[#ecfdf5]"
             >
-              <Icon className="h-4 w-4 text-primary" />
+              <Icon className="h-4 w-4 text-[#16a349]" />
               {link.label}
             </Link>
           );
@@ -1612,46 +1679,109 @@ function AdminGuideHero() {
 }
 
 function AdminPortalManual({ sections }: { sections: ManualSection[] }) {
+  const [activeId, setActiveId] = useState(sections[0]?.id ?? "");
   let figureCounter = 0;
+
+  const tocItems: TocItem[] = sections.map((s) => ({
+    id: s.id,
+    label: sectionAnchorLabel(s.title),
+  }));
+
+  useEffect(() => {
+    const ids = sections.map((s) => s.id);
+    const elements = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el != null);
+    if (!elements.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (!visible.length) return;
+        const topmost = visible.reduce((best, entry) =>
+          entry.boundingClientRect.top < best.boundingClientRect.top ? entry : best,
+        );
+        if (topmost.target.id) setActiveId(topmost.target.id);
+      },
+      { rootMargin: "-15% 0px -60% 0px", threshold: [0, 0.05, 0.15] },
+    );
+
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [sections]);
 
   return (
     <div className="w-full space-y-5 pb-6">
       <AdminGuideHero />
 
-      <div className="manual-prose rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-card to-card px-3 py-3 sm:px-4 sm:py-4">
-        <p className="text-[15px] font-medium text-foreground sm:text-base">On this page</p>
-        <ul className="mt-2 flex flex-wrap gap-2">
-          {sections.map((s) => (
-            <li key={s.id}>
-              <a
-                href={`#${s.id}`}
-                className="inline-flex rounded-full border border-border bg-background/80 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10"
-              >
-                {sectionAnchorLabel(s.title)}
-              </a>
-            </li>
+      <div className="sticky top-[3.25rem] z-20 -mx-1 rounded-xl border border-[#d1e8d8] bg-white/95 px-2 py-2 shadow-sm backdrop-blur-md lg:hidden">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {tocItems.map((item) => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className={cn(
+                "shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                activeId === item.id
+                  ? "bg-[#16a349] text-white"
+                  : "bg-[#f8fdf9] text-[#5a7a62] hover:bg-[#ecfdf5]",
+              )}
+            >
+              {item.label}
+            </a>
           ))}
-        </ul>
+        </div>
       </div>
 
-      <div className="stagger-children space-y-4">
-        {sections.map((s) => {
-          const figureIndex = sectionHasVisual(s) ? ++figureCounter : undefined;
-          return <GuideSectionCard key={s.id} section={s} figureIndex={figureIndex} />;
-        })}
-      </div>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8 xl:gap-10">
+        <aside className="hidden w-52 shrink-0 lg:block xl:w-56">
+          <div className="sticky top-24 rounded-xl border border-[#d1e8d8] bg-white px-3 py-4">
+            <nav aria-label="Guide sections" className="manual-prose">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">
+                On this page
+              </p>
+              <ul className="space-y-0.5">
+                {tocItems.map((item) => (
+                  <li key={item.id}>
+                    <a
+                      href={`#${item.id}`}
+                      className={cn(
+                        "block rounded-lg px-2.5 py-1.5 text-sm transition",
+                        activeId === item.id
+                          ? "bg-[#ecfdf5] font-semibold text-[#0d5c2e]"
+                          : "text-[#5a7a62] hover:bg-[#f8fdf9] hover:text-[#0d1f14]",
+                      )}
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
+        </aside>
 
-      <p className="text-center text-sm text-muted-foreground">
-        Public booking:{" "}
-        <Link href="/" className="font-medium text-primary underline-offset-4 hover:underline">
-          open booking site
-        </Link>
-        {" · "}
-        Kiosk check-in:{" "}
-        <Link href="/kiosk" className="font-medium text-primary underline-offset-4 hover:underline">
-          /kiosk
-        </Link>
-      </p>
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="stagger-children space-y-4">
+            {sections.map((s) => {
+              const figureIndex = sectionHasVisual(s) ? ++figureCounter : undefined;
+              return <GuideSectionCard key={s.id} section={s} figureIndex={figureIndex} />;
+            })}
+          </div>
+
+          <p className="text-center text-sm text-[#5a7a62]">
+            Public booking:{" "}
+            <Link href="/book" className="font-medium text-[#16a349] underline-offset-4 hover:underline">
+              open booking site
+            </Link>
+            {" | "}
+            Kiosk check-in:{" "}
+            <Link href="/kiosk" className="font-medium text-[#16a349] underline-offset-4 hover:underline">
+              /kiosk
+            </Link>
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

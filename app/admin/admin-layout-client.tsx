@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar, type NavItem } from "@/components/sidebar";
 import { NotificationBell } from "@/components/notification-bell";
@@ -87,21 +87,28 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [userName, setUserName] = useState<string | null>(null);
-  const [isOwnerAdmin, setIsOwnerAdmin] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return !window.matchMedia("(max-width: 1023px)").matches;
+  });
+  const userName = useSyncExternalStore(
+    (onStoreChange) => {
+      window.addEventListener("storage", onStoreChange);
+      return () => window.removeEventListener("storage", onStoreChange);
+    },
+    () => localStorage.getItem("chiroflow_user_name"),
+    () => null,
+  );
+  const isOwnerAdmin = useSyncExternalStore(
+    (onStoreChange) => {
+      window.addEventListener("storage", onStoreChange);
+      return () => window.removeEventListener("storage", onStoreChange);
+    },
+    () => getRoleCookie() === "owner_admin",
+    () => false,
+  );
   const pathname = usePathname();
   const router = useRouter();
-
-  // Read userName after mount to avoid hydration mismatch (localStorage not available on server)
-  useEffect(() => {
-    setUserName(localStorage.getItem("chiroflow_user_name"));
-    setIsOwnerAdmin(getRoleCookie() === "owner_admin");
-    // Narrow screens: start with menu closed so content uses full width (open with the menu button)
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
-      setSidebarOpen(false);
-    }
-  }, []);
 
   const operationsItems = [
     ...operationsItemsBase.slice(0, 5),
@@ -137,6 +144,22 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
         : "Admin Dashboard"
       : PAGE_TITLES[pathname] ?? "Admin Dashboard";
 
+  const isFullBleed =
+    pathname === "/admin/dashboard" ||
+    pathname === "/admin/analytics" ||
+    pathname === "/admin/schedule" ||
+    pathname === "/admin/patients" ||
+    pathname === "/admin/intake" ||
+    pathname === "/admin/billing" ||
+    pathname === "/admin/reconciliation" ||
+    pathname === "/admin/insurance-claims" ||
+    pathname === "/admin/insurance-companies" ||
+    pathname === "/admin/services" ||
+    pathname === "/admin/team" ||
+    pathname === "/admin/diagnoses" ||
+    pathname === "/admin/providers" ||
+    pathname === "/admin/booking-blocks";
+
   const handleLogout = () => {
     if (typeof window !== "undefined") {
       localStorage.removeItem("chiroflow_access_token");
@@ -164,14 +187,24 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
             onLogout={handleLogout}
           />
           <StaffSystemUpgradeNotice timezoneSource="admin" />
-          <main className="admin-zone min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <main
+            className={cn(
+              "admin-zone min-h-0 flex-1 overscroll-contain",
+              isFullBleed ? "flex flex-col overflow-hidden" : "overflow-y-auto",
+            )}
+          >
             <div
               className={cn(
-                "mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-6 pb-12 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",
                 PORTAL_ZONE_CLASSES,
+                isFullBleed
+                  ? "flex h-full min-h-0 flex-col px-[max(0.75rem,env(safe-area-inset-left))] py-4 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-4 lg:px-5"
+                  : "mx-auto max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-6 pb-12 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",
               )}
             >
-              <div key={pathname} className="content-fade-in">
+              <div
+                key={pathname}
+                className={cn("content-fade-in", isFullBleed && "flex min-h-0 flex-1 flex-col")}
+              >
                 {children}
               </div>
             </div>

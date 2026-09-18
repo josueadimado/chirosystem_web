@@ -4,7 +4,6 @@ import type { AppointmentConfirmOptions } from "@/hooks/use-appointment-action-c
 import {
   confirmCancelVisit,
   confirmCheckIn,
-  confirmCheckInPastVisit,
   confirmNoShow,
   confirmOpenBookNextPicker,
   confirmOpenReschedulePicker,
@@ -137,7 +136,7 @@ export function VisitDoctorScheduleActions({
         type="button"
         onClick={() => void runConfirmed(confirmOpenReschedulePicker(patientName), onReschedule)}
         disabled={busy}
-        className="w-full rounded-xl border border-[#16a349]/30 bg-white px-4 py-3 text-sm font-semibold text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+        className="w-full rounded-xl border border-[#e9982f]/50 bg-[#fff7ed] px-4 py-3 text-sm font-semibold text-[#9a3412] hover:bg-[#ffedd5] disabled:opacity-50"
       >
         Reschedule
       </button>
@@ -148,7 +147,7 @@ export function VisitDoctorScheduleActions({
           onClick={() =>
             void runConfirmed(confirmNoShow(patientName), onNoShow)
           }
-          className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+          className="w-full rounded-xl border border-[#ef4444]/40 bg-white px-4 py-3 text-sm font-semibold text-[#ef4444] hover:bg-[#fef2f2] disabled:opacity-50"
         >
           No-show
         </button>
@@ -168,7 +167,7 @@ export function VisitDoctorScheduleActions({
               onCancel,
             )
           }
-          className="w-full rounded-xl border-2 border-rose-300 bg-white px-4 py-3 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+          className="w-full rounded-xl border border-[#e8e8e8] bg-[#f5f5f5] px-4 py-3 text-sm font-semibold text-[#5a5a5a] hover:bg-[#ebebeb] disabled:opacity-50"
         >
           Cancel visit
         </button>

@@ -142,7 +142,7 @@ export function VisitBillingForm({
           />
         ) : (
           <div id={diagnosisSectionId} className={diagnosisSectionId ? "scroll-mt-24" : undefined}>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Diagnosis (for bill)</p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#949494]">Diagnosis (ICD-10)</p>
             <textarea
               className={diagnosisClassName ?? defaultDiagnosisClass}
               placeholder="Clinical / billing diagnosis summary…"
@@ -154,7 +154,7 @@ export function VisitBillingForm({
       ) : null}
       <div id={proceduresSectionId} className={proceduresSectionId ? "scroll-mt-24" : undefined}>
         <div className="mb-2 flex items-center gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Billable procedures (tap to add)</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#949494]">Procedures (CPT)</p>
           <HelpTip label={proceduresHelpLabel} tone="emerald">
             {proceduresHelpContent ?? (
               <>Checked items appear on the invoice. Insurance-only services do not add to the patient total.</>

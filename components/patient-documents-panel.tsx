@@ -132,6 +132,7 @@ function PreviewModal({
       cancelled = true;
       if (revoked) URL.revokeObjectURL(revoked);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via doc.id / file_path
   }, [doc.id, doc.file_path, basePath]);
 
   const isImage = isImageFile(doc.original_filename);

@@ -64,11 +64,15 @@ export function InstallAppCallout({ variant }: { variant: "kiosk" | "staff" }) {
     window.addEventListener("beforeinstallprompt", onBip);
 
     // iOS Safari has no beforeinstallprompt — still show short instructions once per cooldown window.
+    let iosTimer: number | undefined;
     if (isIosLike()) {
-      setVisible(true);
+      iosTimer = window.setTimeout(() => setVisible(true), 0);
     }
 
-    return () => window.removeEventListener("beforeinstallprompt", onBip);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBip);
+      if (iosTimer != null) window.clearTimeout(iosTimer);
+    };
   }, [variant]);
 
   const dismiss = useCallback(() => {

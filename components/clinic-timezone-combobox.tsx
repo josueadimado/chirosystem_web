@@ -77,14 +77,17 @@ export function ClinicTimezoneCombobox({
 }: ClinicTimezoneComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [clock, setClock] = useState(() => formatClinicLocalTime(value));
+  const [tick, setTick] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setClock(formatClinicLocalTime(value));
-    const id = window.setInterval(() => setClock(formatClinicLocalTime(value)), 60_000);
+    const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
     return () => window.clearInterval(id);
-  }, [value]);
+  }, []);
+
+  // Recompute when timezone changes or the minute ticker advances.
+  void tick;
+  const clockLabel = formatClinicLocalTime(value);
 
   useEffect(() => {
     if (!open) return;
@@ -235,7 +238,7 @@ export function ClinicTimezoneCombobox({
           <span className="font-medium text-slate-800">Selected:</span> {value.replace(/_/g, " ")}
         </p>
         <p>
-          <span className="font-medium text-slate-800">Current clinic time:</span> {clock}
+          <span className="font-medium text-slate-800">Current clinic time:</span> {clockLabel}
         </p>
       </div>
 

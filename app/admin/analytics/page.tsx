@@ -1,21 +1,31 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
-import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiGetAuth } from "@/lib/api";
 import { formatInstantMonthDayYearTime } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
+import {
+  AlertCircle,
+  Calendar,
+  CheckCircle2,
+  CreditCard,
+  DollarSign,
+  TrendingUp,
+  UserCheck,
+  UserPlus,
+  Users,
+  UserX,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { RevenueByServiceItem } from "@/components/analytics-revenue-by-service-chart";
 
 const AnalyticsTrendChart = dynamic(
   () =>
     import("@/components/analytics-trend-chart").then((m) => ({ default: m.AnalyticsTrendChart })),
-  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-slate-100" /> },
+  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-[#f8fdf9]" /> },
 );
 
 const AnalyticsRevenueByServiceChart = dynamic(
@@ -23,7 +33,7 @@ const AnalyticsRevenueByServiceChart = dynamic(
     import("@/components/analytics-revenue-by-service-chart").then((m) => ({
       default: m.AnalyticsRevenueByServiceChart,
     })),
-  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-slate-100" /> },
+  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-[#f8fdf9]" /> },
 );
 
 type AnalyticsPayload = {
@@ -107,6 +117,10 @@ type AttentionItem = {
   | { tab: AnalyticsTab; href?: never }
 );
 
+type StatTone = "primary" | "green" | "consult" | "red" | "grey";
+
+const BANANI_CARD = "rounded-xl border border-[#d1e8d8] bg-white";
+
 function formatMoney(amount: string | number): string {
   const n = typeof amount === "number" ? amount : parseFloat(amount);
   if (Number.isNaN(n)) return String(amount);
@@ -116,60 +130,108 @@ function formatMoney(amount: string | number): string {
 function formatChange(pct: number | null | undefined): { label: string; positive: boolean | null } {
   if (pct == null || Number.isNaN(pct)) return { label: "—", positive: null };
   const sign = pct > 0 ? "+" : "";
-  return { label: `${sign}${pct.toFixed(1)}% vs last month`, positive: pct > 0 ? true : pct < 0 ? false : null };
+  return { label: `${sign}${pct.toFixed(1)}% vs last mo`, positive: pct > 0 ? true : pct < 0 ? false : null };
+}
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return <h3 className="mb-3 text-sm font-semibold text-[#0d1f14]">{children}</h3>;
+}
+
+function SnapshotStatCard({
+  label,
+  value,
+  icon,
+  tone = "primary",
+  alert,
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+  tone?: StatTone;
+  alert?: boolean;
+}) {
+  const iconWrap: Record<StatTone, string> = {
+    primary: "bg-[#ecfdf5] text-[#16a349]",
+    green: "bg-[#f0fdf4] text-[#166534]",
+    consult: "bg-[#fef3c7] text-[#92400e]",
+    red: "bg-[#fee2e2] text-[#991b1b]",
+    grey: "bg-[#f3f4f6] text-[#4b5563]",
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-3 rounded-lg border border-[#d1e8d8] bg-white px-4 py-3.5",
+        alert && "border-rose-200 bg-rose-50/60",
+      )}
+    >
+      <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", iconWrap[tone])}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className={cn("truncate text-xl font-bold tabular-nums leading-none text-[#0d1f14]", alert && "text-rose-700")}>
+          {value}
+        </p>
+        <p className="mt-1 truncate text-xs text-[#5a7a62]">{label}</p>
+      </div>
+    </div>
+  );
 }
 
 function KpiCard({
   title,
   value,
   change,
-  help,
   alert,
   href,
+  icon,
 }: {
   title: string;
   value: string;
   change?: number | null;
-  help: string;
   alert?: boolean;
   href?: string;
+  icon: ReactNode;
 }) {
   const ch = formatChange(change);
   const inner = (
     <>
-      <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-        {title}
-        <HelpTip label={title}>{help}</HelpTip>
-      </p>
-      <p
-        className={cn(
-          "mt-3 text-3xl font-bold tabular-nums tracking-tight sm:text-4xl",
-          alert ? "text-rose-700" : "text-slate-900",
-        )}
-      >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium text-[#5a7a62]">{title}</p>
+        <div
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+            alert ? "bg-[#fee2e2] text-[#991b1b]" : "bg-[#ecfdf5] text-[#16a349]",
+          )}
+        >
+          {icon}
+        </div>
+      </div>
+      <p className={cn("mt-2 text-2xl font-bold tabular-nums text-[#0d1f14] sm:text-3xl", alert && "text-rose-700")}>
         {value}
       </p>
       {change != null ? (
         <p
           className={cn(
-            "mt-2 text-xs font-medium",
+            "mt-1.5 text-xs font-medium",
             ch.positive === true && "text-[#166534]",
             ch.positive === false && "text-rose-700",
-            ch.positive === null && "text-slate-500",
+            ch.positive === null && "text-[#5a7a62]",
           )}
         >
           {ch.label}
         </p>
       ) : null}
       {href ? (
-        <p className="mt-2 text-xs font-semibold text-[#0d5c2e] group-hover:underline">View details →</p>
+        <p className="mt-2 text-xs font-semibold text-[#16a349] group-hover:underline">View details →</p>
       ) : null}
     </>
   );
   const panelClass = cn(
-    "admin-panel border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90",
-    alert && "border-rose-300/80 ring-1 ring-rose-200/60",
-    href && "group transition hover:border-[#16a349]/35 hover:shadow-md",
+    BANANI_CARD,
+    "px-4 py-4",
+    alert && "border-rose-200 bg-rose-50/50",
+    href && "group transition hover:border-[#16a349]/40 hover:shadow-sm",
   );
   if (href) {
     return (
@@ -179,38 +241,6 @@ function KpiCard({
     );
   }
   return <div className={panelClass}>{inner}</div>;
-}
-
-function SnapshotBox({
-  label,
-  value,
-  alert,
-  hint,
-}: {
-  label: string;
-  value: string;
-  alert?: boolean;
-  hint?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "admin-panel text-center sm:text-left",
-        alert && "border-rose-300/80 bg-rose-50/70 ring-1 ring-rose-200/50",
-      )}
-    >
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p
-        className={cn(
-          "mt-2 text-xl font-bold tabular-nums sm:text-2xl",
-          alert ? "text-rose-700" : "text-slate-900",
-        )}
-      >
-        {value}
-      </p>
-      {hint ? <p className="mt-1 text-[11px] text-slate-500">{hint}</p> : null}
-    </div>
-  );
 }
 
 function CollapsibleDetails({
@@ -226,7 +256,7 @@ function CollapsibleDetails({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="admin-panel">
+    <div className={cn(BANANI_CARD, "px-4 py-4")}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -234,12 +264,12 @@ function CollapsibleDetails({
         aria-expanded={open}
       >
         <div>
-          <p className="text-sm font-semibold text-slate-900">{title}</p>
-          <p className="mt-0.5 text-xs text-slate-500">{summary}</p>
+          <p className="text-sm font-semibold text-[#0d1f14]">{title}</p>
+          <p className="mt-0.5 text-xs text-[#5a7a62]">{summary}</p>
         </div>
-        <span className="shrink-0 text-xs font-semibold text-[#0d5c2e]">{open ? "Hide" : "Show"}</span>
+        <span className="shrink-0 text-xs font-semibold text-[#16a349]">{open ? "Hide" : "Show"}</span>
       </button>
-      {open ? <div className="mt-4 border-t border-slate-100 pt-4">{children}</div> : null}
+      {open ? <div className="mt-4 border-t border-[#d1e8d8] pt-4">{children}</div> : null}
     </div>
   );
 }
@@ -257,7 +287,7 @@ const REVENUE_PERIOD_OPTIONS = [
 ] as const;
 
 const TAB_TRIGGER_CLASS =
-  "min-w-[6.5rem] flex-1 rounded-lg border-0 px-3 py-2 text-sm font-medium text-slate-600 shadow-none after:hidden hover:text-slate-900 data-active:bg-white data-active:text-slate-900 data-active:shadow-sm sm:flex-none";
+  "min-w-[5.5rem] flex-1 rounded-none border-0 border-b-2 border-transparent bg-transparent px-4 py-2.5 text-sm font-medium text-[#5a7a62] shadow-none after:hidden hover:text-[#0d1f14] data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#16a349] data-active:shadow-none sm:flex-none";
 
 export default function AdminAnalyticsPage() {
   const [data, setData] = useState<AnalyticsPayload | null>(null);
@@ -389,11 +419,7 @@ export default function AdminAnalyticsPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <AdminPageIntro
-          title="Analytics"
-          description="Business overview — clients, revenue, billing, and how the clinic is performing."
-        />
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
         <Loader variant="page" label="Loading analytics" sublabel="Crunching clinic numbers…" />
       </div>
     );
@@ -401,9 +427,8 @@ export default function AdminAnalyticsPage() {
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <AdminPageIntro title="Analytics" description="Business overview for clinic performance." />
-        <div className="admin-panel border-rose-200 bg-rose-50 text-rose-800">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+        <div className={cn(BANANI_CARD, "border-rose-200 bg-rose-50 p-5 text-rose-800")}>
           <p className="text-sm font-medium">{error}</p>
           <button
             type="button"
@@ -434,77 +459,54 @@ export default function AdminAnalyticsPage() {
   const weekNoShowAlert = week.no_show_rate >= NO_SHOW_RATE_ALERT && week.no_shows > 0;
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <AdminPageIntro
-          title="Analytics"
-          description="See how the clinic is doing — today's activity, monthly revenue, billing health, and patients who may need a follow-up."
-          pageHelp={
-            <>
-              Numbers use the clinic time zone and refresh when you open or reload this page. Month comparisons use the
-              previous calendar month. Revenue is successful payments by <strong>paid date</strong>. Use the tabs below
-              for money, patients, and AI phone details without scrolling past everything.
-            </>
-          }
-        />
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            Refresh
-          </button>
-          {data.generated_at ? (
-            <p className="text-[11px] text-slate-500">Updated {formatInstantMonthDayYearTime(data.generated_at)}</p>
-          ) : null}
-        </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+      <div className="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+        >
+          Refresh
+        </button>
+        {data.generated_at ? (
+          <p className="text-[11px] text-[#5a7a62]">Updated {formatInstantMonthDayYearTime(data.generated_at)}</p>
+        ) : null}
       </div>
 
       {attentionItems.length > 0 ? (
-        <section
-          className="rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3.5 shadow-sm ring-1 ring-amber-100"
-          aria-label="Needs attention"
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
-          <ul className="mt-2.5 space-y-2.5">
+        <section aria-label="Needs attention" className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#5a7a62]">Needs attention</p>
+          <ul className="space-y-2">
             {attentionItems.map((item) => (
               <li
                 key={item.id}
                 className={cn(
-                  "rounded-xl border bg-white/90 px-3.5 py-3",
-                  item.tone === "rose" ? "border-rose-200" : "border-amber-200/80",
+                  "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3.5 py-2.5",
+                  item.tone === "rose"
+                    ? "border-rose-200 bg-rose-50"
+                    : "border-orange-200 bg-orange-50",
                 )}
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p
-                      className={cn(
-                        "text-sm font-semibold",
-                        item.tone === "rose" ? "text-rose-950" : "text-amber-950",
-                      )}
-                    >
-                      {item.title}
-                    </p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-slate-600">{item.detail}</p>
-                  </div>
-                  {item.href ? (
-                    <Link
-                      href={item.href}
-                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-[#ecfdf5]"
-                    >
-                      {item.cta} →
-                    </Link>
-                  ) : item.tab ? (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab(item.tab!)}
-                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-[#ecfdf5]"
-                    >
-                      {item.cta} →
-                    </button>
-                  ) : null}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#0d1f14]">{item.title}</p>
+                  <p className="mt-0.5 text-xs text-[#5a7a62]">{item.detail}</p>
                 </div>
+                {item.href ? (
+                  <Link
+                    href={item.href}
+                    className="shrink-0 rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#16a349] hover:bg-[#f8fdf9]"
+                  >
+                    {item.cta}
+                  </Link>
+                ) : item.tab ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(item.tab!)}
+                    className="shrink-0 rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#16a349] hover:bg-[#f8fdf9]"
+                  >
+                    {item.cta}
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -513,66 +515,87 @@ export default function AdminAnalyticsPage() {
 
       {today ? (
         <section>
-          <AdminSectionLabel help="Live counts for today in the clinic calendar.">
-            Today at a glance
-          </AdminSectionLabel>
+          <SectionHeading>Today</SectionHeading>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <SnapshotBox label="On schedule" value={String(today.appointments)} />
-            <SnapshotBox label="Checked in" value={String(today.checked_in)} />
-            <SnapshotBox label="Completed" value={String(today.completed)} />
-            <SnapshotBox
+            <SnapshotStatCard
+              label="On schedule"
+              value={String(today.appointments)}
+              icon={<Calendar className="h-[18px] w-[18px]" />}
+            />
+            <SnapshotStatCard
+              label="Checked in"
+              value={String(today.checked_in)}
+              tone="green"
+              icon={<UserCheck className="h-[18px] w-[18px]" />}
+            />
+            <SnapshotStatCard
+              label="Completed"
+              value={String(today.completed)}
+              tone="green"
+              icon={<CheckCircle2 className="h-[18px] w-[18px]" />}
+            />
+            <SnapshotStatCard
               label="No-shows"
               value={String(today.no_shows)}
+              tone="red"
               alert={today.no_shows > 0}
-              hint={today.no_shows > 0 ? "Needs follow-up" : undefined}
+              icon={<UserX className="h-[18px] w-[18px]" />}
             />
-            <SnapshotBox label="Collected today" value={formatMoney(today.revenue_today)} />
-            <SnapshotBox
+            <SnapshotStatCard
+              label="Collected today"
+              value={formatMoney(today.revenue_today)}
+              tone="primary"
+              icon={<DollarSign className="h-[18px] w-[18px]" />}
+            />
+            <SnapshotStatCard
               label="Open invoices"
               value={String(today.unpaid_invoices)}
+              tone="grey"
               alert={today.unpaid_invoices >= 10}
+              icon={<CreditCard className="h-[18px] w-[18px]" />}
             />
           </div>
         </section>
       ) : null}
 
       <section>
-        <AdminSectionLabel help="Headline metrics for the current calendar month unless noted.">
-          This month
-        </AdminSectionLabel>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SectionHeading>This month</SectionHeading>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             title="Active clients"
             value={String(data.kpis.total_clients)}
             change={data.kpis.total_clients_change}
-            help="Patients with at least one appointment that was not cancelled or marked no-show."
             href="/admin/patients"
+            icon={<Users className="h-4 w-4" />}
           />
           <KpiCard
             title="Revenue collected"
             value={formatMoney(data.kpis.revenue_this_month)}
             change={data.kpis.revenue_change}
-            help="Sum of successful payments received this month (by payment date)."
             href="/admin/billing"
+            icon={<TrendingUp className="h-4 w-4" />}
           />
           <KpiCard
             title="Outstanding balance"
             value={formatMoney(data.kpis.outstanding_balance)}
-            help="Total still owed on open invoices (issued or overdue), after partial payments."
             alert={outstandingAlert}
             href="/admin/billing"
+            icon={<AlertCircle className="h-4 w-4" />}
           />
           <KpiCard
             title="New clients"
             value={String(data.kpis.new_clients_this_month)}
             change={data.kpis.new_clients_change}
-            help="Patients whose first-ever non-cancelled appointment is this month."
+            icon={<UserPlus className="h-4 w-4" />}
           />
         </div>
       </section>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalyticsTab)} className="gap-6">
-        <TabsList className="flex h-auto w-full max-w-3xl flex-wrap gap-1 rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner shadow-slate-200/30">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalyticsTab)} className="gap-5">
+        <TabsList
+          variant="line"
+          className="h-auto w-full justify-start gap-0 rounded-none border-b border-[#d1e8d8] bg-transparent p-0"
+        >
           <TabsTrigger value="overview" className={TAB_TRIGGER_CLASS}>
             Overview
           </TabsTrigger>
@@ -582,7 +605,7 @@ export default function AdminAnalyticsPage() {
           <TabsTrigger value="patients" className={TAB_TRIGGER_CLASS}>
             Patients
             {atRisk.length > 0 ? (
-              <span className="ml-1.5 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-900">
+              <span className="ml-1.5 rounded-md bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-orange-900">
                 {atRisk.length}
               </span>
             ) : null}
@@ -592,15 +615,10 @@ export default function AdminAnalyticsPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="mt-0 space-y-6">
+        <TabsContent value="overview" className="mt-0 space-y-5">
           <AnalyticsTrendChart
             title="Revenue trend"
-            help={
-              <>
-                Line chart of <strong>collected</strong> payments (by paid date) vs <strong>outstanding added</strong>{" "}
-                (open invoice totals issued that month). Change the period to compare performance over time.
-              </>
-            }
+            help=""
             data={data.revenue_chart}
             xKey="month"
             series={[
@@ -618,12 +636,11 @@ export default function AdminAnalyticsPage() {
             yTickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`)}
             height={240}
             loading={chartLoading}
+            panelClassName={cn(BANANI_CARD, "p-4")}
           />
 
           <section>
-            <AdminSectionLabel help="Monday–Sunday of the current week in the clinic calendar.">
-              Appointments this week
-            </AdminSectionLabel>
+            <SectionHeading>Appointments this week</SectionHeading>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {(
                 [
@@ -641,28 +658,29 @@ export default function AdminAnalyticsPage() {
                 <div
                   key={box.label}
                   className={cn(
-                    "admin-panel text-center sm:text-left",
-                    box.alert && "border-rose-300/80 bg-rose-50/70 ring-1 ring-rose-200/50",
+                    BANANI_CARD,
+                    "px-4 py-3 text-center sm:text-left",
+                    box.alert && "border-rose-200 bg-rose-50/60",
                   )}
                 >
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{box.label}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">{box.label}</p>
                   <p
                     className={cn(
-                      "mt-2 text-2xl font-bold tabular-nums",
-                      box.alert ? "text-rose-700" : "text-slate-900",
+                      "mt-2 text-2xl font-bold tabular-nums text-[#0d1f14]",
+                      box.alert && "text-rose-700",
                     )}
                   >
                     {box.value}
                   </p>
-                  {box.sub ? <p className="mt-1 text-xs text-slate-500">{box.sub}</p> : null}
+                  {box.sub ? <p className="mt-1 text-xs text-[#5a7a62]">{box.sub}</p> : null}
                 </div>
               ))}
             </div>
           </section>
         </TabsContent>
 
-        <TabsContent value="money" className="mt-0 space-y-6">
-          <div className="grid gap-6 xl:grid-cols-2">
+        <TabsContent value="money" className="mt-0 space-y-5">
+          <div className="grid gap-5 xl:grid-cols-2">
             <CollapsibleDetails
               title="Billing summary (this month)"
               summary={`Collected ${formatMoney(billing.collected)} · rate ${billing.collection_rate.toFixed(1)}%`}
@@ -681,12 +699,12 @@ export default function AdminAnalyticsPage() {
                         ["Collection rate", `${billing.collection_rate.toFixed(1)}%`, collectionAlert],
                       ] as const
                     ).map(([label, val, alert]) => (
-                      <tr key={label} className="border-b border-slate-100 last:border-0">
-                        <td className="py-2.5 pr-4 font-medium text-slate-700">{label}</td>
+                      <tr key={label} className="border-b border-[#d1e8d8]/70 last:border-0">
+                        <td className="py-2.5 pr-4 font-medium text-[#5a7a62]">{label}</td>
                         <td
                           className={cn(
-                            "py-2.5 text-right font-semibold tabular-nums",
-                            alert ? "text-rose-700" : "text-slate-900",
+                            "py-2.5 text-right font-semibold tabular-nums text-[#0d1f14]",
+                            alert && "text-rose-700",
                           )}
                         >
                           {val}
@@ -696,10 +714,7 @@ export default function AdminAnalyticsPage() {
                   </tbody>
                 </table>
               </div>
-              <Link
-                href="/admin/billing"
-                className="mt-3 inline-block text-xs font-semibold text-[#0d5c2e] hover:underline"
-              >
+              <Link href="/admin/billing" className="mt-3 inline-block text-xs font-semibold text-[#16a349] hover:underline">
                 Open invoices & billing →
               </Link>
             </CollapsibleDetails>
@@ -714,12 +729,12 @@ export default function AdminAnalyticsPage() {
               defaultOpen
             >
               {providers.length === 0 ? (
-                <p className="text-sm text-slate-500">No provider activity recorded this month yet.</p>
+                <p className="text-sm text-[#5a7a62]">No provider activity recorded this month yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[280px] text-sm">
                     <thead>
-                      <tr className="border-b border-slate-100 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <tr className="border-b border-[#d1e8d8] text-left text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">
                         <th className="pb-2 pr-3">Provider</th>
                         <th className="pb-2 pr-3 text-right">Visits</th>
                         <th className="pb-2 text-right">Collected</th>
@@ -727,10 +742,10 @@ export default function AdminAnalyticsPage() {
                     </thead>
                     <tbody>
                       {providers.map((p) => (
-                        <tr key={p.provider_id} className="border-b border-slate-50 last:border-0">
-                          <td className="py-2.5 pr-3 font-medium text-slate-800">{p.name}</td>
-                          <td className="py-2.5 pr-3 text-right tabular-nums text-slate-700">{p.visits_completed}</td>
-                          <td className="py-2.5 text-right font-semibold tabular-nums text-slate-900">
+                        <tr key={p.provider_id} className="border-b border-[#d1e8d8]/70 last:border-0">
+                          <td className="py-2.5 pr-3 font-medium text-[#0d1f14]">{p.name}</td>
+                          <td className="py-2.5 pr-3 text-right tabular-nums text-[#5a7a62]">{p.visits_completed}</td>
+                          <td className="py-2.5 text-right font-semibold tabular-nums text-[#0d1f14]">
                             {formatMoney(p.revenue)}
                           </td>
                         </tr>
@@ -751,12 +766,10 @@ export default function AdminAnalyticsPage() {
           </CollapsibleDetails>
         </TabsContent>
 
-        <TabsContent value="patients" className="mt-0 space-y-6">
+        <TabsContent value="patients" className="mt-0 space-y-5">
           {iris ? (
-            <section className="admin-panel border-orange-200/90 bg-orange-50/50">
-              <AdminSectionLabel help="Patients marked with the orange IRIS label (Iris referral or Iris nutrition). Counts are unique patients who had at least one appointment in each period — not appointment visits.">
-                IRIS clients
-              </AdminSectionLabel>
+            <section className={cn(BANANI_CARD, "border-orange-200 bg-orange-50/40 p-4")}>
+              <SectionHeading>IRIS clients</SectionHeading>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {(
                   [
@@ -766,32 +779,30 @@ export default function AdminAnalyticsPage() {
                     { label: "This quarter", value: iris.unique_this_quarter, sub: "Unique patients" },
                   ] as const
                 ).map((box) => (
-                  <div key={box.label} className="rounded-xl border border-orange-100 bg-white px-3 py-3 text-center sm:text-left">
+                  <div key={box.label} className="rounded-lg border border-orange-100 bg-white px-3 py-3 text-center sm:text-left">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-800/80">{box.label}</p>
                     <p className="mt-2 text-2xl font-bold tabular-nums text-orange-950">{box.value}</p>
-                    <p className="mt-1 text-xs text-slate-500">{box.sub}</p>
+                    <p className="mt-1 text-xs text-[#5a7a62]">{box.sub}</p>
                   </div>
                 ))}
               </div>
             </section>
           ) : null}
 
-          <section className="admin-panel border-amber-200/80 bg-amber-50/40">
-            <AdminSectionLabel help="Patients who have not visited in 60–89 days — good candidates for a reminder call.">
-              Patients to re-engage
-            </AdminSectionLabel>
+          <section className={cn(BANANI_CARD, "border-orange-200 bg-orange-50/30 p-4")}>
+            <SectionHeading>Patients to re-engage</SectionHeading>
             {atRisk.length === 0 ? (
-              <p className="text-sm text-slate-600">No patients in the 60–89 day window right now.</p>
+              <p className="text-sm text-[#5a7a62]">No patients in the 60–89 day window right now.</p>
             ) : (
               <ul className="max-h-[min(20rem,50vh)] space-y-2 overflow-y-auto pr-1">
                 {atRisk.map((p) => (
                   <li key={p.patient_id}>
                     <Link
                       href={`/admin/patients/${p.patient_id}/history`}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-amber-100 bg-white px-3 py-2.5 text-sm transition hover:border-[#16a349]/30 hover:bg-[#ecfdf5]/50"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm transition hover:border-[#16a349]/30 hover:bg-[#f8fdf9]"
                     >
-                      <span className="font-medium text-slate-900">{p.name}</span>
-                      <span className="shrink-0 text-xs tabular-nums text-amber-800">
+                      <span className="font-medium text-[#0d1f14]">{p.name}</span>
+                      <span className="shrink-0 text-xs tabular-nums text-orange-800">
                         {p.days_since_visit != null ? `${p.days_since_visit} days ago` : "—"}
                       </span>
                     </Link>
@@ -802,9 +813,7 @@ export default function AdminAnalyticsPage() {
           </section>
 
           <section>
-            <AdminSectionLabel help="Based on last completed visit date. At risk = 60–89 days since last visit.">
-              Client health
-            </AdminSectionLabel>
+            <SectionHeading>Client health</SectionHeading>
             <div className="grid gap-3 sm:grid-cols-3">
               {(
                 [
@@ -836,14 +845,14 @@ export default function AdminAnalyticsPage() {
               ).map((item) => {
                 const pct = Math.round((item.count / healthTotal) * 100);
                 return (
-                  <div key={item.key} className={cn("admin-panel", item.panel)}>
-                    <p className="text-sm font-semibold text-slate-800">{item.label}</p>
-                    <p className="text-xs text-slate-600">{item.sub}</p>
-                    <p className="mt-3 text-3xl font-bold tabular-nums text-slate-900">{item.count}</p>
+                  <div key={item.key} className={cn(BANANI_CARD, "px-4 py-4", item.panel)}>
+                    <p className="text-sm font-semibold text-[#0d1f14]">{item.label}</p>
+                    <p className="text-xs text-[#5a7a62]">{item.sub}</p>
+                    <p className="mt-3 text-3xl font-bold tabular-nums text-[#0d1f14]">{item.count}</p>
                     <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/80">
                       <div className={cn("h-full rounded-full transition-all", item.bar)} style={{ width: `${pct}%` }} />
                     </div>
-                    <p className="mt-1 text-xs tabular-nums text-slate-500">{pct}% of patients</p>
+                    <p className="mt-1 text-xs tabular-nums text-[#5a7a62]">{pct}% of patients</p>
                   </div>
                 );
               })}
@@ -852,35 +861,33 @@ export default function AdminAnalyticsPage() {
         </TabsContent>
 
         <TabsContent value="ai" className="mt-0">
-          <section className="admin-panel">
-            <AdminSectionLabel help="AI phone booking attempts this month (Twilio voice flow).">
-              AI voice summary
-            </AdminSectionLabel>
+          <section className={cn(BANANI_CARD, "p-4")}>
+            <SectionHeading>AI voice summary</SectionHeading>
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total calls</p>
-                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{voice.total_calls}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">Total calls</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-[#0d1f14]">{voice.total_calls}</p>
               </div>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Booked via AI</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">Booked via AI</p>
                 <p className="mt-1 text-2xl font-bold tabular-nums text-[#166534]">
                   {voice.booked}
-                  <span className="ml-2 text-base font-semibold text-slate-600">({voice.book_rate}%)</span>
+                  <span className="ml-2 text-base font-semibold text-[#5a7a62]">({voice.book_rate}%)</span>
                 </p>
               </div>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Failed / dropped</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">Failed / dropped</p>
                 <p
                   className={cn(
                     "mt-1 text-2xl font-bold tabular-nums",
-                    voice.failed > 0 && voice.failed > voice.booked ? "text-rose-700" : "text-slate-900",
+                    voice.failed > 0 && voice.failed > voice.booked ? "text-rose-700" : "text-[#0d1f14]",
                   )}
                 >
                   {voice.failed}
                 </p>
               </div>
             </div>
-            <Link href="/admin/ai" className="mt-4 inline-block text-xs font-semibold text-[#0d5c2e] hover:underline">
+            <Link href="/admin/ai" className="mt-4 inline-block text-xs font-semibold text-[#16a349] hover:underline">
               Open AI assistant settings →
             </Link>
           </section>

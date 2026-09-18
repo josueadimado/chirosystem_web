@@ -26,7 +26,7 @@ function PaymentSuccessInner() {
           Reference: invoice #{invoiceId}
         </p>
       )}
-      <Link href="/" className="text-sm font-semibold text-[#16a349] hover:underline">
+      <Link href="/book" className="text-sm font-semibold text-[#16a349] hover:underline">
         Back to booking
       </Link>
     </main>

@@ -1,10 +1,20 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
 import { useAppFeedback } from "@/components/app-feedback";
-import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ApiError, apiDelete, apiGetAuth, apiPost } from "@/lib/api";
+import { formatMonthDayYear } from "@/lib/format-date";
+import { cn } from "@/lib/utils";
+import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Provider = { id: number; provider_name: string };
@@ -19,11 +29,17 @@ type BlockRow = {
   end_time: string | null;
 };
 
+const fieldLabel = "mb-1.5 block text-sm font-medium text-[#0d1f14]";
+const inputClass =
+  "w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] px-3.5 py-2.5 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20";
+
+const GRID = "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] gap-3";
+
 function formatBlockLabel(b: BlockRow): string {
-  if (b.all_day) return "All day (no online booking)";
+  if (b.all_day) return "All day";
   const s = b.start_time?.slice(0, 5) ?? "";
   const e = b.end_time?.slice(0, 5) ?? "";
-  return `${s} – ${e}`;
+  return `${s} - ${e}`;
 }
 
 /** Inclusive day count from YYYY-MM-DD to YYYY-MM-DD (same day = 1). */
@@ -41,6 +57,7 @@ export default function AdminBookingBlocksPage() {
   const [blocks, setBlocks] = useState<BlockRow[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [error, setError] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const dateTo = useMemo(() => {
@@ -54,9 +71,10 @@ export default function AdminBookingBlocksPage() {
   const [allDay, setAllDay] = useState(true);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("12:00");
-  /** When adding a range, skip Saturday & Sunday (useful for “every weekday this month”). */
   const [weekdaysOnly, setWeekdaysOnly] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     apiGetAuth<Provider[]>("/providers/")
@@ -64,7 +82,7 @@ export default function AdminBookingBlocksPage() {
         setProviders(
           (list as { id: number; provider_name?: string }[]).map((p) => ({
             id: p.id,
-            provider_name: p.provider_name || `Provider ${p.id}`,
+            provider_name: (p.provider_name || `Provider ${p.id}`).trim(),
           })),
         ),
       )
@@ -95,6 +113,20 @@ export default function AdminBookingBlocksPage() {
     void loadBlocks();
   }, [loadBlocks]);
 
+  const openAddForm = () => {
+    if (!providerId) {
+      toast.error("Choose a provider first.");
+      return;
+    }
+    setFormDateFrom(today);
+    setFormDateTo(today);
+    setAllDay(true);
+    setStartTime("09:00");
+    setEndTime("12:00");
+    setWeekdaysOnly(false);
+    setFormOpen(true);
+  };
+
   const addBlock = async () => {
     if (!providerId) {
       toast.error("Choose a provider first.");
@@ -105,7 +137,7 @@ export default function AdminBookingBlocksPage() {
       return;
     }
     if (!allDay && startTime >= endTime) {
-      toast.error("“Until” time must be after “From” time.");
+      toast.error("Until time must be after From time.");
       return;
     }
     setAdding(true);
@@ -124,11 +156,12 @@ export default function AdminBookingBlocksPage() {
           body.end_time = pad(endTime);
         }
         const result = await apiPost<{ created?: number }>("/provider-unavailability/bulk/", body);
+        setFormOpen(false);
         await loadBlocks();
         return result;
       },
       {
-        loadingMessage: "Saving blocks…",
+        loadingMessage: "Saving blocks...",
         successMessage: (result) => {
           const n = result && typeof result.created === "number" ? result.created : 0;
           if (n === 0) {
@@ -145,204 +178,277 @@ export default function AdminBookingBlocksPage() {
     setAdding(false);
   };
 
-  const removeBlock = async (id: number) => {
-    if (!window.confirm("Remove this block? Patients will be able to book those times again online (if not taken).")) {
-      return;
-    }
+  const confirmDelete = async () => {
+    if (deleteId == null) return;
+    setDeleting(true);
     await runWithFeedback(
       async () => {
-        await apiDelete(`/provider-unavailability/${id}/`);
+        await apiDelete(`/provider-unavailability/${deleteId}/`);
+        setDeleteId(null);
         await loadBlocks();
       },
       {
-        loadingMessage: "Removing…",
+        loadingMessage: "Removing...",
         successMessage: "Block removed.",
         errorFallback: "Could not remove block.",
       },
     );
+    setDeleting(false);
   };
 
   const rangeDayCount = inclusiveDayCount(formDateFrom, formDateTo);
+  const selectedProvider = providers.find((p) => String(p.id) === providerId);
 
   return (
-    <div className="space-y-6">
-      <AdminPageIntro
-        title="Online booking blocks"
-        description="By default every provider can be booked on the public site whenever a slot is free. Add blocks here to mark specific dates or hours as unavailable for online booking—patients will only see open times."
-        pageHelp={
-          <>
-            <strong>Date range:</strong> set <em>From</em> and <em>To</em> to the same day for a single block, or spread
-            across weeks to repeat the same window every day (e.g. lunch 9:00–9:30 for a month). Use{" "}
-            <strong>Weekdays only</strong> to skip Saturdays and Sundays.
-            <br />
-            <br />
-            <strong>Whole day off:</strong> check “Block entire day” so no standard times show for that doctor on each
-            date in the range.
-            <br />
-            <br />
-            <strong>Part of the day:</strong> uncheck and set start/end times (desk appointments can still be added from
-            the schedule if your workflow allows).
-            <br />
-            <br />
-            Only <strong>owner</strong> and <strong>staff</strong> accounts can change this list.
-          </>
-        }
-      />
-
-      <div className="admin-panel space-y-5">
-        <AdminSectionLabel help="Pick the doctor you are blocking for the public booking website.">
-          Provider
-        </AdminSectionLabel>
-        <select
-          value={providerId}
-          onChange={(e) => setProviderId(e.target.value)}
-          className="w-full max-w-md rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[#5a7a62]">
+          {providerId
+            ? `${blocks.length} ${blocks.length === 1 ? "block" : "blocks"}`
+            : "Choose a provider"}
+        </p>
+        <button
+          type="button"
+          onClick={openAddForm}
+          disabled={!providerId}
+          className="inline-flex items-center gap-2 rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
         >
-          <option value="">Select a provider…</option>
-          {providers.map((p) => (
-            <option key={p.id} value={String(p.id)}>
-              {p.provider_name}
-            </option>
-          ))}
-        </select>
-
-        {error && (
-          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{error}</p>
-        )}
-
-        {providerId ? (
-          <>
-            <div className="rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4">
-              <p className="text-sm font-semibold text-slate-800">Add a block (single day or date range)</p>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <label>
-                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    From date
-                  </span>
-                  <input
-                    type="date"
-                    value={formDateFrom}
-                    onChange={(e) => setFormDateFrom(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </label>
-                <label>
-                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    To date
-                  </span>
-                  <input
-                    type="date"
-                    value={formDateTo}
-                    min={formDateFrom}
-                    onChange={(e) => setFormDateTo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </label>
-                <p className="text-xs text-slate-500 sm:col-span-2">
-                  Same start and end = one day. Different dates = one identical block per calendar day (max 400 days).
-                  {formDateFrom <= formDateTo ? (
-                    <span className="ml-1 font-medium text-slate-700">
-                      Selected span: {rangeDayCount} calendar day{rangeDayCount === 1 ? "" : "s"}.
-                    </span>
-                  ) : null}
-                </p>
-                <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={weekdaysOnly}
-                    onChange={(e) => setWeekdaysOnly(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-[#16a349]"
-                  />
-                  <span className="text-sm font-medium text-slate-800">Weekdays only (Mon–Fri)</span>
-                  <HelpTip label="Weekdays only">
-                    Skips Saturday and Sunday in the range. Handy for “every weekday for a month” without weekend rows.
-                  </HelpTip>
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={allDay}
-                    onChange={(e) => setAllDay(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-[#16a349]"
-                  />
-                  <span className="text-sm font-medium text-slate-800">Block entire day for online booking</span>
-                  <HelpTip label="All day">
-                    Hides every standard booking time for this provider on each calendar date in the range.
-                  </HelpTip>
-                </label>
-                {!allDay && (
-                  <>
-                    <label>
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        From (time)
-                      </span>
-                      <input
-                        type="time"
-                        value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <label>
-                      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Until (time)
-                      </span>
-                      <input
-                        type="time"
-                        value={endTime}
-                        onChange={(e) => setEndTime(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                      />
-                    </label>
-                  </>
-                )}
-              </div>
-              <button
-                type="button"
-                disabled={adding}
-                onClick={() => void addBlock()}
-                className="mt-4 rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-              >
-                {adding ? "Saving…" : formDateFrom === formDateTo ? "Add block" : "Add blocks for date range"}
-              </button>
-            </div>
-
-            <AdminSectionLabel help="Upcoming blocks in the next year for the selected provider.">
-              Active blocks
-            </AdminSectionLabel>
-            {loadingList ? (
-              <Loader variant="page" label="Loading blocks" />
-            ) : blocks.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                No blocks — this provider follows normal online availability (open slots only when nothing else is booked).
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {blocks.map((b) => (
-                  <li
-                    key={b.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm"
-                  >
-                    <div>
-                      <p className="font-semibold tabular-nums text-slate-900">{b.block_date}</p>
-                      <p className="text-sm text-slate-600">{formatBlockLabel(b)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void removeBlock(b.id)}
-                      className="text-sm font-semibold text-rose-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        ) : (
-          <p className="text-sm text-slate-500">Select a provider to view or add booking blocks.</p>
-        )}
+          <Plus className="h-4 w-4" aria-hidden />
+          Add block
+        </button>
       </div>
+
+      {error ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#d1e8d8] px-5 py-3">
+          <select
+            value={providerId}
+            onChange={(e) => setProviderId(e.target.value)}
+            className="min-w-[14rem] flex-1 rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:max-w-xs"
+            aria-label="Provider"
+          >
+            <option value="">Select a provider...</option>
+            {providers.map((p) => (
+              <option key={p.id} value={String(p.id)}>
+                {p.provider_name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {!providerId ? (
+            <p className="px-5 py-12 text-center text-sm text-[#5a7a62]">
+              Select a provider to view or add online booking blocks.
+            </p>
+          ) : loadingList ? (
+            <div className="p-8">
+              <Loader variant="page" label="Loading" />
+            </div>
+          ) : (
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="shrink-0 border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                <div
+                  className={cn(
+                    GRID,
+                    "px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]",
+                  )}
+                >
+                  <span>Date</span>
+                  <span>Hours</span>
+                  <span className="text-right">Actions</span>
+                </div>
+              </div>
+
+              {blocks.length === 0 ? (
+                <p className="px-5 py-12 text-center text-sm text-[#5a7a62]">
+                  No blocks for {selectedProvider?.provider_name ?? "this provider"}. Online booking follows normal open
+                  slots.
+                </p>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <ul className="divide-y divide-[#d1e8d8]">
+                    {blocks.map((b) => (
+                      <li key={b.id} className={cn(GRID, "items-center px-5 py-3.5 hover:bg-[#f8fdf9]")}>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold tabular-nums text-[#0d1f14]">
+                            {formatMonthDayYear(b.block_date)}
+                          </p>
+                          <p className="mt-0.5 font-mono text-xs text-[#5a7a62]">{b.block_date}</p>
+                        </div>
+                        <div className="min-w-0">
+                          <span
+                            className={cn(
+                              "inline-flex max-w-full truncate rounded-full px-2.5 py-1 text-xs font-medium",
+                              b.all_day
+                                ? "bg-[#fef3c7] text-[#92400e]"
+                                : "bg-[#ecfdf5] text-[#0d5c2e]",
+                            )}
+                          >
+                            {formatBlockLabel(b)}
+                          </span>
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setDeleteId(b.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#991b1b] hover:bg-[#fef2f2]"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <Dialog open={formOpen} onOpenChange={(open) => !adding && setFormOpen(open)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#0d1f14]">Add booking block</DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              Hide online booking times for {selectedProvider?.provider_name ?? "this provider"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-1">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label>
+                <span className={fieldLabel}>From date</span>
+                <input
+                  type="date"
+                  value={formDateFrom}
+                  onChange={(e) => setFormDateFrom(e.target.value)}
+                  className={inputClass}
+                />
+              </label>
+              <label>
+                <span className={fieldLabel}>To date</span>
+                <input
+                  type="date"
+                  value={formDateTo}
+                  min={formDateFrom}
+                  onChange={(e) => setFormDateTo(e.target.value)}
+                  className={inputClass}
+                />
+              </label>
+            </div>
+            {formDateFrom <= formDateTo ? (
+              <p className="text-xs text-[#5a7a62]">
+                {rangeDayCount} calendar day{rangeDayCount === 1 ? "" : "s"}
+                {formDateFrom !== formDateTo ? " (same hours each day)" : ""}
+              </p>
+            ) : null}
+
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3">
+              <input
+                type="checkbox"
+                checked={weekdaysOnly}
+                onChange={(e) => setWeekdaysOnly(e.target.checked)}
+                className="h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]"
+              />
+              <span className="text-sm font-medium text-[#0d1f14]">Weekdays only (Mon-Fri)</span>
+            </label>
+
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3">
+              <input
+                type="checkbox"
+                checked={allDay}
+                onChange={(e) => setAllDay(e.target.checked)}
+                className="h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]"
+              />
+              <span className="text-sm font-medium text-[#0d1f14]">Block entire day</span>
+            </label>
+
+            {!allDay ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label>
+                  <span className={fieldLabel}>From (time)</span>
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className={inputClass}
+                  />
+                </label>
+                <label>
+                  <span className={fieldLabel}>Until (time)</span>
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    className={inputClass}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={adding}
+              onClick={() => setFormOpen(false)}
+              className="border-[#d1e8d8]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={adding}
+              onClick={() => void addBlock()}
+              className="bg-[#16a349] text-white hover:bg-[#13823d]"
+            >
+              {adding ? "Saving..." : formDateFrom === formDateTo ? "Add block" : "Add blocks"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteId != null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#0d1f14]">Remove this block?</DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              Patients will be able to book those times online again (if not already taken).
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setDeleteId(null)}
+              className="border-[#d1e8d8]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+              className="bg-[#991b1b] text-white hover:bg-[#7f1d1d]"
+            >
+              {deleting ? "Removing..." : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

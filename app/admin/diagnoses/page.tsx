@@ -1,18 +1,21 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { IconMoreVertical } from "@/components/icons";
 import { useAppFeedback } from "@/components/app-feedback";
 import { Loader } from "@/components/loader";
-import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type DiagnosisRow = {
   id: number;
@@ -23,9 +26,12 @@ type DiagnosisRow = {
 
 const emptyForm = { code: "", description: "", is_active: true };
 
-const fieldLabel = "mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500";
+const fieldLabel = "mb-1.5 block text-sm font-medium text-[#0d1f14]";
 const inputClass =
-  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15";
+  "w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] px-3.5 py-2.5 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20";
+
+const GRID =
+  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.55fr)] gap-2";
 
 export default function AdminDiagnosesPage() {
   const { runWithFeedback } = useAppFeedback();
@@ -37,7 +43,34 @@ export default function AdminDiagnosesPage() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
+  const [deleteRow, setDeleteRow] = useState<DiagnosisRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (menuOpenId == null) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpenId(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpenId]);
+
+  useEffect(() => {
+    setMenuOpenId(null);
+  }, [search, statusFilter]);
 
   const load = async () => {
     setLoading(true);
@@ -59,13 +92,13 @@ export default function AdminDiagnosesPage() {
 
   const filtered = useMemo(() => {
     let list = rows;
-    if (!showInactive) list = list.filter((d) => d.is_active);
+    if (statusFilter === "active") list = list.filter((d) => d.is_active);
     const q = search.trim().toLowerCase();
     if (!q) return list;
     return list.filter(
       (d) => d.code.toLowerCase().includes(q) || d.description.toLowerCase().includes(q),
     );
-  }, [rows, search, showInactive]);
+  }, [rows, search, statusFilter]);
 
   const openCreate = () => {
     setEditing(null);
@@ -82,9 +115,7 @@ export default function AdminDiagnosesPage() {
   const save = async () => {
     const code = form.code.trim();
     const description = form.description.trim();
-    if (!code || !description) {
-      return;
-    }
+    if (!code || !description) return;
     setSaving(true);
     await runWithFeedback(
       async () => {
@@ -98,7 +129,7 @@ export default function AdminDiagnosesPage() {
         await load();
       },
       {
-        loadingMessage: editing ? "Saving…" : "Adding diagnosis…",
+        loadingMessage: editing ? "Saving..." : "Adding diagnosis...",
         successMessage: editing ? "Diagnosis updated." : "Diagnosis added.",
         errorFallback: "Could not save diagnosis.",
       },
@@ -106,126 +137,217 @@ export default function AdminDiagnosesPage() {
     setSaving(false);
   };
 
-  const remove = async (d: DiagnosisRow) => {
-    if (!window.confirm(`Delete diagnosis ${d.code}? This cannot be undone.`)) return;
+  const confirmDelete = async () => {
+    if (!deleteRow) return;
+    setDeleting(true);
     await runWithFeedback(
       async () => {
-        await apiDelete(`/diagnoses/${d.id}/`);
+        await apiDelete(`/diagnoses/${deleteRow.id}/`);
+        setDeleteRow(null);
         await load();
       },
       {
-        loadingMessage: "Deleting…",
+        loadingMessage: "Deleting...",
         successMessage: "Diagnosis removed.",
         errorFallback: "Could not delete.",
       },
     );
+    setDeleting(false);
+  };
+
+  const toggleActive = async (d: DiagnosisRow) => {
+    setTogglingId(d.id);
+    await runWithFeedback(
+      async () => {
+        await apiPatch(`/diagnoses/${d.id}/`, { is_active: !d.is_active });
+        await load();
+      },
+      {
+        loadingMessage: "Updating...",
+        successMessage: d.is_active ? "Marked inactive." : "Marked active.",
+        errorFallback: "Could not update status.",
+      },
+    );
+    setTogglingId(null);
   };
 
   return (
-    <div className="space-y-8">
-      <AdminPageIntro
-        title="Diagnoses & codes"
-        description="Build the diagnosis list doctors pick during consultations. Each entry has a code and description — both appear on the patient bill and in visit history."
-      />
-
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search code or description…"
-          className="min-w-[14rem] flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm shadow-sm"
-        />
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
-            className="rounded border-slate-300"
-          />
-          Show inactive
-        </label>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[#5a7a62]">
+          {filtered.length} {filtered.length === 1 ? "diagnosis" : "diagnoses"}
+        </p>
         <button
           type="button"
           onClick={openCreate}
-          className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+          className="inline-flex items-center gap-2 rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
         >
+          <Plus className="h-4 w-4" aria-hidden />
           Add diagnosis
         </button>
       </div>
 
       {error ? (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
+          {error}
+        </p>
       ) : null}
 
-      {loading ? (
-        <Loader label="Loading diagnoses…" />
-      ) : filtered.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center text-sm text-slate-600">
-          No diagnoses yet. Click <strong>Add diagnosis</strong> to create the first code.
-        </p>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-          <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/90 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Code</th>
-                <th className="px-4 py-3">Description</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((d) => (
-                <tr key={d.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                  <td className="px-4 py-3 font-mono font-semibold text-slate-800">{d.code}</td>
-                  <td className="px-4 py-3 text-slate-800">{d.description}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                        d.is_active ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-600",
-                      )}
-                    >
-                      {d.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openEdit(d)}
-                      className="mr-2 text-sm font-semibold text-[#0d5c2e] hover:underline"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void remove(d)}
-                      className="text-sm font-semibold text-rose-700 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#d1e8d8] px-5 py-3">
+          <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5a7a62]"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search code or description..."
+              className="w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] py-2.5 pl-10 pr-3 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              aria-label="Search diagnoses"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "active" | "all")}
+            className="min-w-[9rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            aria-label="Status filter"
+          >
+            <option value="active">Active only</option>
+            <option value="all">All statuses</option>
+          </select>
         </div>
-      )}
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {loading ? (
+            <div className="p-8">
+              <Loader variant="page" label="Loading" />
+            </div>
+          ) : (
+            <div className="flex h-full min-h-0 flex-col overflow-x-auto">
+              <div className="min-w-[640px] shrink-0 border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                <div className={cn(GRID, "px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]")}>
+                  <span>Code</span>
+                  <span>Description</span>
+                  <span>Status</span>
+                  <span className="text-right">Actions</span>
+                </div>
+              </div>
+
+              <div className="min-h-0 min-w-[640px] flex-1 overflow-auto">
+                {filtered.length === 0 ? (
+                  <p className="px-5 py-12 text-center text-sm text-[#5a7a62]">
+                    {search.trim() || statusFilter === "all"
+                      ? "No diagnoses match."
+                      : "No active diagnoses yet. Add one to get started."}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-[#d1e8d8]">
+                    {filtered.map((d) => (
+                      <li key={d.id} className={cn(GRID, "items-center px-5 py-3.5 hover:bg-[#f8fdf9]")}>
+                        <div className="min-w-0 font-mono font-semibold text-[#0d1f14]">{d.code}</div>
+                        <div className="min-w-0 text-[#0d1f14]">{d.description}</div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={d.is_active}
+                            aria-label={d.is_active ? "Active" : "Inactive"}
+                            disabled={togglingId === d.id}
+                            onClick={() => void toggleActive(d)}
+                            className={cn(
+                              "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50",
+                              d.is_active ? "bg-[#16a349]" : "bg-[#d1e8d8]",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                                d.is_active ? "left-[1.375rem]" : "left-0.5",
+                              )}
+                            />
+                          </button>
+                          <span className="text-xs text-[#5a7a62]">
+                            {d.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                        <div className="flex justify-end">
+                          <div
+                            className="relative inline-flex"
+                            ref={menuOpenId === d.id ? menuRef : undefined}
+                          >
+                            <button
+                              type="button"
+                              aria-haspopup="menu"
+                              aria-expanded={menuOpenId === d.id}
+                              aria-label={`Actions for ${d.code}`}
+                              onClick={() =>
+                                setMenuOpenId((id) => (id === d.id ? null : d.id))
+                              }
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1e8d8] bg-white text-[#5a7a62] hover:bg-[#f8fdf9] hover:text-[#0d1f14]"
+                            >
+                              <IconMoreVertical className="h-4 w-4" />
+                            </button>
+                            {menuOpenId === d.id ? (
+                              <div
+                                role="menu"
+                                className="absolute right-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-xl border border-[#d1e8d8] bg-white py-1 shadow-lg"
+                              >
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    openEdit(d);
+                                  }}
+                                  className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+                                >
+                                  <Pencil className="h-4 w-4 text-[#5a7a62]" aria-hidden />
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    setDeleteRow(d);
+                                  }}
+                                  className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#991b1b] hover:bg-[#fef2f2]"
+                                >
+                                  <Trash2 className="h-4 w-4" aria-hidden />
+                                  Delete
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit diagnosis" : "Add diagnosis"}</DialogTitle>
-            <DialogDescription>
-              Doctors will select from active diagnoses during consultations. Code and description print on the bill.
+            <DialogTitle className="text-[#0d1f14]">
+              {editing ? "Edit diagnosis" : "Add diagnosis"}
+            </DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              Doctors pick active diagnoses during visits. Code and description print on the bill.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="grid gap-4 py-1">
             <label>
               <span className={fieldLabel}>Code</span>
               <input
-                className={inputClass}
+                className={cn(inputClass, "font-mono")}
                 value={form.code}
                 onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
                 placeholder="e.g. M54.5"
@@ -240,40 +362,89 @@ export default function AdminDiagnosesPage() {
                 placeholder="e.g. Low back pain"
               />
             </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={form.is_active}
-                onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
-                className="rounded border-slate-300"
-              />
-              Active (visible to doctors)
-            </label>
+            <div className="flex items-center justify-between rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-[#0d1f14]">Active</p>
+                <p className="text-xs text-[#5a7a62]">Visible to doctors</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.is_active}
+                onClick={() => setForm((f) => ({ ...f, is_active: !f.is_active }))}
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors",
+                  form.is_active ? "bg-[#16a349]" : "bg-[#d1e8d8]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    form.is_active ? "left-[1.375rem]" : "left-0.5",
+                  )}
+                />
+              </button>
+            </div>
           </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <button
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setFormOpen(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+              className="border-[#d1e8d8]"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               disabled={saving || !form.code.trim() || !form.description.trim()}
               onClick={() => void save()}
-              className="rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              className="bg-[#16a349] text-white hover:bg-[#13823d]"
             >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <AdminSectionLabel>Tip</AdminSectionLabel>
-      <p className="text-sm text-slate-600">
-        Inactive diagnoses stay on old visits but doctors cannot select them for new consultations.
-      </p>
+      <Dialog
+        open={deleteRow != null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteRow(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {deleteRow ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-[#0d1f14]">Delete {deleteRow.code}?</DialogTitle>
+                <DialogDescription className="text-[#5a7a62]">
+                  This cannot be undone. Old visits keep their saved diagnosis text.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={deleting}
+                  onClick={() => setDeleteRow(null)}
+                  className="border-[#d1e8d8]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => void confirmDelete()}
+                  className="bg-[#991b1b] text-white hover:bg-[#7f1d1d]"
+                >
+                  {deleting ? "Deleting..." : "Delete"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

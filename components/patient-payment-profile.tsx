@@ -87,15 +87,15 @@ export function PatientPaymentProfileBadge({
     return (
       <span
         className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-800 ring-1 ring-sky-200/80",
-          compact ? "h-4 w-4" : "h-5 w-5 gap-0.5 px-1",
+          "inline-flex shrink-0 items-center justify-center rounded-md bg-[#dbe7fb] font-semibold text-[#277eff] ring-1 ring-[#277eff]/25",
+          compact ? "h-4 w-4" : "h-5 gap-0.5 px-1.5",
           className,
         )}
         title="Insurance patient"
         aria-label="Insurance patient"
       >
         <IconEye className={compact ? "h-2.5 w-2.5" : "h-3 w-3"} />
-        {!compact ? <span className="px-0.5 text-[10px] font-bold uppercase tracking-wide">Ins</span> : null}
+        {!compact ? <span className="text-[10px] font-semibold tracking-wide">Ins</span> : null}
       </span>
     );
   }
@@ -103,7 +103,7 @@ export function PatientPaymentProfileBadge({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-md bg-amber-100 font-bold uppercase tracking-wide text-amber-950 ring-1 ring-amber-300/70",
+        "inline-flex shrink-0 items-center rounded-md bg-[#ecfdf5] font-semibold tracking-wide text-[#0d5c2e] ring-1 ring-[#16a349]/30",
         compact ? "px-1 py-0 text-[8px] leading-none" : "px-1.5 py-0.5 text-[9px]",
         className,
       )}
@@ -129,7 +129,7 @@ export function PatientIrisBadge({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-md bg-orange-500 font-bold uppercase tracking-wide text-white ring-1 ring-orange-600/40",
+        "inline-flex shrink-0 items-center rounded-md bg-[#e9982f] font-semibold tracking-wide text-white ring-1 ring-[#c47d1f]/50",
         compact ? "px-1 py-0 text-[8px] leading-none" : "px-1.5 py-0.5 text-[9px]",
         className,
       )}
@@ -201,11 +201,11 @@ export function PatientPaymentProfileSelector({
   }
 
   return (
-    <div className={cn("rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3", className)}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+    <div className={cn("rounded-xl border border-[#e8e8e8] bg-[#f8f8f7] px-3 py-3", className)}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#949494]">
         Labels (schedule badges)
       </p>
-      <p className="mt-0.5 text-xs text-slate-600">
+      <p className="mt-0.5 text-xs text-[#5a7a62]">
         Payment type is Cash or Insurance. IRIS can be on at the same time (Iris referral or nutrition
         patient).
       </p>
@@ -217,8 +217,8 @@ export function PatientPaymentProfileSelector({
           className={cn(
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition",
             current === "insurance"
-              ? "border-sky-400 bg-sky-100 text-sky-950 shadow-sm"
-              : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50/80",
+              ? "border-[#277eff]/50 bg-[#dbe7fb] text-[#1d4ed8] shadow-sm"
+              : "border-[#e8e8e8] bg-white text-[#0d1f14] hover:border-[#277eff]/40 hover:bg-[#dbe7fb]/50",
             (disabled || saving) && "opacity-50",
           )}
           aria-pressed={current === "insurance"}
@@ -233,8 +233,8 @@ export function PatientPaymentProfileSelector({
           className={cn(
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition",
             current === "cash"
-              ? "border-amber-400 bg-amber-100 text-amber-950 shadow-sm"
-              : "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50/80",
+              ? "border-[#16a349]/40 bg-[#ecfdf5] text-[#0d5c2e] shadow-sm"
+              : "border-[#e8e8e8] bg-white text-[#0d1f14] hover:border-[#16a349]/35 hover:bg-[#ecfdf5]",
             (disabled || saving) && "opacity-50",
           )}
           aria-pressed={current === "cash"}
@@ -249,8 +249,8 @@ export function PatientPaymentProfileSelector({
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition",
               irisTag
-                ? "border-orange-500 bg-orange-500 text-white shadow-sm"
-                : "border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50/80",
+                ? "border-[#e9982f] bg-[#e9982f] text-white shadow-sm"
+                : "border-[#e8e8e8] bg-white text-[#0d1f14] hover:border-[#e9982f]/50 hover:bg-[#fff7ed]",
               (disabled || saving) && "opacity-50",
             )}
             aria-pressed={irisTag}
@@ -264,14 +264,14 @@ export function PatientPaymentProfileSelector({
             type="button"
             disabled={disabled || saving}
             onClick={() => void save("")}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            className="rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-xs font-medium text-[#949494] hover:bg-[#f5f5f5] disabled:opacity-50"
           >
             Clear payment label
           </button>
         ) : null}
       </div>
-      {saving ? <p className="mt-2 text-xs text-slate-500">Saving…</p> : null}
-      {error ? <p className="mt-2 text-xs font-medium text-rose-700">{error}</p> : null}
+      {saving ? <p className="mt-2 text-xs text-[#949494]">Saving…</p> : null}
+      {error ? <p className="mt-2 text-xs font-medium text-[#ef4444]">{error}</p> : null}
     </div>
   );
 }

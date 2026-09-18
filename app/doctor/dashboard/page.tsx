@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppFeedback } from "@/components/app-feedback";
-import { DoctorEmptyWell, DoctorPageIntro, DoctorSectionLabel, DoctorStatsRow, doctorGreeting } from "@/components/doctor-shell";
+import { DoctorEmptyWell, DoctorStatsRow, doctorGreeting } from "@/components/doctor-shell";
 import type { DiagnosisPriorVisitHint } from "@/components/visit-panel/visit-diagnosis-picker";
 import dynamic from "next/dynamic";
 
@@ -111,7 +111,7 @@ import {
   type DiagnosisCatalogEntry,
 } from "@/lib/diagnosis-catalog";
 import { HelpTip } from "@/components/help-tip";
-import { IconStethoscope } from "@/components/icons";
+import { IconAlertCircle, IconCalendar, IconCheck, IconStethoscope, IconUsers } from "@/components/icons";
 import { Loader } from "@/components/loader";
 const PatientDetailModal = dynamic(
   () =>
@@ -136,7 +136,7 @@ const SquareTerminalCheckoutPoller = dynamic(
     })),
   { ssr: false },
 );
-import { ApiError, apiGet, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
 import { deskCheckInSuccessMessage, postDeskCheckIn } from "@/lib/kiosk-checkin";
 const PatientBillPortalModal = dynamic(
   () =>
@@ -170,7 +170,6 @@ import {
 } from "@/lib/doctor-dashboard-schedule-range";
 import { clinicTodayIso, formatMonthDayYear, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -336,12 +335,6 @@ function billingFormFingerprint(
     .sort()
     .join("|");
   return `${rows}#${notes}#${diagnosisFingerprint(diagnosisIds)}#${professionalDiscount.trim()}#${professionalDiscountReason.trim()}`;
-}
-
-function doctorApptWithin24Hours(appt: Appointment): boolean {
-  const start = new Date(`${appt.appointment_date}T${appt.start_time_iso}`);
-  const ms = start.getTime() - Date.now();
-  return ms > 0 && ms < 24 * 60 * 60 * 1000;
 }
 
 type CompleteVisitPayment = {
@@ -513,7 +506,7 @@ export default function DoctorDashboardPage() {
         confirmRescheduleBySlots(ctx.patientLabel, ctx.dateIso, ctx.timeLabel),
       ),
   });
-  const [savingDesk, setSavingDesk] = useState(false);
+  const [savingDesk] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [billSearchQuery, setBillSearchQuery] = useState("");
   const [billSearchResults, setBillSearchResults] = useState<Array<{
@@ -1001,50 +994,59 @@ export default function DoctorDashboardPage() {
     const cancelledCount = list.length - activeList.length;
     return [
       {
-        label: "On your schedule",
+        label: "On Schedule",
         value: activeList.length,
+        icon: <IconCalendar />,
+        iconTone: "primary" as const,
         help:
           scheduleView === "day"
-            ? "Patients who were or should have been seen today (cancelled visits are left out). Compare with Finished today to spot any still needing close-out."
-            : "Patients who were or should have been seen in this week or month (cancelled visits left out). Compare with Finished to spot any still open.",
+            ? "Active visits today (excludes cancelled)."
+            : "Active visits in this week or month (excludes cancelled).",
         onSelect: () => setListFilter("all"),
         active: listFilter === "all",
       },
       {
-        label: "Checked-in",
+        label: "Checked In",
         value: list.filter((a) => a.status === "checked_in").length,
-        tone: "amber" as const,
-        help: "Check-in completed at the kiosk, front desk, or by you. Tap to show only these, then Start visit on their row.",
+        icon: <IconUsers />,
+        iconTone: "green" as const,
+        help: "Ready for Start visit.",
         onSelect: () => toggleListFilter("checked_in"),
         active: listFilter === "checked_in",
       },
       {
-        label: "In consultation",
+        label: "In Consultation",
         value: list.filter((a) => a.status === "in_consultation").length,
-        tone: "accent" as const,
-        help: "You started the visit; a large chart-and-bill workspace opens automatically (you can dock it to the narrow side panel if you prefer).",
+        icon: <IconStethoscope />,
+        iconTone: "consult" as const,
+        help: "Visit in progress — chart open.",
         onSelect: () => toggleListFilter("in_consultation"),
         active: listFilter === "in_consultation",
       },
       {
-        label: "Finished today",
+        label: "Finished",
         value: list.filter((a) => ["completed", "awaiting_payment"].includes(a.status)).length,
-        help: "Visit is wrapped up or waiting on payment. Awaiting payment still counts as needing checkout at the desk. Compare with On your schedule to see if any visits still need closing.",
+        icon: <IconCheck />,
+        iconTone: "green" as const,
+        help: "Completed or awaiting payment.",
         onSelect: () => toggleListFilter("finished"),
         active: listFilter === "finished",
       },
       {
         label: "No-shows",
         value: list.filter((a) => resolveAppointmentUiStatus(a) === "no_show").length,
-        tone: "accent" as const,
-        help: "Patient did not attend (including automatic no-shows after the grace period). No-show fee may be on file.",
+        icon: <IconAlertCircle />,
+        iconTone: "red" as const,
+        help: "Did not attend (fee may apply).",
         onSelect: () => toggleListFilter("no_show"),
         active: listFilter === "no_show",
       },
       {
         label: "Cancelled",
         value: cancelledCount,
-        help: "Cancelled visits are not counted in On your schedule. Tap to review them separately.",
+        icon: <IconAlertCircle />,
+        iconTone: "grey" as const,
+        help: "Not counted in On Schedule.",
         onSelect: () => toggleListFilter("cancelled"),
         active: listFilter === "cancelled",
       },
@@ -1061,7 +1063,7 @@ export default function DoctorDashboardPage() {
       if (last) return last;
     }
     return inConsult[0];
-  }, [appointments, lastClosedConsultAppointmentId]);
+  }, [appointments, lastClosedConsultAppointmentId, todayStr]);
 
   const load = async (opts?: {
     focusAppointmentId?: number;
@@ -1167,7 +1169,8 @@ export default function DoctorDashboardPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when schedule range changes; load closes over latest state
   }, [scheduleView, scheduleFocusIso, todayStr]);
 
   useEffect(() => {
@@ -1940,11 +1943,7 @@ export default function DoctorDashboardPage() {
     [services, activeAppt?.booked_service_id],
   );
 
-  const {
-    estimatedSubtotal: consultationEstimatedSubtotal,
-    discountAmount: consultationDiscountAmount,
-    estimatedAfterDiscount: consultationEstimatedTotal,
-  } = useMemo(
+  const { estimatedAfterDiscount: consultationEstimatedTotal } = useMemo(
     () => computeBillingEstimates(billLines, services, professionalDiscount),
     [billLines, services, professionalDiscount],
   );
@@ -2173,20 +2172,6 @@ export default function DoctorDashboardPage() {
       | "cancelled";
   };
 
-  const badgeLabel = (s: string) => {
-    const map: Record<string, string> = {
-      scheduled: "SCHEDULED",
-      booked: "SCHEDULED",
-      checked_in: "CHECKED IN",
-      in_consultation: "IN CONSULTATION",
-      completed: "COMPLETED",
-      awaiting_payment: "AWAITING PAYMENT",
-      no_show: "NO-SHOW",
-      cancelled: "CANCELLED",
-    };
-    return map[s] ?? s.toUpperCase().replaceAll("_", " ");
-  };
-
   /** Before the visit starts, doctors can mark no-show/cancel or reschedule (front desk rules apply for trickier cases). */
   const canDoctorPreVisitDesk = (s: string) => s === "booked" || s === "checked_in";
 
@@ -2242,19 +2227,22 @@ export default function DoctorDashboardPage() {
     return (
       <>
         {spacious ? (
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3 border-b border-[#e8e8e8] pb-4">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-[#166534]">
-                {isEditingSoapOnly
-                  ? "Edit consultation notes (SOAP)"
-                  : isRevisingBilling
-                    ? billingEditShowCloseOnly
-                      ? "Invoice updated — awaiting payment"
-                      : "Editing billing — awaiting payment"
-                    : "Active visit · full workspace"}
-              </p>
-              <p className="truncate text-lg font-bold text-slate-900">{activeAppt.patient}</p>
-              <p className="text-sm text-slate-600">
+              <div className="mb-0.5 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#E9982F]" aria-hidden />
+                <p className="text-sm font-semibold text-[#0d1f14]">
+                  {isEditingSoapOnly
+                    ? "Edit consultation notes (SOAP)"
+                    : isRevisingBilling
+                      ? billingEditShowCloseOnly
+                        ? "Invoice updated — awaiting payment"
+                        : "Editing billing — awaiting payment"
+                      : "Active Visit"}
+                </p>
+              </div>
+              <p className="truncate text-lg font-bold text-[#0d1f14]">{activeAppt.patient}</p>
+              <p className="text-xs text-[#949494]">
                 {activeAppt.start_time} – {activeAppt.end_time}
                 {activeAppt.service ? ` · ${activeAppt.service}` : ""}
               </p>
@@ -2263,14 +2251,14 @@ export default function DoctorDashboardPage() {
               <button
                 type="button"
                 onClick={() => setConsultWorkspaceExpanded(false)}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                className="rounded-lg border border-[#e8e8e8] bg-white px-4 py-2 text-sm font-semibold text-[#0d1f14] hover:bg-[#f5f5f5]"
               >
                 Use narrow side panel
               </button>
               <button
                 type="button"
                 onClick={closeConsultWorkspace}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                className="rounded-lg border border-[#e8e8e8] bg-[#f5f5f5] px-4 py-2 text-sm font-semibold text-[#0d1f14] hover:bg-[#ececec]"
               >
                 Close workspace
               </button>
@@ -2280,7 +2268,7 @@ export default function DoctorDashboardPage() {
           <button
             type="button"
             onClick={() => setConsultWorkspaceExpanded(true)}
-            className="mb-3 w-full rounded-xl border-2 border-[#16a349]/35 bg-[#ecfdf5] px-4 py-3 text-sm font-bold text-[#0d5c2e] shadow-sm shadow-emerald-900/5 hover:bg-[#d1fae5]"
+            className="mb-3 w-full rounded-lg border border-[#16a349]/35 bg-[#ecfdf5] px-4 py-3 text-sm font-bold text-[#0d5c2e] hover:bg-[#d1fae5]"
           >
             Expand full workspace
           </button>
@@ -2686,51 +2674,45 @@ export default function DoctorDashboardPage() {
     revisingBillingForAppointmentId === activeAppt.id;
 
   return (
-    <div className="space-y-8">
-      <DoctorPageIntro
-        eyebrow="Clinical workspace"
-        title={`${doctorGreeting()}, ${firstName}`}
-        description="Work today’s list: start visits, chart, finish, then collect payment before the patient leaves."
-        pageHelp={
-          <>
-            This page is your <strong>daily command center</strong>: pick a date, work down the list. When you start a visit, a{" "}
-            <strong>large centered workspace</strong> opens for chart notes, diagnosis, procedures, and billing. You can switch to a narrow
-            side panel from there if you prefer. Checked procedures show a running <strong>estimated total</strong>. When you complete the
-            visit, you can <strong>Preview bill</strong> before payment to show the patient what will print; the official{" "}
-            <strong>Print patient bill</strong> runs only after the invoice is marked paid (saved card, reader, or desk checkout). For an
-            appointment <strong>awaiting payment</strong>, use <strong>Edit billing</strong> on that row if you need to add a service or fix
-            the invoice before collecting. If someone does not show up, use <strong>No-show</strong> or <strong>Cancel</strong>; use{" "}
-            <strong>Reschedule</strong> to move a booked visit. After a visit shows <strong>completed</strong>, use{" "}
-            <strong>Book next visit</strong> to add a new appointment with the same openings as online booking. Prefer week or month planning? Use{" "}
-            <strong>My Schedule</strong> in the sidebar.
-          </>
-        }
-      >
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-y-contain pb-4">
+      <div className="space-y-3">
+        <p className="text-base font-semibold text-[#0d1f14]">
+          {doctorGreeting()}, {firstName}
+        </p>
         {loading ? (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-[4.5rem] animate-pulse rounded-2xl bg-slate-100/80" />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="h-[3.75rem] animate-pulse rounded-lg bg-[#e8e8e8]/80" />
             ))}
           </div>
         ) : (
           <DoctorStatsRow stats={dayStats} />
         )}
-      </DoctorPageIntro>
+      </div>
 
       {!loading &&
       (resumableConsultationAppt ||
         awaitingPaymentToday.length > 0 ||
         noShowsToday.length > 0 ||
         (nextUpAppt && !activeAppt)) ? (
-        <section className="space-y-3" aria-label="Today focus">
+        <section
+          className={
+            !activeAppt &&
+            nextUpAppt &&
+            (resumableConsultationAppt || awaitingPaymentToday.length > 0 || noShowsToday.length > 0)
+              ? "grid gap-3 lg:grid-cols-2"
+              : "grid gap-3"
+          }
+          aria-label="Today focus"
+        >
           {!activeAppt && nextUpAppt ? (
-            <div className="rounded-2xl border border-[#16a349]/30 bg-gradient-to-br from-[#ecfdf5] to-white px-4 py-3.5 shadow-sm">
+            <div className="rounded-xl border border-[#16a349]/30 bg-gradient-to-br from-[#ecfdf5] to-white px-4 py-3 shadow-sm">
               <p className="text-[11px] font-bold uppercase tracking-wide text-[#0d5c2e]">
-                {nextUpAppt.kind === "start" ? "Next up — ready to see" : "Next on schedule"}
+                {nextUpAppt.kind === "start" ? "Next up" : "Next on schedule"}
               </p>
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-lg font-bold text-slate-900">
+                  <p className="text-base font-bold text-slate-900">
                     <PatientNameWithProfile
                       name={nextUpAppt.appt.patient}
                       profile={nextUpAppt.appt.patient_payment_profile}
@@ -2741,7 +2723,7 @@ export default function DoctorDashboardPage() {
                   <p className="mt-0.5 text-sm text-slate-600">
                     {nextUpAppt.appt.start_time}
                     {nextUpAppt.appt.service ? ` · ${nextUpAppt.appt.service}` : ""}
-                    {nextUpAppt.kind === "waiting" ? " · waiting for check-in" : " · checked in"}
+                    {nextUpAppt.kind === "waiting" ? " · waiting" : " · checked in"}
                   </p>
                 </div>
                 {nextUpAppt.kind === "start" ? (
@@ -2749,7 +2731,7 @@ export default function DoctorDashboardPage() {
                     type="button"
                     disabled={isStarting}
                     onClick={() => void startVisit(nextUpAppt.appt)}
-                    className="rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                    className="rounded-lg bg-[#16a349] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
                   >
                     {isStarting ? "Starting…" : "Start visit"}
                   </button>
@@ -2762,7 +2744,7 @@ export default function DoctorDashboardPage() {
                       setScheduleFocusIso(todayStr);
                       document.getElementById("doctor-today-schedule")?.scrollIntoView({ behavior: "smooth", block: "start" });
                     }}
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
                   >
                     Jump to list
                   </button>
@@ -2772,9 +2754,9 @@ export default function DoctorDashboardPage() {
           ) : null}
 
           {(resumableConsultationAppt || awaitingPaymentToday.length > 0 || noShowsToday.length > 0) && (
-            <div className="rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3.5 shadow-sm ring-1 ring-amber-100">
+            <div className="rounded-xl border border-amber-200/90 bg-amber-50/80 px-4 py-3 shadow-sm ring-1 ring-amber-100">
               <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
-              <div className="mt-2.5 flex flex-wrap gap-2">
+              <div className="mt-2 flex flex-wrap gap-2">
                 {!activeAppt && resumableConsultationAppt ? (
                   <button
                     type="button"
@@ -2805,7 +2787,7 @@ export default function DoctorDashboardPage() {
                     }}
                     className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50"
                   >
-                    No-shows today ({noShowsToday.length})
+                    No-shows ({noShowsToday.length})
                   </button>
                 ) : null}
               </div>
@@ -2814,29 +2796,34 @@ export default function DoctorDashboardPage() {
         </section>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
       {paymentFollowUp && (
         <section
           ref={paymentBannerRef}
           id="doctor-payment-banner"
-          className="doctor-panel scroll-mt-20 border-[#16a349]/25 bg-gradient-to-br from-[#f0fdf4] via-white to-white shadow-md shadow-emerald-900/5 lg:col-span-2"
+          className="scroll-mt-20 overflow-hidden rounded-xl border border-[#E9982F]/35 bg-white shadow-sm lg:col-span-2"
         >
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="border-b border-[#E9982F]/25 bg-[#FFF6EB] px-5 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-900">Collect payment before they leave</h3>
+                <h3 className="text-lg font-bold text-[#0d1f14]">Collect payment before they leave</h3>
                 <HelpTip label="Payment banner" tone="emerald">
-                  Appears after you complete a visit. It reminds you to collect payment using saved card, card reader, or the desk
-                  checkout link—clinic policy is to settle before the patient walks out.
+                  Collect before the patient leaves — saved card, reader, or desk checkout.
                 </HelpTip>
               </div>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-[#949494]">
                 Invoice {paymentFollowUp.invoice_number ?? paymentFollowUp.invoice_id}
                 {paymentAmountDue != null && ` · ${formatMoneyUsd(paymentAmountDue)} due`}
                 {paymentCollectMode === "current" && paymentFollowUp.total_amount != null
                   ? ` (today: ${formatMoneyUsd(paymentFollowUp.total_amount)})`
                   : null}
               </p>
+            </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-start justify-between gap-4 p-5">
+            <div className="min-w-0 flex-1 space-y-3">
               {paymentFollowUp.pending_payment?.has_other_pending && !paymentFollowUp.payment.charged ? (
                 <div className="mt-3 space-y-2">
                   <DoctorPendingBalanceNotice pending={paymentFollowUp.pending_payment} compact />
@@ -2925,7 +2912,7 @@ export default function DoctorDashboardPage() {
                         type="button"
                         onClick={() => void chargeSavedCardOnBanner()}
                         disabled={chargingSavedCardBanner}
-                        className="rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+                        className="rounded-xl bg-[#E9982F] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#d48928] disabled:opacity-50"
                       >
                         {chargingSavedCardBanner
                           ? "Charging card…"
@@ -3165,11 +3152,9 @@ export default function DoctorDashboardPage() {
           ) : null}
         </section>
       )}
-      <section className="doctor-panel lg:col-span-2">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <DoctorSectionLabel help="Search for any past invoice by patient name, invoice number, or date and reprint the bill.">
-            Search & reprint bills
-          </DoctorSectionLabel>
+      <section className="rounded-xl border border-[#e8e8e8] bg-white px-4 py-3 lg:col-span-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-[#0d1f14]">Search & reprint bills</h3>
           <button
             type="button"
             onClick={() => setShowReprintBills((v) => !v)}
@@ -3181,7 +3166,7 @@ export default function DoctorDashboardPage() {
         </div>
         {showReprintBills || billSearchResults !== null ? (
           <>
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="mt-3 flex flex-wrap items-end gap-2">
           <div className="min-w-0 flex-1">
             <label className="mb-1.5 block text-[13px] font-semibold leading-normal text-slate-600">Patient name, invoice #, or date</label>
             <input
@@ -3258,52 +3243,40 @@ export default function DoctorDashboardPage() {
           </div>
         )}
           </>
-        ) : (
-          <p className="text-sm text-slate-500">Tap Show when you need to find and reprint a past bill.</p>
-        )}
+        ) : null}
       </section>
-      <section id="doctor-today-schedule" className="doctor-panel scroll-mt-24">
-        <DoctorSectionLabel
-          help="Day view shows today only. Switch to Week or Month to browse other days. Checked-in patients stay at the top of each day. Click a row to open the chart. Tap a stat above to filter this list."
-        >
-          {scheduleView === "day" ? "Today's schedule" : scheduleView === "week" ? "Week at a glance" : "Month at a glance"}
-        </DoctorSectionLabel>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-slate-600">
-            {scheduleView === "day" ? (
-              <>
-                <span className="font-semibold text-slate-800">Today only</span> — {formatWeekdayMonthDayYear(todayStr)}
-                <span className="mt-1 block text-xs text-slate-500">
-                  Checked-in patients appear first. Prefer week or month planning?{" "}
-                  <Link href="/doctor/schedule" className="font-semibold text-[#0d5c2e] hover:underline">
-                    Open My Schedule
-                  </Link>
-                  .
-                </span>
-              </>
-            ) : (
-              <>
-                Showing <span className="font-semibold text-slate-800">{scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}</span>
-                <span className="mt-1 block text-xs text-slate-500">
-                  Visits are grouped by day. For a fuller calendar, use{" "}
-                  <Link href="/doctor/schedule" className="font-semibold text-[#0d5c2e] hover:underline">
-                    My Schedule
-                  </Link>
-                  .
-                </span>
-              </>
-            )}
+      <section id="doctor-today-schedule" className="overflow-hidden rounded-xl border border-[#e8e8e8] bg-white scroll-mt-24">
+        {/* One clean toolbar row — title left, controls right (no duplicate dates) */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-[#e8e8e8] px-5 py-3.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="text-base font-semibold text-[#0d1f14]">
+              {scheduleView === "day"
+                ? "Today's Appointments"
+                : scheduleView === "week"
+                  ? "Week at a glance"
+                  : "Month at a glance"}
+            </h3>
+            <HelpTip label="Schedule" tone="emerald">
+              Day, Week, or Month sets the range. List shows action buttons; Calendar lets you click open time to book.
+              Checked-in patients stay at the top of the list.
+            </HelpTip>
             {listFilter !== "all" ? (
-              <span className="mt-2 block text-xs font-semibold text-[#0d5c2e]">
-                Filtered list —{" "}
-                <button type="button" className="underline" onClick={() => setListFilter("all")}>
-                  show schedule
-                </button>
-              </span>
+              <button
+                type="button"
+                className="rounded-md bg-[#ecfdf5] px-2 py-0.5 text-[11px] font-semibold text-[#0d5c2e] hover:bg-[#d1fae5]"
+                onClick={() => setListFilter("all")}
+              >
+                Clear filter
+              </button>
             ) : null}
-          </p>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5">
+            <div
+              className="inline-flex rounded-lg bg-[#e8e8e8] p-0.5"
+              role="group"
+              aria-label="Schedule range"
+            >
               {(
                 [
                   { id: "day" as const, label: "Day" },
@@ -3321,31 +3294,32 @@ export default function DoctorDashboardPage() {
                   className={cn(
                     "rounded-md px-3 py-1.5 text-xs font-semibold transition",
                     scheduleView === t.id
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-600 hover:text-slate-900",
+                      ? "bg-white text-[#0d1f14] shadow-sm"
+                      : "text-[#949494] hover:text-[#0d1f14]",
                   )}
                 >
                   {t.label}
                 </button>
               ))}
             </div>
+
             {scheduleView !== "day" ? (
-              <div className="flex items-center gap-1">
+              <div className="inline-flex items-center rounded-lg border border-[#e8e8e8] bg-white">
                 <button
                   type="button"
                   onClick={() => setScheduleFocusIso((d) => shiftScheduleFocus(scheduleView, d, -1))}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-l-lg text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
                   aria-label="Previous period"
                 >
                   ‹
                 </button>
-                <span className="min-w-[8rem] text-center text-xs font-semibold text-slate-800">
+                <span className="max-w-[11rem] truncate border-x border-[#e8e8e8] px-2.5 py-1.5 text-center text-xs font-semibold text-[#0d1f14] sm:max-w-none">
                   {scheduleRangeLabel(scheduleView, scheduleFocusIso, todayStr)}
                 </span>
                 <button
                   type="button"
                   onClick={() => setScheduleFocusIso((d) => shiftScheduleFocus(scheduleView, d, 1))}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-r-lg text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
                   aria-label="Next period"
                 >
                   ›
@@ -3359,12 +3333,17 @@ export default function DoctorDashboardPage() {
                   setScheduleFocusIso(todayStr);
                   void load();
                 }}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex h-8 items-center rounded-lg border border-[#e8e8e8] bg-white px-3 text-xs font-semibold text-[#0d1f14] hover:bg-[#f5f5f5]"
               >
-                Refresh today
+                Refresh
               </button>
             )}
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5">
+
+            <div
+              className="inline-flex rounded-lg bg-[#e8e8e8] p-0.5"
+              role="group"
+              aria-label="Layout"
+            >
               {(
                 [
                   { id: "list" as const, label: "List" },
@@ -3378,23 +3357,21 @@ export default function DoctorDashboardPage() {
                   className={cn(
                     "rounded-md px-3 py-1.5 text-xs font-semibold transition",
                     scheduleLayout === t.id
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-600 hover:text-slate-900",
+                      ? "bg-white text-[#0d1f14] shadow-sm"
+                      : "text-[#949494] hover:text-[#0d1f14]",
                   )}
                 >
                   {t.label}
                 </button>
               ))}
             </div>
-            <HelpTip label="Schedule view" align="center" tone="emerald">
-              Day = today’s visits only. Week = Mon–Fri for the week you pick. Month = full month. Use arrows in Week/Month to
-              move forward or back. Calendar view: click an open time to book (including repeat visits).
-            </HelpTip>
           </div>
         </div>
-        {error && <p className="mb-3 rounded-xl bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>}
+
+        <div>
+        {error && <p className="m-4 mb-0 rounded-xl bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>}
         {scheduleLayout === "calendar" && myProviderId != null ? (
-          <div className="doctor-panel mb-4 min-w-0 overflow-x-auto p-4">
+          <div className="m-4 min-w-0 overflow-x-auto rounded-xl border border-[#e8e8e8] bg-white p-4">
             {loading ? (
               <Loader variant="page" label="Loading calendar" sublabel="Almost there…" />
             ) : (
@@ -3421,11 +3398,6 @@ export default function DoctorDashboardPage() {
                 }
               />
             )}
-            <p className="mt-3 text-xs leading-relaxed text-slate-500">
-              Click a white/open area on your column to book a patient. You can turn on{" "}
-              <strong className="font-medium text-slate-700">Repeat on a schedule</strong> in the booking window for
-              weekly, every-2-weeks, or monthly visits.
-            </p>
           </div>
         ) : null}
         {scheduleLayout === "list" && loading ? (
@@ -3444,13 +3416,9 @@ export default function DoctorDashboardPage() {
                       : "No visits this month"
             }
             description={
-              listFilter === "cancelled"
-                ? "No cancelled appointments in this day, week, or month view."
-                : listFilter !== "all"
-                  ? "Tap the active stat again, or choose On your schedule, to go back to your full active list."
-                  : scheduleView === "day"
-                    ? "No active visits today (cancelled ones are listed under Cancelled)."
-                    : "No active visits in this range (cancelled ones are listed under Cancelled)."
+              listFilter !== "all" && listFilter !== "cancelled"
+                ? "Clear the filter above to see everyone."
+                : undefined
             }
           >
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100/80 text-[#16a349] shadow-inner">
@@ -3458,19 +3426,27 @@ export default function DoctorDashboardPage() {
             </span>
           </DoctorEmptyWell>
         ) : scheduleLayout === "list" ? (
-          <div className="stagger-children space-y-2.5">
+          <div className="stagger-children">
+            {/* Banani table header (desktop) */}
+            <div className="hidden items-center gap-4 border-b border-[#e8e8e8] bg-[#f5f5f5] px-5 py-2 lg:flex">
+              <div className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-[#949494]">Time</div>
+              <div className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-[#949494]">Patient</div>
+              <div className="w-44 shrink-0 text-xs font-semibold uppercase tracking-wide text-[#949494]">Visit type</div>
+              <div className="w-36 shrink-0 text-xs font-semibold uppercase tracking-wide text-[#949494]">Status</div>
+              <div className="w-12 shrink-0" />
+            </div>
             {filteredScheduleListItems.map((item) => {
               if (item.kind === "day-header") {
                 return (
                   <div
                     key={`hdr-${item.dateIso}`}
-                    className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-1.5 pt-4 first:pt-0"
+                    className="flex flex-wrap items-center gap-2 border-b border-[#e8e8e8] bg-[#f8f8f7] px-5 py-2"
                   >
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-600">
+                    <p className="text-xs font-bold uppercase tracking-wide text-[#949494]">
                       {item.isToday ? "Today" : formatWeekdayMonthDayYear(item.dateIso)}
                     </p>
                     {item.isToday ? (
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      <span className="rounded-md bg-[#d1fae5] px-2 py-0.5 text-[10px] font-semibold text-[#065f46]">
                         Current day
                       </span>
                     ) : null}
@@ -3480,66 +3456,68 @@ export default function DoctorDashboardPage() {
               const appt = item.appointment;
               const uiStatus = resolveAppointmentUiStatus(appt);
               const isNoShow = uiStatus === "no_show";
+              const isActiveRow =
+                activeAppt?.id === appt.id || uiStatus === "in_consultation";
               return (
               <div
                 key={appt.id}
-                className={`overflow-hidden rounded-xl border transition hover:shadow-sm ${
+                className={cn(
+                  "border-b border-[#e8e8e8] transition",
                   isNoShow
-                    ? "border-red-400/90 bg-red-50/90 shadow-sm ring-1 ring-red-300/60"
-                    : activeAppt?.id === appt.id
-                      ? "border-[#16a349]/45 bg-gradient-to-r from-[#16a349]/12 to-emerald-50/50 shadow-sm"
-                      : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80"
-                } ${appointmentStatusStripeClass(uiStatus)}`}
+                    ? "bg-red-50/90"
+                    : isActiveRow
+                      ? "bg-[#dbe7fb]"
+                      : "bg-white hover:bg-[#f8f8f7]",
+                  appointmentStatusStripeClass(uiStatus),
+                )}
               >
                 <div
                   role="button"
                   tabIndex={0}
                   onClick={() => setPatientDetailId(appt.patient_id)}
                   onKeyDown={(e) => e.key === "Enter" && setPatientDetailId(appt.patient_id)}
-                  className="cursor-pointer px-4 py-4 sm:px-5 sm:py-5"
+                  className="cursor-pointer px-5 py-3"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-4">
+                    <div className="w-full shrink-0 text-sm font-medium text-[#0d1f14] lg:w-20">
+                      {scheduleView !== "day" ? (
+                        <span className="block text-[11px] text-[#949494]">{formatMonthDayYear(appt.appointment_date)}</span>
+                      ) : null}
+                      <span className="whitespace-nowrap">{appt.start_time}</span>
+                    </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xl font-bold leading-snug tracking-tight text-slate-900">
+                      <p className="text-sm font-semibold text-[#0d1f14]">
                         <PatientNameWithProfile name={appt.patient} profile={appt.patient_payment_profile} irisTag={appt.patient_iris_tag} />
                       </p>
                       {parseMoneyAmount(appt.patient_balance_due) > 0.009 ? (
-                        <p className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-950">
-                          <span aria-hidden className="text-amber-600">
-                            $
-                          </span>
+                        <p className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#fef2f2] px-2 py-0.5 text-[11px] font-semibold text-[#b91c1c] ring-1 ring-[#ef4444]/35">
                           Owes {formatMoneyUsd(appt.patient_balance_due ?? "0")}
                         </p>
                       ) : null}
-                      <p className="mt-1.5 text-sm leading-snug text-slate-600">
-                        {scheduleView !== "day" ? (
-                          <span className="font-medium text-slate-700">
-                            {formatMonthDayYear(appt.appointment_date)} ·{" "}
-                          </span>
-                        ) : null}
-                        <span className="whitespace-nowrap">
-                          {appt.start_time} – {appt.end_time}
-                        </span>
-                        {appt.service ? (
-                          <span className="text-slate-500"> · {appt.service}</span>
-                        ) : (
-                          <span className="text-slate-500"> · Follow-up</span>
-                        )}
-                      </p>
-                      <AppointmentClientReason reason={appt.reason_for_visit} compact className="mt-2" />
+                      <AppointmentClientReason reason={appt.reason_for_visit} compact className="mt-1.5 lg:hidden" />
                       {isNoShow && appt.auto_no_show_processed_at ? (
-                        <p className="mt-2 text-[11px] font-medium text-red-900/90">Marked automatically</p>
+                        <p className="mt-1 text-[11px] font-medium text-red-900/90">Marked automatically</p>
                       ) : null}
                     </div>
-                    <AppointmentStatusBadge
-                      status={statusDisplay(uiStatus)}
-                      size="md"
-                      className="shrink-0 normal-case"
-                    />
+                    <div className="hidden w-44 shrink-0 text-sm text-[#949494] lg:block">
+                      {appt.service || "Follow-up"}
+                    </div>
+                    <div className="flex w-full items-center justify-between gap-2 lg:w-36 lg:justify-start lg:shrink-0">
+                      <p className="text-sm text-[#949494] lg:hidden">{appt.service || "Follow-up"} · {appt.start_time} – {appt.end_time}</p>
+                      <AppointmentStatusBadge
+                        status={statusDisplay(uiStatus)}
+                        size="md"
+                        className="shrink-0 normal-case"
+                      />
+                    </div>
+                    <div className="hidden w-12 shrink-0 text-right lg:block">
+                      <span className="text-xs font-medium text-[#16a349]">View</span>
+                    </div>
                   </div>
+                  <AppointmentClientReason reason={appt.reason_for_visit} compact className="mt-2 hidden lg:block" />
 
                   <div
-                    className="mt-3 flex flex-col gap-2"
+                    className="mt-2.5 flex flex-wrap items-center gap-1.5"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
                     role="presentation"
@@ -3549,9 +3527,9 @@ export default function DoctorDashboardPage() {
                         type="button"
                         onClick={() => void checkInPatient(appt)}
                         disabled={isCheckingIn}
-                        className="min-h-11 w-full max-w-md rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
+                        className="h-8 rounded-lg bg-[#16a349] px-3 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
                       >
-                        {isCheckingIn ? "Completing check-in…" : "Check-in"}
+                        {isCheckingIn ? "Checking in…" : "Check-in"}
                       </button>
                     )}
                     {uiStatus === "no_show" && (
@@ -3559,99 +3537,166 @@ export default function DoctorDashboardPage() {
                         type="button"
                         onClick={() => void checkInPatient(appt)}
                         disabled={isCheckingIn}
-                        className="min-h-11 w-full max-w-md rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
+                        className="h-8 rounded-lg bg-[#16a349] px-3 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
                       >
-                        {isCheckingIn ? "Completing check-in…" : "Check-in (patient came)"}
+                        {isCheckingIn ? "Checking in…" : "Check-in (patient came)"}
                       </button>
                     )}
                     {uiStatus === "checked_in" && (
-                      <div className="flex max-w-md flex-wrap items-center gap-2">
+                      <>
                         <button
                           type="button"
                           onClick={() => startVisit(appt)}
                           disabled={isStarting}
-                          className="min-h-11 flex-1 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] disabled:opacity-50 sm:flex-none sm:px-6"
+                          className="h-8 rounded-lg bg-[#16a349] px-3 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
                         >
                           Start visit
                         </button>
                         <HelpTip label="Start visit" align="center" tone="emerald">
                           Opens chart and billing workspace. Document the visit, then complete when finished.
                         </HelpTip>
-                      </div>
+                      </>
                     )}
                     {uiStatus === "in_consultation" && (
-                      <div className="flex max-w-md flex-wrap items-center gap-2">
+                      <>
                         <button
                           type="button"
                           onClick={() => openConsultationForAppointment(appt)}
-                          className="min-h-11 flex-1 rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] sm:flex-none sm:px-6"
+                          className="h-8 rounded-lg bg-[#16a349] px-3 text-xs font-semibold text-white hover:bg-[#13823d]"
                         >
                           Resume visit
                         </button>
                         <HelpTip label="Resume visit" align="center" tone="emerald">
                           Reopens the consultation workspace for this patient.
                         </HelpTip>
-                      </div>
+                      </>
+                    )}
+                    {canDoctorPreVisitDesk(uiStatus) && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={savingDesk}
+                          onClick={() => {
+                            void (async () => {
+                              const ok = await requestConfirm(confirmNoShow(appt.patient));
+                              if (!ok) return;
+                              await runWithFeedback(
+                                async () => {
+                                  await apiPatch(`/appointments/${appt.id}/`, { status: "no_show" });
+                                  await load();
+                                },
+                                {
+                                  loadingMessage: "Updating…",
+                                  successMessage: "Marked as no-show.",
+                                  errorFallback: "Could not update this visit.",
+                                },
+                              );
+                            })();
+                          }}
+                          className="h-8 rounded-lg border border-[#ef4444]/40 bg-white px-3 text-xs font-semibold text-[#ef4444] hover:bg-[#fef2f2] disabled:opacity-50"
+                        >
+                          No-show
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingDesk}
+                          onClick={() => {
+                            void (async () => {
+                              const ok = await requestConfirm(
+                                confirmCancelVisit(
+                                  appt.patient,
+                                  appt.service_type,
+                                  appt.appointment_date,
+                                  appt.start_time_iso ?? appt.start_time,
+                                ),
+                              );
+                              if (!ok) return;
+                              await runWithFeedback(
+                                async () => {
+                                  await apiPatch(`/appointments/${appt.id}/`, { status: "cancelled" });
+                                  await load();
+                                },
+                                {
+                                  loadingMessage: "Updating…",
+                                  successMessage: "Appointment cancelled.",
+                                  errorFallback: "Could not cancel.",
+                                },
+                              );
+                            })();
+                          }}
+                          className="h-8 rounded-lg border border-[#e8e8e8] bg-[#f5f5f5] px-3 text-xs font-semibold text-[#5a5a5a] hover:bg-[#ebebeb] disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingDesk}
+                          onClick={() => void openReschedule(appt)}
+                          className="h-8 rounded-lg border border-[#e9982f]/50 bg-[#fff7ed] px-3 text-xs font-semibold text-[#9a3412] hover:bg-[#ffedd5] disabled:opacity-50"
+                        >
+                          Reschedule
+                        </button>
+                      </>
                     )}
                     {(uiStatus === "awaiting_payment" ||
                       (isNoShow &&
                         appt.invoice_id != null &&
                         parseMoneyAmount(appt.amount_due ?? appt.invoice_total) > 0.009)) && (
-                      <div className="space-y-2.5 rounded-xl border border-slate-200/90 bg-slate-50/60 p-3">
-                        <p className="text-xs leading-relaxed text-slate-600">
+                      <div className="mt-1 w-full space-y-2 rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] p-2.5">
+                        <p className="text-[11px] leading-relaxed text-[#949494]">
                           {isNoShow
                             ? "Patient paid in cash, on the card reader, or with a saved card — record it here so the no-show fee is marked paid."
                             : "Chart or invoice changes, then collect payment. Amount due is shown below."}
                         </p>
-                        <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-3">
+                        <div className="flex flex-wrap gap-1.5">
                           {!isNoShow ? (
                             <>
-                          <button
-                            type="button"
-                            onClick={() => void openSoapNotesEdit(appt)}
-                            className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-sm font-semibold text-violet-950 shadow-sm hover:bg-violet-100"
-                          >
-                            Edit SOAP notes
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void openBillingForEdit(appt)}
-                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:border-[#16a349]/40 hover:bg-emerald-50/80"
-                          >
-                            Edit billing
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => void openSoapNotesEdit(appt)}
+                                className="h-8 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-950 hover:bg-violet-100"
+                              >
+                                Edit SOAP
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void openBillingForEdit(appt)}
+                                className="h-8 rounded-lg border border-[#e8e8e8] bg-white px-3 text-xs font-semibold text-[#0d1f14] hover:bg-[#ecfdf5]"
+                              >
+                                Edit billing
+                              </button>
                             </>
                           ) : (
                             <button
                               type="button"
                               disabled={recordingCashAppointmentId === appt.id}
                               onClick={() => void recordCashForAppointment(appt)}
-                              className="min-h-11 rounded-xl border border-emerald-600 bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 min-[480px]:col-span-2 lg:col-span-1"
+                              className="h-8 rounded-lg bg-[#16a349] px-3 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
                             >
-                              {recordingCashAppointmentId === appt.id ? "Recording…" : "Record cash payment"}
+                              {recordingCashAppointmentId === appt.id ? "Recording…" : "Record cash"}
                             </button>
                           )}
                           <button
                             type="button"
                             onClick={() => void resumePaymentForAppointment(appt)}
-                            className="min-h-11 rounded-xl bg-[#16a349] px-3 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-900/15 hover:bg-[#13823d] min-[480px]:col-span-2 lg:col-span-1"
+                            className="h-8 rounded-lg bg-[#E9982F] px-3 text-xs font-semibold text-white hover:bg-[#d48928]"
                           >
-                            {isNoShow ? "Card / desk checkout" : "Collect payment"}
+                            {isNoShow ? "Card / desk" : "Collect payment"}
                           </button>
                           <button
                             type="button"
                             onClick={() => void resumePaymentForAppointment(appt, { trySavedCard: true })}
-                            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#16a349]/35 hover:bg-emerald-50/80"
+                            className="h-8 rounded-lg border border-[#e8e8e8] bg-white px-3 text-xs font-semibold text-[#5a5a5a] hover:bg-[#f5f5f5]"
                           >
-                            Retry saved card
+                            Retry card
                           </button>
                           {appt.invoice_id ? (
                             <button
                               type="button"
                               onClick={() => void checkSquarePaymentForAppointment(appt)}
-                              className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100 min-[480px]:col-span-2 lg:col-span-3"
+                              className="h-8 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-900 hover:bg-violet-100"
                             >
-                              Check Square (any device)
+                              Check Square
                             </button>
                           ) : null}
                         </div>
@@ -3662,7 +3707,7 @@ export default function DoctorDashboardPage() {
                 {(uiStatus === "awaiting_payment" || isNoShow) &&
                   parseMoneyAmount(appt.amount_due ?? appt.invoice_total) > 0.009 && (
                   <p
-                    className={`border-t px-4 py-2 text-center text-[13px] font-medium leading-normal ${
+                    className={`border-t px-5 py-1.5 text-center text-xs font-medium leading-normal ${
                       isNoShow
                         ? "border-red-200/80 bg-red-50/90 text-red-950"
                         : "border-emerald-100/80 bg-[#f0fdf4]/90 text-[#0d5c2e]"
@@ -3677,97 +3722,23 @@ export default function DoctorDashboardPage() {
                     {appt.invoice_number ? ` · ${appt.invoice_number}` : ""}
                   </p>
                 )}
-                {canDoctorPreVisitDesk(uiStatus) && (
-                  <div className="grid grid-cols-1 gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-3 sm:grid-cols-3">
-                    <button
-                      type="button"
-                      disabled={savingDesk}
-                      onClick={() => {
-                        void (async () => {
-                          const ok = await requestConfirm(confirmNoShow(appt.patient));
-                          if (!ok) return;
-                          await runWithFeedback(
-                          async () => {
-                            await apiPatch(`/appointments/${appt.id}/`, { status: "no_show" });
-                            await load();
-                          },
-                          {
-                            loadingMessage: "Updating…",
-                            successMessage: "Marked as no-show.",
-                            errorFallback: "Could not update this visit.",
-                          },
-                        );
-                        })();
-                      }}
-                      className="min-h-11 w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-                    >
-                      No-show
-                    </button>
-                    <button
-                      type="button"
-                      disabled={savingDesk}
-                      onClick={() => {
-                        void (async () => {
-                          const ok = await requestConfirm(
-                            confirmCancelVisit(
-                              appt.patient,
-                              appt.service_type,
-                              appt.appointment_date,
-                              appt.start_time_iso ?? appt.start_time,
-                            ),
-                          );
-                          if (!ok) return;
-                          await runWithFeedback(
-                          async () => {
-                            await apiPatch(`/appointments/${appt.id}/`, { status: "cancelled" });
-                            await load();
-                          },
-                          {
-                            loadingMessage: "Updating…",
-                            successMessage: "Appointment cancelled.",
-                            errorFallback: "Could not cancel.",
-                          },
-                        );
-                        })();
-                      }}
-                      className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={savingDesk}
-                      onClick={() => void openReschedule(appt)}
-                      className="min-h-11 w-full rounded-lg border border-[#16a349]/30 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
-                    >
-                      Reschedule
-                    </button>
-                  </div>
-                )}
                 {appt.status === "completed" && (
                   <div
-                    className={`grid grid-cols-1 gap-2 border-t border-slate-200/80 bg-slate-50/60 px-4 py-3 ${
-                      doctorCanEditVisitBilling(appt) ? "sm:grid-cols-3" : "sm:grid-cols-2"
-                    }`}
+                    className="flex flex-wrap gap-1.5 border-t border-[#e8e8e8] bg-[#f8f8f7] px-5 py-2.5"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void openSoapNotesEdit(appt);
-                      }}
-                      className="min-h-11 w-full rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-[14px] font-semibold leading-normal text-violet-950 hover:bg-violet-100"
+                      onClick={() => void openSoapNotesEdit(appt)}
+                      className="h-8 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-950 hover:bg-violet-100"
                     >
-                      Edit SOAP notes
+                      Edit SOAP
                     </button>
                     {doctorCanEditVisitBilling(appt) ? (
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void openBillingForEdit(appt);
-                        }}
-                        className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-slate-800 hover:border-[#16a349]/40 hover:bg-emerald-50/80"
+                        onClick={() => void openBillingForEdit(appt)}
+                        className="h-8 rounded-lg border border-[#e8e8e8] bg-white px-3 text-xs font-semibold text-[#0d1f14] hover:bg-[#ecfdf5]"
                       >
                         Edit billing
                       </button>
@@ -3775,11 +3746,8 @@ export default function DoctorDashboardPage() {
                     <button
                       type="button"
                       disabled={bookNext.saving || bookNext.optionsLoading}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void openBookNext(appt);
-                      }}
-                      className="min-h-11 w-full rounded-lg border border-[#16a349]/30 bg-white px-4 py-2.5 text-[14px] font-semibold leading-normal text-[#0d5c2e] hover:bg-emerald-50 disabled:opacity-50"
+                      onClick={() => void openBookNext(appt)}
+                      className="h-8 rounded-lg border border-[#16a349]/35 bg-white px-3 text-xs font-semibold text-[#0d5c2e] hover:bg-[#ecfdf5] disabled:opacity-50"
                     >
                       Book next visit
                     </button>
@@ -3790,6 +3758,7 @@ export default function DoctorDashboardPage() {
             })}
           </div>
         ) : null}
+        </div>
       </section>
       {activeAppt &&
         consultWorkspaceExpanded &&
@@ -3805,14 +3774,14 @@ export default function DoctorDashboardPage() {
             {/* Portal → body so stacking is above sticky doctor header (z-30); z-[150] below patient chart (z-200) */}
             <div className="flex min-h-[100dvh] w-full items-center justify-center px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-5 sm:py-6 sm:pb-6">
               <div
-                className="relative w-full max-w-5xl shrink-0 rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25"
+                className="relative w-full max-w-5xl shrink-0 rounded-xl border border-[#e8e8e8] bg-white shadow-2xl shadow-slate-900/25"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
                   type="button"
                   onClick={closeConsultWorkspace}
                   aria-label="Close workspace"
-                  className="absolute right-3 top-3 z-20 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-lg font-semibold leading-none text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                  className="absolute right-3 top-3 z-20 rounded-lg border border-[#e8e8e8] bg-white px-2.5 py-1.5 text-lg font-semibold leading-none text-[#949494] transition hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
                 >
                   ×
                 </button>
@@ -3827,38 +3796,53 @@ export default function DoctorDashboardPage() {
           </div>,
           document.body,
         )}
-      <aside className="doctor-panel space-y-4 ring-1 ring-emerald-100/70">
-        <DoctorSectionLabel help="When a visit is active, a large workspace opens so you can chart and bill comfortably. You can switch to the narrow side panel if you prefer.">
-          Active visit
-        </DoctorSectionLabel>
+      <aside className="flex flex-col overflow-hidden rounded-xl border border-[#e8e8e8] bg-white lg:min-h-[28rem]">
+        <div className="border-b border-[#e8e8e8] px-5 py-4">
+          <div className="mb-0.5 flex items-center gap-2">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                activeAppt ? "bg-[#E9982F]" : "bg-[#e8e8e8]",
+              )}
+              aria-hidden
+            />
+            <span className="text-sm font-semibold text-[#0d1f14]">Active Visit</span>
+            <HelpTip label="Active visit" tone="emerald">
+              Chart and bill here when a visit is open. Switch to the side panel anytime.
+            </HelpTip>
+          </div>
+          {activeAppt ? (
+            <p className="text-xs text-[#949494]">
+              {activeAppt.patient} · {activeAppt.start_time}
+            </p>
+          ) : (
+            <p className="text-xs text-[#949494]">No visit selected</p>
+          )}
+        </div>
+        <div className="flex flex-1 flex-col gap-4 p-5">
         {activeAppt ? (
           consultWorkspaceExpanded ? (
-            <div className="rounded-xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/90 to-white p-4 text-sm shadow-sm">
-              <p className="font-bold text-[#0d5c2e]">Full workspace is open</p>
-              <p className="mt-1.5 leading-relaxed text-slate-600">
-                Use the large centered window to enter diagnosis, procedures, and notes. Your schedule stays visible in the background.
-              </p>
+            <div className="rounded-lg border border-[#e8e8e8] bg-[#f5f5f5] p-4 text-sm">
+              <p className="font-semibold text-[#0d5c2e]">Workspace open</p>
               <button
                 type="button"
                 onClick={() => setConsultWorkspaceExpanded(false)}
-                className="mt-4 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+                className="mt-3 w-full rounded-lg border border-[#e8e8e8] bg-white py-2 text-sm font-semibold text-[#0d1f14] transition hover:bg-[#f8f8f7]"
               >
-                Use narrow side panel instead
+                Use side panel
               </button>
             </div>
           ) : (
             <div className="space-y-4">{renderConsultationForm(false)}</div>
           )
         ) : (
-          <DoctorEmptyWell
-            title="No active visit"
-            description="Tap Check-in on a patient’s row (or they can use the kiosk), then tap Start visit. A full workspace will open automatically for charting and billing."
-          >
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
-              <IconStethoscope className="h-6 w-6" />
+          <DoctorEmptyWell title="No active visit">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#e8e8e8] text-[#949494]">
+              <IconStethoscope className="h-5 w-5" />
             </span>
           </DoctorEmptyWell>
         )}
+        </div>
       </aside>
       {paymentConfirmOpen && activeAppt && consultPortalReady
         ? createPortal(

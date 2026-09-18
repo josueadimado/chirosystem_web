@@ -15,12 +15,10 @@ export function usePatientQuickContact(patientId: number | null) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (patientId == null) {
-      setContact(null);
-      setLoading(false);
-      return;
-    }
+    if (patientId == null) return;
+
     let cancelled = false;
+    /* eslint-disable react-hooks/set-state-in-effect -- fetch contact when patient changes */
     setLoading(true);
     void apiGetAuth<{ phone?: string; email?: string; date_of_birth?: string | null }>(
       `/patients/${patientId}/`,
@@ -40,10 +38,16 @@ export function usePatientQuickContact(patientId: number | null) {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    /* eslint-enable react-hooks/set-state-in-effect */
+
     return () => {
       cancelled = true;
     };
   }, [patientId]);
+
+  if (patientId == null) {
+    return { contact: null, loading: false };
+  }
 
   return { contact, loading };
 }

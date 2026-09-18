@@ -2,7 +2,7 @@
 
 import { useAppFeedback } from "@/components/app-feedback";
 import type { BookNextDayAppointment } from "@/components/visit-panel/book-next-schedule-panel";
-import { addDaysIso, monthGridRange, weekRangeContaining } from "@/lib/book-next-schedule-dates";
+import { monthGridRange, weekRangeContaining } from "@/lib/book-next-schedule-dates";
 import { fetchAvailabilitySlots } from "@/lib/availability-slots";
 import { apiGet, apiGetAuth, apiPost } from "@/lib/api";
 import type { BookingOptionsResponse } from "@/lib/booking-options-types";
@@ -197,6 +197,7 @@ export function useBookNextVisit({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via source?.id
   }, [source?.id, date, serviceId, providerId, useDeskAvailability]);
 
   useEffect(() => {
@@ -244,6 +245,7 @@ export function useBookNextVisit({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via source?.id
   }, [source?.id, date, providerId]);
 
   useEffect(() => {
@@ -298,6 +300,7 @@ export function useBookNextVisit({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via source?.id
   }, [source?.id, date, providerId, scheduleView]);
 
   const selectSlot = useCallback((time: string) => {

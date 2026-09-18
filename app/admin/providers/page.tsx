@@ -1,22 +1,22 @@
 "use client";
 
-import { AdminPageIntro, AdminSectionLabel } from "@/components/admin-shell";
+import { IconMoreVertical } from "@/components/icons";
 import { useAppFeedback } from "@/components/app-feedback";
-import { HelpTip } from "@/components/help-tip";
-import { IconStethoscope } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { ApiError, apiDelete, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { ArrowRightLeft, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Provider = {
   id: number;
@@ -47,6 +47,13 @@ const emptyAddForm = {
   services: [] as number[],
 };
 
+const fieldLabel = "mb-1.5 block text-sm font-medium text-[#0d1f14]";
+const inputClass =
+  "w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] px-3.5 py-2.5 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20";
+
+const GRID =
+  "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_minmax(0,0.85fr)_minmax(0,0.55fr)] gap-2";
+
 function formatPrice(p: string): string {
   const n = parseFloat(p);
   if (Number.isNaN(n)) return p;
@@ -69,17 +76,43 @@ export default function AdminProvidersPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Provider | null>(null);
   const [activeTogglingId, setActiveTogglingId] = useState<number | null>(null);
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [transferFrom, setTransferFrom] = useState<Provider | null>(null);
   const [transferTargetId, setTransferTargetId] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
-  /** Open “Edit provider” dialog for this id (null = closed). */
+  /** Open "Edit provider" dialog for this id (null = closed). */
   const [editingProviderId, setEditingProviderId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"active" | "all">("all");
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const bookableServices = useMemo(() => services.filter((s) => s.is_active), [services]);
   const bookableIds = useMemo(() => new Set(bookableServices.map((s) => s.id)), [bookableServices]);
+
+  useEffect(() => {
+    if (menuOpenId == null) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpenId(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpenId]);
+
+  useEffect(() => {
+    setMenuOpenId(null);
+  }, [search, statusFilter]);
 
   const load = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "refresh") setRefreshing(true);
@@ -147,7 +180,7 @@ export default function AdminProvidersPage() {
         await load("refresh");
       },
       {
-        loadingMessage: "Saving this doctor’s row…",
+        loadingMessage: "Saving this doctor's row...",
         successMessage: "Provider details saved.",
         errorFallback: "Could not save this row.",
       },
@@ -170,7 +203,7 @@ export default function AdminProvidersPage() {
         return res;
       },
       {
-        loadingMessage: "Moving appointments and visits to the other doctor…",
+        loadingMessage: "Moving appointments and visits to the other doctor...",
         successMessage: (r) => r.detail,
         errorFallback: "Could not transfer history.",
       },
@@ -188,31 +221,30 @@ export default function AdminProvidersPage() {
         setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, active: nextActive } : p)));
       },
       {
-        loadingMessage: nextActive ? "Showing doctor on the public list…" : "Hiding doctor from booking…",
-        successMessage: nextActive ? "Doctor is active for booking again." : "Doctor hidden from booking (still in the system).",
+        loadingMessage: nextActive ? "Showing doctor on the public list..." : "Hiding doctor from booking...",
+        successMessage: nextActive
+          ? "Doctor is active for booking again."
+          : "Doctor hidden from booking (still in the system).",
         errorFallback: "Could not update listing status.",
       },
     );
     setActiveTogglingId(null);
   };
 
-  const removeProvider = async (provider: Provider) => {
-    if (
-      !window.confirm(
-        `Remove doctor “${provider.provider_name}” and their login? This cannot be undone. If the server blocks this because of past appointments, use “Transfer visits…” first to move history to another doctor, then try again. You can also Deactivate to hide them from booking without deleting.`,
-      )
-    ) {
-      return;
-    }
+  const confirmRemoveProvider = async () => {
+    if (!deleteTarget) return;
+    const provider = deleteTarget;
     setDeletingId(provider.id);
     setError("");
     await runWithFeedback(
       async () => {
         await apiDelete(`/providers/${provider.id}/`);
         setProviders((prev) => prev.filter((p) => p.id !== provider.id));
+        setDeleteTarget(null);
+        if (editingProviderId === provider.id) setEditingProviderId(null);
       },
       {
-        loadingMessage: "Removing doctor account…",
+        loadingMessage: "Removing doctor account...",
         successMessage: "Doctor and login removed.",
         errorFallback: "Could not remove this provider.",
       },
@@ -258,7 +290,7 @@ export default function AdminProvidersPage() {
         await load("refresh");
       },
       {
-        loadingMessage: "Creating doctor login…",
+        loadingMessage: "Creating doctor login...",
         successMessage: "New doctor added. They can sign in with the username you chose.",
         errorFallback: "Could not add this doctor.",
       },
@@ -283,16 +315,19 @@ export default function AdminProvidersPage() {
       .filter((name): name is string => Boolean(name));
 
   const filteredProviders = useMemo(() => {
+    let list = providers;
+    if (statusFilter === "active") list = list.filter((p) => p.active);
     const q = search.trim().toLowerCase();
-    if (!q) return providers;
-    return providers.filter(
+    if (!q) return list;
+    return list.filter(
       (p) =>
         p.provider_name.toLowerCase().includes(q) ||
         (p.username || "").toLowerCase().includes(q) ||
         (p.specialty || "").toLowerCase().includes(q) ||
-        (p.title || "").toLowerCase().includes(q),
+        (p.title || "").toLowerCase().includes(q) ||
+        (p.credential || "").toLowerCase().includes(q),
     );
-  }, [providers, search]);
+  }, [providers, search, statusFilter]);
 
   const openAddDoctor = () => {
     setError("");
@@ -318,619 +353,620 @@ export default function AdminProvidersPage() {
     }
   };
 
+  const openEdit = (provider: Provider) => {
+    setError("");
+    setEditingProviderId(provider.id);
+  };
+
+  const openTransfer = (provider: Provider) => {
+    setError("");
+    setTransferTargetId("");
+    setTransferFrom(provider);
+  };
+
+  const openDelete = (provider: Provider) => {
+    setDeleteTarget(provider);
+  };
+
+  const credentialLine = (p: Provider) =>
+    [p.credential, p.title, p.specialty].filter(Boolean).join(" - ");
+
+  const showListChrome = !loading && services.length > 0 && bookableServices.length > 0;
+
   return (
-    <div className="space-y-6">
-      <AdminPageIntro
-        title="Doctors & providers"
-        description="Add doctor logins and choose which visit types each doctor offers on the public booking site."
-        pageHelp={
-          <>
-            <strong>Add doctor</strong> creates username and password. <strong>Edit</strong> updates display name, SMS alerts, credentials,
-            and online booking visit types. Visit names and prices are managed under <strong>Services & codes</strong>.
-          </>
-        }
-      />
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-[#5a7a62]">
+            {providers.length} {providers.length === 1 ? "doctor" : "doctors"}
+            {refreshing ? " (refreshing...)" : ""}
+          </p>
+          <Link href="/admin/services" className="text-sm font-semibold text-[#16a349] hover:underline">
+            Services & codes
+          </Link>
+        </div>
+        <button
+          type="button"
+          onClick={openAddDoctor}
+          className="inline-flex items-center gap-2 rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
+        >
+          <Plus className="h-4 w-4" aria-hidden />
+          Add doctor
+        </button>
+      </div>
 
-      {!loading && services.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 stagger-children">
-          <div className="rounded-2xl border border-[#16a349]/15 bg-gradient-to-br from-white to-[#ecfdf5]/50 px-4 py-3 shadow-sm ring-1 ring-[#16a349]/10">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#13823d]">Doctors</p>
-            <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{providers.length}</p>
-            <p className="mt-1 text-xs text-slate-500">
-              {providers.filter((p) => p.active).length} on booking · {providers.filter((p) => !p.active).length} hidden
-            </p>
-          </div>
-          <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Bookable visit types</p>
-            <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{bookableServices.length}</p>
-            {services.length !== bookableServices.length ? (
-              <p className="mt-1 text-xs text-amber-700">
-                {services.length - bookableServices.length} inactive — manage in Services & codes
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-slate-500">Available to assign to doctors</p>
-            )}
-          </div>
-          <div className="flex items-center rounded-2xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 shadow-sm sm:col-span-2 lg:col-span-2">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-              <button
-                type="button"
-                onClick={() => void load("refresh")}
-                disabled={refreshing}
-                className="font-semibold text-[#16a349] hover:text-[#13823d] disabled:opacity-50"
-              >
-                {refreshing ? "Refreshing…" : "Refresh list"}
-              </button>
-              <span className="text-slate-300">·</span>
-              <Link href="/admin/services" className="font-semibold text-slate-600 hover:text-[#0d5c2e]">
-                Services & codes →
-              </Link>
+      {error ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        {showListChrome ? (
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#d1e8d8] px-5 py-3">
+            <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+              <Search
+                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5a7a62]"
+                aria-hidden
+              />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, username..."
+                className="w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] py-2.5 pl-10 pr-3 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+                aria-label="Search doctors"
+              />
             </div>
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
-      )}
-
-      {loading ? (
-        <div className="admin-panel flex min-h-[240px] items-center justify-center py-12">
-          <Loader variant="page" label="Loading providers" sublabel="Syncing doctors and services…" />
-        </div>
-      ) : services.length === 0 ? (
-        <div className="admin-panel text-center">
-          <div className="mx-auto flex max-w-md flex-col items-center py-10">
-            <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <IconStethoscope className="h-8 w-8" />
-            </span>
-            <p className="text-base font-semibold text-slate-800">No services yet</p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">
-              Add at least one service before you can assign providers to bookable visit types.
-            </p>
-            <Link
-              href="/admin/services"
-              className={cn(
-                buttonVariants({ variant: "default" }),
-                "mt-6 inline-flex h-auto rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm",
-              )}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "active" | "all")}
+              className="min-w-[9rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              aria-label="Booking filter"
             >
-              Go to Services & codes
-            </Link>
+              <option value="all">All</option>
+              <option value="active">Active only</option>
+            </select>
           </div>
-        </div>
-      ) : bookableServices.length === 0 ? (
-        <div className="admin-panel text-center">
-          <div className="mx-auto flex max-w-md flex-col items-center py-10">
-            <p className="text-base font-semibold text-slate-800">No active visit types</p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">
-              Every service is marked inactive, so there is nothing to assign yet. Turn visit types back on or delete ones you
-              don&apos;t use under Services & codes. You can still add a doctor now and assign services later.
-            </p>
-            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row">
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {loading ? (
+            <div className="p-8">
+              <Loader variant="page" label="Loading providers" sublabel="Syncing doctors and services..." />
+            </div>
+          ) : services.length === 0 ? (
+            <div className="px-5 py-14 text-center">
+              <p className="text-sm font-semibold text-[#0d1f14]">No services yet</p>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-[#5a7a62]">
+                Add at least one service before assigning visit types to doctors.
+              </p>
               <Link
                 href="/admin/services"
-                className={cn(
-                  buttonVariants({ variant: "default" }),
-                  "inline-flex h-auto rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm",
-                )}
+                className="mt-5 inline-flex rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
               >
                 Go to Services & codes
               </Link>
-              <button
-                type="button"
-                onClick={openAddDoctor}
-                className={cn(
-                  buttonVariants({ variant: "outline" }),
-                  "inline-flex h-auto rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm",
-                )}
-              >
-                Add doctor
-              </button>
             </div>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 ring-1 ring-slate-100/80">
-            <div className="border-b border-slate-200/90 bg-gradient-to-r from-white via-[#ecfdf5]/30 to-white px-5 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <AdminSectionLabel help="Each card is one doctor. Edit updates their profile, SMS number, and which visit types they offer online.">
-                  Your doctors
-                </AdminSectionLabel>
+          ) : bookableServices.length === 0 ? (
+            <div className="px-5 py-14 text-center">
+              <p className="text-sm font-semibold text-[#0d1f14]">No active visit types</p>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-[#5a7a62]">
+                Turn visit types on under Services & codes. You can still add a doctor now.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <Link
+                  href="/admin/services"
+                  className="inline-flex rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
+                >
+                  Go to Services & codes
+                </Link>
                 <button
                   type="button"
                   onClick={openAddDoctor}
-                  className="shrink-0 rounded-xl bg-[#16a349] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#13823d]"
+                  className="inline-flex rounded-lg border border-[#d1e8d8] bg-white px-4 py-2.5 text-sm font-semibold text-[#0d1f14] hover:bg-[#f8fdf9]"
                 >
                   Add doctor
                 </button>
               </div>
-              {providers.length > 0 ? (
-                <div className="relative mt-3 max-w-md">
-                  <input
-                    type="search"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search by name, username, specialty…"
-                    className="admin-input w-full py-2.5 pr-10 text-sm"
-                    aria-label="Search doctors"
-                  />
-                  {search.trim() ? (
+            </div>
+          ) : (
+            <div className="flex h-full min-h-0 flex-col overflow-x-auto">
+              <div className="min-w-[720px] shrink-0 border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                <div className={cn(GRID, "px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]")}>
+                  <span>Provider</span>
+                  <span>Visit types</span>
+                  <span>Booking</span>
+                  <span className="text-right">Actions</span>
+                </div>
+              </div>
+
+              <div className="min-h-0 min-w-[720px] flex-1 overflow-auto">
+                {providers.length === 0 ? (
+                  <div className="px-5 py-12 text-center">
+                    <p className="text-sm font-semibold text-[#0d1f14]">No doctors yet</p>
+                    <p className="mt-2 text-sm text-[#5a7a62]">
+                      Create a doctor login, then assign visit types for online booking.
+                    </p>
                     <button
                       type="button"
-                      className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                      aria-label="Clear search"
-                      onClick={() => setSearch("")}
+                      onClick={openAddDoctor}
+                      className="mt-5 inline-flex rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
                     >
-                      ×
+                      Add doctor
                     </button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="p-4 sm:p-5">
-              {providers.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-14 text-center">
-                  <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#ecfdf5] text-[#0d5c2e]">
-                    <IconStethoscope className="h-7 w-7" />
-                  </span>
-                  <p className="mt-4 text-base font-semibold text-slate-900">No doctors yet</p>
-                  <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-600">
-                    Create the first doctor login, then assign which visit types they appear under on the booking site.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={openAddDoctor}
-                    className="mt-6 rounded-xl bg-[#16a349] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
-                  >
-                    Add doctor
-                  </button>
-                </div>
-              ) : filteredProviders.length === 0 ? (
-                <div className="py-12 text-center">
-                  <p className="text-sm font-medium text-slate-600">No doctors match your search.</p>
-                  <button
-                    type="button"
-                    className="mt-3 text-sm font-semibold text-[#16a349] hover:text-[#13823d]"
-                    onClick={() => setSearch("")}
-                  >
-                    Clear search
-                  </button>
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {filteredProviders.map((provider) => {
-                    const names = bookingServiceNames(provider);
-                    return (
-                      <article
-                        key={provider.id}
-                        className="group flex flex-col rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 p-4 shadow-sm transition hover:border-[#16a349]/30 hover:shadow-md"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#16a349]/20 to-teal-100 text-base font-bold text-[#0d5c2e] ring-1 ring-[#16a349]/15">
-                            {providerInitial(provider.provider_name)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-semibold text-slate-900">{provider.provider_name}</p>
-                            {provider.username ? (
-                              <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500">@{provider.username}</p>
-                            ) : null}
-                            {(provider.title || provider.specialty) && (
-                              <p className="mt-1 line-clamp-1 text-xs text-slate-500">
-                                {[provider.title, provider.specialty].filter(Boolean).join(" · ")}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          <span
-                            className={cn(
-                              "rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                              provider.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600",
-                            )}
-                          >
-                            {provider.active ? "Booking on" : "Booking off"}
-                          </span>
-                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                            {names.length} visit type{names.length === 1 ? "" : "s"}
-                          </span>
-                          {legacyServiceCount(provider) > 0 ? (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
-                              {legacyServiceCount(provider)} legacy
-                            </span>
-                          ) : null}
-                        </div>
-
-                        {names.length > 0 ? (
-                          <ul className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-600">
-                            {provider.services
-                              .filter((id) => bookableIds.has(id))
-                              .slice(0, 3)
-                              .map((id) => {
-                                const svc = bookableServices.find((s) => s.id === id);
-                                if (!svc) return null;
-                                return (
-                                  <li key={id} className="truncate">
-                                    · {svc.name}
-                                  </li>
-                                );
-                              })}
-                            {names.length > 3 ? (
-                              <li className="font-medium text-slate-500">+ {names.length - 3} more</li>
-                            ) : null}
-                          </ul>
-                        ) : (
-                          <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
-                            No visit types assigned for online booking yet.
-                          </p>
-                        )}
-
-                        <button
-                          type="button"
-                          className="mt-4 w-full rounded-xl border border-[#16a349]/25 bg-[#ecfdf5]/60 py-2.5 text-sm font-semibold text-[#0d5c2e] transition group-hover:bg-[#d1fae5]"
-                          onClick={() => {
-                            setError("");
-                            setEditingProviderId(provider.id);
-                          }}
-                        >
-                          Edit
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <Dialog open={editingProviderId !== null} onOpenChange={onEditDialogOpenChange}>
-            <DialogContent
-              showCloseButton={!editorProvider || savingId !== editorProvider.id}
-              className={cn(
-                "gap-0 border-slate-200 p-0 sm:max-w-2xl",
-                "flex max-h-[min(90dvh,52rem)] flex-col overflow-hidden",
-              )}
-            >
-              {editorProvider ? (
-                <>
-                  <div className="border-b border-emerald-100/70 bg-gradient-to-br from-[#ecfdf5]/50 via-white to-white px-5 py-4 sm:px-6">
-                    <DialogHeader className="space-y-1 text-left">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#13823d]">Edit provider</p>
-                      <DialogTitle className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                        {editorProvider.provider_name}
-                      </DialogTitle>
-                      <DialogDescription className="text-sm text-slate-600">
-                        Update how this doctor appears on schedules and the booking site. Username cannot be changed here.
-                      </DialogDescription>
-                      {editorProvider.username ? (
-                        <p className="pt-1 font-mono text-xs text-slate-500">Username: {editorProvider.username}</p>
-                      ) : null}
-                    </DialogHeader>
                   </div>
-
-                  <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-                    {legacyServiceCount(editorProvider) > 0 && (
-                      <p className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs font-medium text-amber-900">
-                        Still linked to {legacyServiceCount(editorProvider)} inactive visit type(s). Turn those services back on or clean up
-                        under Services & codes.
-                      </p>
-                    )}
-
-                    <div>
-                      <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Display name
-                        <HelpTip label="Display name">
-                          Shown on the admin schedule, patient booking, and printed materials. Does not change their login username.
-                        </HelpTip>
-                      </label>
-                      <input
-                        type="text"
-                        className="admin-input py-2.5 text-sm"
-                        value={displayNameFor(editorProvider)}
-                        onChange={(e) => setProviderDisplayName(editorProvider, e.target.value)}
-                        aria-label={`Display name for ${editorProvider.provider_name}`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Credential
-                        <HelpTip label="Printed on bills">Shown next to doctor name on printed patient bills.</HelpTip>
-                      </label>
-                      <input
-                        type="text"
-                        value={editorProvider.credential ?? ""}
-                        onChange={(e) =>
-                          setProviders((prev) =>
-                            prev.map((p) => (p.id === editorProvider.id ? { ...p, credential: e.target.value } : p)),
-                          )
-                        }
-                        placeholder="e.g. DC"
-                        className="admin-input py-2.5 text-sm"
-                        aria-label={`Credential for ${editorProvider.provider_name}`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        NPI (on bills)
-                        <HelpTip label="Provider NPI">
-                          Optional. Overrides the clinic-wide NPI from Settings for this doctor&apos;s bills only.
-                        </HelpTip>
-                      </label>
-                      <input
-                        type="text"
-                        value={editorProvider.billing_provider_id ?? ""}
-                        onChange={(e) =>
-                          setProviders((prev) =>
-                            prev.map((p) =>
-                              p.id === editorProvider.id ? { ...p, billing_provider_id: e.target.value } : p,
-                            ),
-                          )
-                        }
-                        placeholder="e.g. 1700186277"
-                        className="admin-input max-w-[14rem] py-2.5 font-mono text-sm"
-                        aria-label={`NPI for ${editorProvider.provider_name}`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Alert SMS
-                        <HelpTip label="Alert SMS">
-                          US 10 digits or +1… — Twilio sends check-in and schedule alerts to this number when configured on the server.
-                        </HelpTip>
-                      </label>
-                      <input
-                        type="tel"
-                        value={editorProvider.notification_phone ?? ""}
-                        onChange={(e) => setNotificationPhone(editorProvider, e.target.value)}
-                        placeholder="+1 or 10 digits"
-                        className="admin-input py-2.5 text-sm"
-                        aria-label={`SMS alert for ${editorProvider.provider_name}`}
-                      />
-                    </div>
-
-                    <div>
-                      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Online booking visit types
-                        <HelpTip label="Online booking">
-                          Check each visit type this doctor should appear under when patients book on the website.
-                        </HelpTip>
-                      </p>
-                      <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-slate-200/90 bg-slate-50/60 p-3 sm:max-h-64">
-                        {bookableServices.map((s) => (
-                          <label
-                            key={s.id}
-                            className="flex cursor-pointer items-center gap-3 rounded-xl border border-transparent bg-white px-3 py-2.5 shadow-sm transition hover:border-primary/25 hover:bg-primary/[0.03]"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={editorProvider.services.includes(s.id)}
-                              onChange={() => toggleService(editorProvider, s.id)}
-                              className="h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary/40"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-slate-800">{s.name}</p>
-                              <p className="text-xs text-slate-500">
-                                {s.duration_minutes} min · {formatPrice(s.price)}
-                              </p>
+                ) : filteredProviders.length === 0 ? (
+                  <p className="px-5 py-12 text-center text-sm text-[#5a7a62]">
+                    {search.trim() || statusFilter === "active"
+                      ? "No doctors match."
+                      : "No doctors yet."}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-[#d1e8d8]">
+                    {filteredProviders.map((provider) => {
+                      const names = bookingServiceNames(provider);
+                      const shown = names.slice(0, 3);
+                      const extra = names.length - shown.length;
+                      const meta = credentialLine(provider);
+                      return (
+                        <li key={provider.id} className={cn(GRID, "items-center px-5 py-3.5 hover:bg-[#f8fdf9]")}>
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ecfdf5] text-sm font-bold text-[#0d5c2e] ring-1 ring-[#d1e8d8]">
+                              {providerInitial(provider.provider_name)}
                             </div>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-[#0d1f14]">{provider.provider_name}</p>
+                              {provider.username ? (
+                                <p className="mt-0.5 truncate font-mono text-[11px] text-[#5a7a62]">
+                                  @{provider.username}
+                                </p>
+                              ) : null}
+                              {meta ? (
+                                <p className="mt-0.5 truncate text-xs text-[#5a7a62]">{meta}</p>
+                              ) : null}
+                            </div>
+                          </div>
 
-                    <div className="rounded-xl border border-border/80 bg-muted/30 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Public booking list</p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {editorProvider.active
-                          ? "When active, this doctor can appear on the public booking flow (still only for visit types you checked above)."
-                          : "Inactive doctors stay in the system but are hidden from the booking site until you activate them again."}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => void toggleProviderActive(editorProvider)}
-                        disabled={activeTogglingId === editorProvider.id}
-                        className={cn(
-                          "mt-3 inline-flex rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50",
-                          editorProvider.active
-                            ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                            : "bg-slate-800 text-white hover:bg-slate-900",
-                        )}
-                      >
-                        {activeTogglingId === editorProvider.id
-                          ? "Updating…"
-                          : editorProvider.active
-                            ? "Deactivate (hide from booking)"
-                            : "Activate (show on booking)"}
-                      </button>
-                    </div>
-                  </div>
+                          <div className="min-w-0">
+                            {names.length === 0 ? (
+                              <span className="text-sm text-[#5a7a62]">None assigned</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {shown.map((name) => (
+                                  <span
+                                    key={name}
+                                    className="inline-flex max-w-full truncate rounded-full bg-[#f0fdf4] px-2.5 py-0.5 text-xs font-medium text-[#166534]"
+                                  >
+                                    {name}
+                                  </span>
+                                ))}
+                                {extra > 0 ? (
+                                  <span className="inline-flex rounded-full bg-[#f8fdf9] px-2.5 py-0.5 text-xs font-medium text-[#5a7a62]">
+                                    +{extra} more
+                                  </span>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
 
-                  <div className="flex flex-col gap-3 border-t border-border/60 bg-slate-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                    <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
-                      <button
-                        type="button"
-                        className="font-semibold text-primary underline-offset-2 hover:underline"
-                        onClick={() => {
-                          setEditingProviderId(null);
-                          setError("");
-                          setTransferTargetId("");
-                          setTransferFrom(editorProvider);
-                        }}
-                      >
-                        Transfer visit history…
-                      </button>
-                      <button
-                        type="button"
-                        disabled={deletingId === editorProvider.id}
-                        className="font-semibold text-rose-600 underline-offset-2 hover:underline disabled:opacity-50"
-                        onClick={() => void removeProvider(editorProvider)}
-                      >
-                        {deletingId === editorProvider.id ? "Removing…" : "Remove doctor…"}
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={savingId === editorProvider.id}
-                        className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
-                        onClick={() => setEditingProviderId(null)}
-                      >
-                        Close
-                      </Button>
-                      <Button
-                        type="button"
-                        disabled={savingId === editorProvider.id}
-                        className="h-auto rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm"
-                        onClick={() => void saveProvider(editorProvider)}
-                      >
-                        {savingId === editorProvider.id ? "Saving…" : "Save changes"}
-                      </Button>
-                    </div>
-                  </div>
-                </>
-              ) : null}
-            </DialogContent>
-          </Dialog>
-        </>
-      )}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={provider.active}
+                              aria-label={provider.active ? "Booking on" : "Booking off"}
+                              disabled={activeTogglingId === provider.id}
+                              onClick={() => void toggleProviderActive(provider)}
+                              className={cn(
+                                "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50",
+                                provider.active ? "bg-[#16a349]" : "bg-[#d1e8d8]",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                                  provider.active ? "left-[1.375rem]" : "left-0.5",
+                                )}
+                              />
+                            </button>
+                            <span className="text-xs text-[#5a7a62]">
+                              {provider.active ? "On" : "Off"}
+                            </span>
+                          </div>
 
-      <Dialog open={addOpen} onOpenChange={onAddDialogOpenChange}>
+                          <div className="flex justify-end">
+                            <div
+                              className="relative inline-flex"
+                              ref={menuOpenId === provider.id ? menuRef : undefined}
+                            >
+                              <button
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={menuOpenId === provider.id}
+                                aria-label={`Actions for ${provider.provider_name}`}
+                                onClick={() =>
+                                  setMenuOpenId((id) => (id === provider.id ? null : provider.id))
+                                }
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1e8d8] bg-white text-[#5a7a62] hover:bg-[#f8fdf9] hover:text-[#0d1f14]"
+                              >
+                                <IconMoreVertical className="h-4 w-4" />
+                              </button>
+                              {menuOpenId === provider.id ? (
+                                <div
+                                  role="menu"
+                                  className="absolute right-0 top-full z-20 mt-1.5 w-48 overflow-hidden rounded-xl border border-[#d1e8d8] bg-white py-1 shadow-lg"
+                                >
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      openEdit(provider);
+                                    }}
+                                    className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+                                  >
+                                    <Pencil className="h-4 w-4 text-[#5a7a62]" aria-hidden />
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      openTransfer(provider);
+                                    }}
+                                    className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
+                                  >
+                                    <ArrowRightLeft className="h-4 w-4 text-[#5a7a62]" aria-hidden />
+                                    Transfer history
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      openDelete(provider);
+                                    }}
+                                    className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium text-[#991b1b] hover:bg-[#fef2f2]"
+                                  >
+                                    <Trash2 className="h-4 w-4" aria-hidden />
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <Dialog open={editingProviderId !== null} onOpenChange={onEditDialogOpenChange}>
         <DialogContent
-          showCloseButton={!addSubmitting}
-          className="gap-0 overflow-hidden border-slate-200 p-0 sm:max-w-lg"
+          showCloseButton={!editorProvider || savingId !== editorProvider.id}
+          className={cn(
+            "gap-0 border-[#d1e8d8] p-0 sm:max-w-2xl",
+            "flex max-h-[min(90dvh,52rem)] flex-col overflow-hidden",
+          )}
         >
-          <DialogHeader className="border-b border-emerald-100/80 bg-gradient-to-br from-[#ecfdf5]/80 via-white to-white px-5 py-4 pr-12">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#13823d]">New account</p>
-            <DialogTitle id="add-doctor-title" className="text-xl font-bold text-slate-900">
-              Add doctor
-            </DialogTitle>
-            <DialogDescription className="text-sm text-slate-600">
-              Creates a login they can use on the doctor portal. Assign visit types for online booking below.
-            </DialogDescription>
-          </DialogHeader>
+          {editorProvider ? (
+            <>
+              <div className="border-b border-[#d1e8d8] bg-[#f8fdf9] px-5 py-4 sm:px-6">
+                <DialogHeader className="space-y-1 text-left">
+                  <DialogTitle className="text-xl font-bold tracking-tight text-[#0d1f14]">
+                    Edit provider
+                  </DialogTitle>
+                  <DialogDescription className="text-sm text-[#5a7a62]">
+                    Update display name, SMS, credentials, and visit types. Username cannot change here.
+                  </DialogDescription>
+                  {editorProvider.username ? (
+                    <p className="pt-1 font-mono text-xs text-[#5a7a62]">
+                      {editorProvider.provider_name} (@{editorProvider.username})
+                    </p>
+                  ) : (
+                    <p className="pt-1 text-xs text-[#5a7a62]">{editorProvider.provider_name}</p>
+                  )}
+                </DialogHeader>
+              </div>
 
-          <div className="max-h-[min(60dvh,28rem)] space-y-4 overflow-y-auto px-5 py-5">
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Username</label>
-                <input
-                  type="text"
-                  autoComplete="username"
-                  value={addForm.new_username}
-                  onChange={(e) => setAddForm((f) => ({ ...f, new_username: e.target.value }))}
-                  className="admin-input w-full py-2.5 text-sm"
-                  placeholder="e.g. dr.smith"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Password (min 8 characters)</label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={8}
-                  value={addForm.new_password}
-                  onChange={(e) => setAddForm((f) => ({ ...f, new_password: e.target.value }))}
-                  className="admin-input w-full py-2.5 text-sm"
-                  placeholder="••••••••"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Display name (optional)</label>
-                <input
-                  type="text"
-                  value={addForm.new_full_name}
-                  onChange={(e) => setAddForm((f) => ({ ...f, new_full_name: e.target.value }))}
-                  className="admin-input w-full py-2.5 text-sm"
-                  placeholder="Dr. Jane Smith"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Email (optional)</label>
-                <input
-                  type="email"
-                  value={addForm.new_email}
-                  onChange={(e) => setAddForm((f) => ({ ...f, new_email: e.target.value }))}
-                  className="admin-input w-full py-2.5 text-sm"
-                />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Title (optional)</label>
-                  <input
-                    type="text"
-                    value={addForm.title}
-                    onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
-                    className="admin-input w-full py-2.5 text-sm"
-                    placeholder="DC"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Credential (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={addForm.credential}
-                    onChange={(e) => setAddForm((f) => ({ ...f, credential: e.target.value }))}
-                    className="admin-input w-full py-2.5 text-sm"
-                    placeholder="e.g. DC"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Specialty (optional)</label>
-                  <input
-                    type="text"
-                    value={addForm.specialty}
-                    onChange={(e) => setAddForm((f) => ({ ...f, specialty: e.target.value }))}
-                    className="admin-input w-full py-2.5 text-sm"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Alert SMS (optional)</label>
-                <input
-                  type="tel"
-                  value={addForm.notification_phone}
-                  onChange={(e) => setAddForm((f) => ({ ...f, notification_phone: e.target.value }))}
-                  className="admin-input w-full py-2.5 text-sm"
-                  placeholder="+1 or 10 digits"
-                />
-              </div>
-              {bookableServices.length > 0 && (
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Online booking visit types (optional)
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
+                {legacyServiceCount(editorProvider) > 0 ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                    Still linked to {legacyServiceCount(editorProvider)} inactive visit type(s). Manage under
+                    Services & codes.
                   </p>
-                  <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-slate-200/90 bg-slate-50/50 p-3">
+                ) : null}
+
+                <label>
+                  <span className={fieldLabel}>Display name</span>
+                  <input
+                    type="text"
+                    className={inputClass}
+                    value={displayNameFor(editorProvider)}
+                    onChange={(e) => setProviderDisplayName(editorProvider, e.target.value)}
+                    aria-label={`Display name for ${editorProvider.provider_name}`}
+                  />
+                </label>
+
+                <label>
+                  <span className={fieldLabel}>Credential</span>
+                  <input
+                    type="text"
+                    value={editorProvider.credential ?? ""}
+                    onChange={(e) =>
+                      setProviders((prev) =>
+                        prev.map((p) => (p.id === editorProvider.id ? { ...p, credential: e.target.value } : p)),
+                      )
+                    }
+                    placeholder="e.g. DC"
+                    className={inputClass}
+                    aria-label={`Credential for ${editorProvider.provider_name}`}
+                  />
+                </label>
+
+                <label>
+                  <span className={fieldLabel}>NPI (on bills)</span>
+                  <input
+                    type="text"
+                    value={editorProvider.billing_provider_id ?? ""}
+                    onChange={(e) =>
+                      setProviders((prev) =>
+                        prev.map((p) =>
+                          p.id === editorProvider.id ? { ...p, billing_provider_id: e.target.value } : p,
+                        ),
+                      )
+                    }
+                    placeholder="e.g. 1700186277"
+                    className={cn(inputClass, "max-w-[14rem] font-mono")}
+                    aria-label={`NPI for ${editorProvider.provider_name}`}
+                  />
+                </label>
+
+                <label>
+                  <span className={fieldLabel}>Alert SMS</span>
+                  <input
+                    type="tel"
+                    value={editorProvider.notification_phone ?? ""}
+                    onChange={(e) => setNotificationPhone(editorProvider, e.target.value)}
+                    placeholder="+1 or 10 digits"
+                    className={inputClass}
+                    aria-label={`SMS alert for ${editorProvider.provider_name}`}
+                  />
+                </label>
+
+                <div>
+                  <p className={fieldLabel}>Online booking visit types</p>
+                  <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] p-3 sm:max-h-64">
                     {bookableServices.map((s) => (
-                      <label key={s.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <label
+                        key={s.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent bg-white px-3 py-2.5 hover:border-[#d1e8d8]"
+                      >
                         <input
                           type="checkbox"
-                          checked={addForm.services.includes(s.id)}
-                          onChange={() => toggleAddFormService(s.id)}
-                          className="h-4 w-4 rounded border-border text-primary focus:ring-primary/40"
+                          checked={editorProvider.services.includes(s.id)}
+                          onChange={() => toggleService(editorProvider, s.id)}
+                          className="h-4 w-4 shrink-0 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]/40"
                         />
-                        <span className="text-slate-800">{s.name}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-[#0d1f14]">{s.name}</p>
+                          <p className="text-xs text-[#5a7a62]">
+                            {s.duration_minutes} min - {formatPrice(s.price)}
+                          </p>
+                        </div>
                       </label>
                     ))}
                   </div>
                 </div>
-              )}
+
+                <div className="flex items-center justify-between rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-[#0d1f14]">Public booking list</p>
+                    <p className="text-xs text-[#5a7a62]">
+                      {editorProvider.active
+                        ? "Shown on booking for checked visit types."
+                        : "Hidden from booking until activated."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={editorProvider.active}
+                    disabled={activeTogglingId === editorProvider.id}
+                    onClick={() => void toggleProviderActive(editorProvider)}
+                    className={cn(
+                      "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50",
+                      editorProvider.active ? "bg-[#16a349]" : "bg-[#d1e8d8]",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                        editorProvider.active ? "left-[1.375rem]" : "left-0.5",
+                      )}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-[#d1e8d8] bg-[#f8fdf9] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+                  <button
+                    type="button"
+                    className="font-semibold text-[#16a349] underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setEditingProviderId(null);
+                      openTransfer(editorProvider);
+                    }}
+                  >
+                    Transfer visit history...
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletingId === editorProvider.id}
+                    className="font-semibold text-[#991b1b] underline-offset-2 hover:underline disabled:opacity-50"
+                    onClick={() => openDelete(editorProvider)}
+                  >
+                    Remove doctor...
+                  </button>
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={savingId === editorProvider.id}
+                    className="border-[#d1e8d8]"
+                    onClick={() => setEditingProviderId(null)}
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={savingId === editorProvider.id}
+                    className="bg-[#16a349] text-white hover:bg-[#13823d]"
+                    onClick={() => void saveProvider(editorProvider)}
+                  >
+                    {savingId === editorProvider.id ? "Saving..." : "Save changes"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addOpen} onOpenChange={onAddDialogOpenChange}>
+        <DialogContent
+          showCloseButton={!addSubmitting}
+          className="gap-0 overflow-hidden border-[#d1e8d8] p-0 sm:max-w-lg"
+        >
+          <DialogHeader className="border-b border-[#d1e8d8] bg-[#f8fdf9] px-5 py-4 pr-12">
+            <DialogTitle id="add-doctor-title" className="text-xl font-bold text-[#0d1f14]">
+              Add doctor
+            </DialogTitle>
+            <DialogDescription className="text-sm text-[#5a7a62]">
+              Creates a login for the doctor portal. Assign visit types below if ready.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[min(60dvh,28rem)] space-y-4 overflow-y-auto px-5 py-5">
+            <label>
+              <span className={fieldLabel}>Username</span>
+              <input
+                type="text"
+                autoComplete="username"
+                value={addForm.new_username}
+                onChange={(e) => setAddForm((f) => ({ ...f, new_username: e.target.value }))}
+                className={inputClass}
+                placeholder="e.g. dr.smith"
+              />
+            </label>
+            <label>
+              <span className={fieldLabel}>Password (min 8 characters)</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={addForm.new_password}
+                onChange={(e) => setAddForm((f) => ({ ...f, new_password: e.target.value }))}
+                className={inputClass}
+                placeholder="********"
+              />
+            </label>
+            <label>
+              <span className={fieldLabel}>Display name (optional)</span>
+              <input
+                type="text"
+                value={addForm.new_full_name}
+                onChange={(e) => setAddForm((f) => ({ ...f, new_full_name: e.target.value }))}
+                className={inputClass}
+                placeholder="Dr. Jane Smith"
+              />
+            </label>
+            <label>
+              <span className={fieldLabel}>Email (optional)</span>
+              <input
+                type="email"
+                value={addForm.new_email}
+                onChange={(e) => setAddForm((f) => ({ ...f, new_email: e.target.value }))}
+                className={inputClass}
+              />
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label>
+                <span className={fieldLabel}>Title (optional)</span>
+                <input
+                  type="text"
+                  value={addForm.title}
+                  onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
+                  className={inputClass}
+                  placeholder="DC"
+                />
+              </label>
+              <label>
+                <span className={fieldLabel}>Credential (optional)</span>
+                <input
+                  type="text"
+                  value={addForm.credential}
+                  onChange={(e) => setAddForm((f) => ({ ...f, credential: e.target.value }))}
+                  className={inputClass}
+                  placeholder="e.g. DC"
+                />
+              </label>
+              <label>
+                <span className={fieldLabel}>Specialty (optional)</span>
+                <input
+                  type="text"
+                  value={addForm.specialty}
+                  onChange={(e) => setAddForm((f) => ({ ...f, specialty: e.target.value }))}
+                  className={inputClass}
+                />
+              </label>
+            </div>
+            <label>
+              <span className={fieldLabel}>Alert SMS (optional)</span>
+              <input
+                type="tel"
+                value={addForm.notification_phone}
+                onChange={(e) => setAddForm((f) => ({ ...f, notification_phone: e.target.value }))}
+                className={inputClass}
+                placeholder="+1 or 10 digits"
+              />
+            </label>
+            {bookableServices.length > 0 ? (
+              <div>
+                <p className={fieldLabel}>Online booking visit types (optional)</p>
+                <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] p-3">
+                  {bookableServices.map((s) => (
+                    <label key={s.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={addForm.services.includes(s.id)}
+                        onChange={() => toggleAddFormService(s.id)}
+                        className="h-4 w-4 rounded border-[#d1e8d8] text-[#16a349] focus:ring-[#16a349]/40"
+                      />
+                      <span className="text-[#0d1f14]">{s.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-4">
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9] px-5 py-4">
             <Button
               type="button"
               variant="outline"
               disabled={addSubmitting}
               onClick={() => setAddOpen(false)}
-              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
+              className="border-[#d1e8d8]"
             >
               Cancel
             </Button>
@@ -938,11 +974,11 @@ export default function AdminProvidersPage() {
               type="button"
               disabled={addSubmitting}
               onClick={() => void submitAddDoctor()}
-              className="h-auto rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d]"
+              className="bg-[#16a349] text-white hover:bg-[#13823d]"
             >
-              {addSubmitting ? "Adding…" : "Create doctor"}
+              {addSubmitting ? "Adding..." : "Create doctor"}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -955,29 +991,30 @@ export default function AdminProvidersPage() {
           }
         }}
       >
-        <DialogContent showCloseButton={!transferSubmitting} className="gap-0 border-slate-200">
+        <DialogContent showCloseButton={!transferSubmitting} className="border-[#d1e8d8] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Transfer visit history</DialogTitle>
-            <DialogDescription>
-              Moves every appointment and visit record from{" "}
-              <span className="font-semibold text-slate-800">{transferFrom?.provider_name ?? "this doctor"}</span> to the doctor you pick
-              below. Use this when you need to remove someone but the system says they still have history on file. This does not merge
-              accounts—it only reassigns past rows in the database.
+            <DialogTitle className="text-[#0d1f14]">Transfer visit history</DialogTitle>
+            <DialogDescription className="text-[#5a7a62]">
+              Moves all appointments and visits from{" "}
+              <span className="font-semibold text-[#0d1f14]">
+                {transferFrom?.provider_name ?? "this doctor"}
+              </span>{" "}
+              to another doctor. Use before removing someone with history on file.
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-5 space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Move all history to</label>
+          <div className="space-y-4 py-1">
+            <label>
+              <span className={fieldLabel}>Move all history to</span>
               {providers.filter((p) => p.id !== transferFrom?.id).length === 0 ? (
-                <p className="text-sm text-amber-800">Add another doctor first, then you can transfer history to them.</p>
+                <p className="text-sm text-amber-800">Add another doctor first, then transfer history.</p>
               ) : (
                 <select
-                  className="admin-input w-full py-2.5 text-sm"
+                  className={inputClass}
                   value={transferTargetId}
                   onChange={(e) => setTransferTargetId(e.target.value)}
                   aria-label="Target doctor for transferred history"
                 >
-                  <option value="">Choose a doctor…</option>
+                  <option value="">Choose a doctor...</option>
                   {providers
                     .filter((p) => p.id !== transferFrom?.id)
                     .map((p) => (
@@ -988,9 +1025,9 @@ export default function AdminProvidersPage() {
                     ))}
                 </select>
               )}
-            </div>
+            </label>
           </div>
-          <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-border/60 pt-4">
+          <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
             <Button
               type="button"
               variant="outline"
@@ -999,7 +1036,7 @@ export default function AdminProvidersPage() {
                 setTransferFrom(null);
                 setTransferTargetId("");
               }}
-              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold"
+              className="border-[#d1e8d8]"
             >
               Cancel
             </Button>
@@ -1011,11 +1048,54 @@ export default function AdminProvidersPage() {
                 providers.filter((p) => p.id !== transferFrom?.id).length === 0
               }
               onClick={() => void submitTransferHistory()}
-              className="h-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm"
+              className="bg-[#16a349] text-white hover:bg-[#13823d]"
             >
-              {transferSubmitting ? "Transferring…" : "Transfer all history"}
+              {transferSubmitting ? "Transferring..." : "Transfer all history"}
             </Button>
-          </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget != null}
+        onOpenChange={(open) => {
+          if (!open && deletingId == null) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="border-[#d1e8d8] sm:max-w-md">
+          {deleteTarget ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-[#0d1f14]">
+                  Remove {deleteTarget.provider_name}?
+                </DialogTitle>
+                <DialogDescription className="text-[#5a7a62]">
+                  Removes this doctor and their login. This cannot be undone. If the server blocks
+                  removal because of past appointments, transfer history first. You can also turn
+                  booking off instead of deleting.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={deletingId === deleteTarget.id}
+                  onClick={() => setDeleteTarget(null)}
+                  className="border-[#d1e8d8]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={deletingId === deleteTarget.id}
+                  onClick={() => void confirmRemoveProvider()}
+                  className="bg-[#991b1b] text-white hover:bg-[#7f1d1d]"
+                >
+                  {deletingId === deleteTarget.id ? "Removing..." : "Remove"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

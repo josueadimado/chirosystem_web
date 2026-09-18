@@ -121,7 +121,7 @@ export default function PublicUpdateInfoPage() {
           <p className="mt-4 text-sm text-slate-600">
             Please call the clinic or ask them to text you a new link.
           </p>
-          <Link href="/" className="mt-6 inline-block text-sm font-semibold text-[#0d5c2e] hover:underline">
+          <Link href="/book" className="mt-6 inline-block text-sm font-semibold text-[#0d5c2e] hover:underline">
             Back to booking
           </Link>
         </div>
@@ -321,7 +321,7 @@ export default function PublicUpdateInfoPage() {
 
         <p className="pb-8 text-center text-xs text-slate-500">
           Need help? Call the clinic.{" "}
-          <Link href="/" className="font-semibold text-[#0d5c2e] hover:underline">
+          <Link href="/book" className="font-semibold text-[#0d5c2e] hover:underline">
             Book an appointment
           </Link>
         </p>

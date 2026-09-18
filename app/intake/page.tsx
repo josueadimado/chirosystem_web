@@ -103,11 +103,11 @@ export default function PublicIntakeStartPage() {
     <div className="min-h-[100dvh] bg-[linear-gradient(180deg,#f3faf5_0%,#ffffff_42%,#f8fafc_100%)]">
       <header className="border-b border-emerald-100/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <Link href="/" aria-label="Back to booking">
+          <Link href="/" aria-label="Back to home">
             <BrandLogo variant="full" className="max-h-12 sm:max-h-14" priority />
           </Link>
-          <Link href="/" className="text-sm font-medium text-[#0d5c2e] underline-offset-4 hover:underline">
-            Booking home
+          <Link href="/book" className="text-sm font-medium text-[#0d5c2e] underline-offset-4 hover:underline">
+            Booking
           </Link>
         </div>
       </header>

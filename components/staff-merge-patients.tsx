@@ -198,8 +198,16 @@ export function StaffMergePatients({ apiBase, backHref, variant }: Props) {
       .slice(0, 40);
   };
 
-  const keepMatches = useMemo(() => filterPatients(keepQuery), [patients, keepQuery]);
-  const discardMatches = useMemo(() => filterPatients(discardQuery), [patients, discardQuery]);
+  const keepMatches = useMemo(
+    () => filterPatients(keepQuery),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: filterPatients closes over patients already in deps
+    [patients, keepQuery],
+  );
+  const discardMatches = useMemo(
+    () => filterPatients(discardQuery),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: filterPatients closes over patients already in deps
+    [patients, discardQuery],
+  );
 
   const runPreview = async () => {
     if (!keepId || !discardId) {

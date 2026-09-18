@@ -18,9 +18,8 @@ const AdminDeskBookFromSlotModal = dynamic(
     })),
   { ssr: false },
 );
-import { DoctorPageIntro, DoctorSectionLabel } from "@/components/doctor-shell";
+import { AppointmentStatusBadge } from "@/components/status-chip";
 import { useAppFeedback } from "@/components/app-feedback";
-import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ApiError, apiGetAuth, apiPatch, apiPost } from "@/lib/api";
@@ -33,6 +32,8 @@ import {
   mondayOfWeekContaining,
   parseTimeToMinutes,
   scheduleRangeIncludesToday,
+  SCHEDULE_DAY_START_MIN,
+  SCHEDULE_DESK_DAY_END_MIN,
   startOfMonth,
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
@@ -87,7 +88,6 @@ import { useRescheduleVisitSlots } from "@/hooks/use-reschedule-visit-slots";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
 import {
   confirmBookNextVisit,
-  confirmCancelVisit,
   confirmCheckIn,
   confirmCheckInPastVisit,
   confirmDeskBook,
@@ -98,14 +98,9 @@ import {
 import { clinicTodayIso, formatWeekdayMonthDayYear } from "@/lib/format-date";
 import type { PatientBillPayload } from "@/lib/patient-bill-print";
 import { parseMoneyAmount } from "@/lib/record-cash-prompt";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** Persisted: "1" = show month picker, Google Calendar, waitlist; "0" = full-width schedule. */
-const DOCTOR_SCHEDULE_TOOLS_KEY = "doctor_schedule_tools_open";
 
 type CalendarStatus = { oauth_configured: boolean; connected: boolean };
 
@@ -227,10 +222,7 @@ function DoctorSchedulePageInner() {
   const [terminalCheckoutId, setTerminalCheckoutId] = useState<string | null>(null);
 
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus | null>(null);
-  const [calendarNote, setCalendarNote] = useState("");
   const [calendarBusy, setCalendarBusy] = useState(false);
-
-  const [toolsOpen, setToolsOpen] = useState(true);
 
   const navSigRef = useRef<{ view: ScheduleViewMode; focusMs: number } | null>(null);
   const openedFromUrlRef = useRef<number | null>(null);
@@ -284,24 +276,6 @@ function DoctorSchedulePageInner() {
         setProviderName("");
       })
       .finally(() => setAuthReady(true));
-  }, []);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(DOCTOR_SCHEDULE_TOOLS_KEY);
-      if (stored === "0") setToolsOpen(false);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const setToolsOpenPersist = useCallback((open: boolean) => {
-    setToolsOpen(open);
-    try {
-      localStorage.setItem(DOCTOR_SCHEDULE_TOOLS_KEY, open ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
   }, []);
 
   const loadAppointments = useCallback(
@@ -517,14 +491,14 @@ function DoctorSchedulePageInner() {
   useEffect(() => {
     const g = searchParams.get("google_calendar");
     if (g === "connected") {
-      setCalendarNote("Google Calendar connected. New appointments will appear on your personal calendar.");
+      toast.success("Google Calendar connected. New appointments will appear on your personal calendar.");
       apiGetAuth<CalendarStatus>("/doctor/google_calendar/status/").then(setCalendarStatus);
     }
     if (g === "error") {
       const r = searchParams.get("reason") || "unknown";
-      setCalendarNote(`Google connection failed: ${decodeURIComponent(r)}`);
+      toast.error(`Google connection failed: ${decodeURIComponent(r)}`);
     }
-  }, [searchParams]);
+  }, [searchParams, toast]);
 
   useEffect(() => {
     if (!selected) {
@@ -546,6 +520,7 @@ function DoctorSchedulePageInner() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload notes when appointment id changes
   }, [selected?.id]);
 
   const handleCheckIn = async () => {
@@ -714,19 +689,9 @@ function DoctorSchedulePageInner() {
 
   const scheduleAppts = useMemo(() => filterAppointmentsForScheduleGrid(appointments), [appointments]);
 
-  const firstDay = new Date(focusDate.getFullYear(), focusDate.getMonth(), 1);
-  const startPad = firstDay.getDay();
-  const daysInMonth = new Date(focusDate.getFullYear(), focusDate.getMonth() + 1, 0).getDate();
-  const days = Array.from({ length: 42 }, (_, i) => {
-    const d = i - startPad + 1;
-    if (d < 1) return null;
-    if (d > daysInMonth) return null;
-    return d;
-  });
-
   if (!authReady) {
     return (
-      <div className="doctor-panel flex min-h-[280px] items-center justify-center py-12">
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-[#e8e8e8] bg-white py-12">
         <Loader variant="page" label="Loading schedule" sublabel="Verifying your profile…" />
       </div>
     );
@@ -734,275 +699,215 @@ function DoctorSchedulePageInner() {
 
   if (providerId === null) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-950">
+      <div className="rounded-xl border border-[#e8e8e8] bg-[#fefce8] px-4 py-6 text-sm text-[#0d1f14]">
         No provider profile is linked to your account. Contact the clinic administrator.
       </div>
     );
   }
 
-  const scheduleToolsSidebar = (
-    <aside id="doctor-schedule-tools" className="space-y-4" aria-label="Schedule tools">
-        <div className="doctor-panel p-4">
-          <DoctorSectionLabel help="Pick a day to open it in Day view on the main calendar. Use arrows on the calendar for week/month navigation.">
-            Month
-          </DoctorSectionLabel>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="font-semibold text-slate-800">
-              {MONTHS[focusDate.getMonth()]} {focusDate.getFullYear()}
-            </span>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center text-xs">
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={i} className="py-1 font-medium text-slate-500">
-                {d}
-              </div>
-            ))}
-            {days.map((d, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => {
-                  if (d !== null) {
-                    const date = new Date(focusDate.getFullYear(), focusDate.getMonth(), d, 12, 0, 0);
-                    setFocusDate(date);
-                    setView("day");
-                  }
-                }}
-                className={`rounded py-1.5 text-sm ${
-                  d === null
-                    ? "invisible"
-                    : focusDate.getDate() === d
-                      ? "bg-[#16a349] text-white"
-                      : "hover:bg-slate-100"
-                }`}
-              >
-                {d ?? ""}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="doctor-panel p-4">
-          <DoctorSectionLabel help="Optional: push your assigned appointments to your personal Google Calendar after you connect once. Disconnect stops new sync events.">
-            Google Calendar
-          </DoctorSectionLabel>
-          {calendarNote && (
-            <p className="mb-2 rounded-lg bg-slate-100 px-2 py-1.5 text-xs text-slate-700">{calendarNote}</p>
-          )}
-          {calendarStatus && !calendarStatus.oauth_configured && (
-            <p className="text-xs text-slate-500">
-              Calendar sync is not set up on the server yet (missing Google OAuth env vars).
-            </p>
-          )}
-          {calendarStatus?.oauth_configured && calendarStatus.connected && (
-            <p className="mb-2 text-xs text-[#166534]">Connected — your bookings sync to your personal Google Calendar.</p>
-          )}
-          {calendarStatus?.oauth_configured && !calendarStatus.connected && (
-            <p className="mb-2 text-xs text-slate-600">
-              Connect your personal Google account so appointments you receive appear on your calendar.
-            </p>
-          )}
-          {calendarStatus?.oauth_configured && !calendarStatus.connected && (
-            <button
-              type="button"
-              disabled={calendarBusy}
-              onClick={async () => {
-                setCalendarBusy(true);
-                setCalendarNote("");
-                try {
-                  const r = await apiGetAuth<{ authorization_url: string }>("/doctor/google_calendar/oauth/start/");
-                  window.location.href = r.authorization_url;
-                } catch (e) {
-                  setCalendarNote(e instanceof ApiError ? e.message : "Could not start Google sign-in.");
-                } finally {
-                  setCalendarBusy(false);
-                }
-              }}
-              className="mb-2 w-full rounded-lg bg-[#16a349] px-3 py-2 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
-            >
-              {calendarBusy ? "Redirecting…" : "Connect Google Calendar"}
-            </button>
-          )}
-          {calendarStatus?.oauth_configured && calendarStatus.connected && (
-            <button
-              type="button"
-              disabled={calendarBusy}
-              onClick={async () => {
-                setCalendarBusy(true);
-                setCalendarNote("");
-                await runWithFeedback(
-                  async () => {
-                    await apiPost("/doctor/google_calendar/disconnect/", {});
-                    setCalendarStatus({ oauth_configured: true, connected: false });
-                  },
-                  {
-                    loadingMessage: "Disconnecting Google Calendar…",
-                    successMessage: "Disconnected. New events will not sync until you connect again.",
-                    errorFallback: "Could not disconnect Google Calendar.",
-                  },
-                );
-                setCalendarBusy(false);
-              }}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Disconnect Google
-            </button>
-          )}
-        </div>
-        <div className="doctor-panel p-4">
-          <DoctorSectionLabel help="When your clinic enables a waitlist, patients who want an earlier slot can appear here for you to call or book.">
-            Waitlist
-          </DoctorSectionLabel>
-          <p className="text-sm text-slate-500">No patients on the waitlist yet.</p>
-        </div>
-    </aside>
-  );
+  const openNewAppointment = () => {
+    if (providerId == null) return;
+    const day = new Date();
+    setFocusDate(day);
+    setView("day");
+    const now = new Date();
+    let startMin = now.getHours() * 60 + now.getMinutes();
+    startMin = Math.ceil(startMin / 15) * 15;
+    const dayStart = SCHEDULE_DAY_START_MIN;
+    if (startMin < dayStart) startMin = dayStart;
+    if (startMin > SCHEDULE_DESK_DAY_END_MIN - 15) startMin = dayStart;
+    setDeskBookSeed({
+      providerId,
+      providerName: providerName || `Provider ${providerId}`,
+      dateIso: toIsoDate(day),
+      startMinute: startMin,
+      gapStartMin: dayStart,
+      gapEndMin: SCHEDULE_DESK_DAY_END_MIN,
+    });
+  };
+
+  const connectGoogleCalendar = async () => {
+    setCalendarBusy(true);
+    try {
+      const r = await apiGetAuth<{ authorization_url: string }>("/doctor/google_calendar/oauth/start/");
+      window.location.href = r.authorization_url;
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not start Google sign-in.");
+      setCalendarBusy(false);
+    }
+  };
+
+  const disconnectGoogleCalendar = async () => {
+    setCalendarBusy(true);
+    await runWithFeedback(
+      async () => {
+        await apiPost("/doctor/google_calendar/disconnect/", {});
+        setCalendarStatus({ oauth_configured: true, connected: false });
+      },
+      {
+        loadingMessage: "Disconnecting Google Calendar…",
+        successMessage: "Disconnected. New events will not sync until you connect again.",
+        errorFallback: "Could not disconnect Google Calendar.",
+      },
+    );
+    setCalendarBusy(false);
+  };
 
   return (
-    <div
-      className={
-        toolsOpen
-          ? "grid gap-6 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] lg:gap-8"
-          : "grid gap-6 lg:grid-cols-1"
-      }
-    >
-      {toolsOpen ? scheduleToolsSidebar : null}
-
-      <div className="min-w-0 space-y-6">
-        <DoctorPageIntro
-          eyebrow="Planning"
-          title="Your schedule"
-          description="Your assigned visits on the same time grid as the front desk: duration-sized blocks, open gaps, and today’s time line. Only your appointments load."
-          pageHelp={
-            <>
-              Use <strong>Day</strong> for the detailed time grid, <strong>Week</strong> for Monday–Friday columns, <strong>Month</strong>{" "}
-              for counts. Click a block to open the patient chart drawer (not a small popup). On <strong>Day</strong> view you can book
-              into open time or into a <strong>cancelled</strong> slot — click the open white space or the red cancelled block, then pick
-              patient and service (same as the front desk).
-            </>
-          }
-        />
-
-        {error && <p className="rounded-xl bg-rose-100 p-3 text-sm font-medium text-rose-800">{error}</p>}
-
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-slate-600">View</span>
-            <HelpTip label="Calendar views">
-              Day shows your column with open gaps and blocks by time. Week shows Monday–Friday; month shows counts — click a day for Day
-              view.
-            </HelpTip>
-            <button
-              type="button"
-              onClick={() => setView("day")}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                view === "day" ? "bg-[#16a349] text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Day
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("week")}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                view === "week" ? "bg-[#16a349] text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Week
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("month")}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                view === "month" ? "bg-[#16a349] text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Month
-            </button>
-            <button
-              type="button"
-              aria-label="Previous period"
-              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
-              className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
-            >
-              ←
-            </button>
-            <button
-              type="button"
-              aria-label="Next period"
-              onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
-              className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
-            >
-              →
-            </button>
-            <button
-              type="button"
-              onClick={() => setFocusDate(new Date())}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-            >
-              Today
-            </button>
-            <span className="text-sm font-semibold text-slate-800">{schedulePeriodLabel(view, focusDate)}</span>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {/* Banani DoctorSchedule toolbar — date nav left, view + calendar + New Appointment right */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <button
+            type="button"
+            aria-label="Previous period"
+            onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
+            className="rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
+          >
+            ←
+          </button>
+          <div className="max-w-[min(16rem,50vw)] truncate text-base font-semibold text-[#0d1f14] sm:max-w-none">
+            {schedulePeriodLabel(view, focusDate)}
           </div>
           <button
             type="button"
-            onClick={() => setToolsOpenPersist(!toolsOpen)}
-            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-            aria-expanded={toolsOpen}
-            aria-controls="doctor-schedule-tools"
+            aria-label="Next period"
+            onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
+            className="rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
           >
-            {toolsOpen ? (
-              <>
-                <PanelLeftClose className="h-4 w-4 text-slate-500" aria-hidden />
-                Hide tools
-              </>
-            ) : (
-              <>
-                <PanelLeftOpen className="h-4 w-4 text-slate-500" aria-hidden />
-                Show tools
-              </>
-            )}
+            →
+          </button>
+          <button
+            type="button"
+            onClick={() => setFocusDate(new Date())}
+            className="rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-sm text-[#0d1f14] hover:bg-[#f5f5f5]"
+          >
+            Today
           </button>
         </div>
 
-        {loading ? (
-          <div className="doctor-panel flex min-h-[280px] items-center justify-center py-12">
-            <Loader variant="page" label="Loading schedule" sublabel="Fetching your calendar…" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-lg bg-[#e8e8e8]" role="group" aria-label="Calendar view">
+            {(
+              [
+                ["day", "Day"],
+                ["week", "Week"],
+                ["month", "Month"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setView(value)}
+                className={`px-4 py-2 text-sm transition ${
+                  view === value
+                    ? "bg-white font-semibold text-[#0d1f14]"
+                    : "text-[#949494] hover:text-[#0d1f14]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        ) : (
-          <div className="doctor-panel min-w-0 overflow-x-auto p-4">
-            <AdminScheduleCalendar
-              view={view}
-              focusDate={focusDate}
-              appointments={scheduleAppts}
-              providers={providersForCalendar}
-              providerFilter={String(providerId)}
-              blocks={blocks}
-              selectedId={selected?.id ?? null}
-              onSelect={(row) => {
-                const full = appointments.find((x) => x.id === row.id);
-                if (full) setSelected(full);
-              }}
-              onPickDayInMonth={(d) => {
-                setFocusDate(d);
-                setView("day");
-              }}
-              onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
-              onRescheduleAppointment={
-                view === "day" || view === "week"
-                  ? (pick) => void handleRescheduleFromGrid(pick)
-                  : undefined
-              }
-            />
-          </div>
-        )}
+
+          {calendarStatus?.oauth_configured && !calendarStatus.connected ? (
+            <button
+              type="button"
+              disabled={calendarBusy}
+              onClick={() => void connectGoogleCalendar()}
+              title="Sync appointments to your personal Google Calendar"
+              className="inline-flex shrink-0 items-center rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-sm font-medium text-[#0d1f14] hover:bg-[#f5f5f5] disabled:opacity-50"
+            >
+              {calendarBusy ? "Connecting…" : "Connect Calendar"}
+            </button>
+          ) : null}
+
+          {calendarStatus?.oauth_configured && calendarStatus.connected ? (
+            <button
+              type="button"
+              disabled={calendarBusy}
+              onClick={() => void disconnectGoogleCalendar()}
+              title="Stop syncing new appointments to Google Calendar"
+              className="inline-flex shrink-0 items-center rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-sm font-medium text-[#0d1f14] hover:bg-[#f5f5f5] disabled:opacity-50"
+            >
+              {calendarBusy ? "…" : "Disconnect Calendar"}
+            </button>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={openNewAppointment}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#16a349] px-4 py-2 text-sm font-semibold text-white hover:bg-[#13823d]"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            New Appointment
+          </button>
+        </div>
       </div>
+
+      {/* Status legend — Banani */}
+      <div className="flex w-full flex-wrap items-center gap-2">
+        {(
+          [
+            "scheduled",
+            "checked_in",
+            "in_consultation",
+            "awaiting_payment",
+            "completed",
+            "no_show",
+            "cancelled",
+          ] as const
+        ).map((s) => (
+          <AppointmentStatusBadge key={s} status={s} size="xs" className="normal-case" />
+        ))}
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+      )}
+
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e8e8e8] bg-white">
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+          {loading ? (
+            <div className="p-6">
+              <Loader variant="page" label="Loading schedule" sublabel="Fetching your calendar…" />
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <AdminScheduleCalendar
+                view={view}
+                focusDate={focusDate}
+                appointments={scheduleAppts}
+                providers={providersForCalendar}
+                providerFilter={String(providerId)}
+                blocks={blocks}
+                selectedId={selected?.id ?? null}
+                onSelect={(row) => {
+                  const full = appointments.find((x) => x.id === row.id);
+                  if (full) setSelected(full);
+                }}
+                onPickDayInMonth={(d) => {
+                  setFocusDate(d);
+                  setView("day");
+                }}
+                onPickOpenSlot={view === "day" || view === "week" ? (pick) => setDeskBookSeed(pick) : undefined}
+                onRescheduleAppointment={
+                  view === "day" || view === "week"
+                    ? (pick) => void handleRescheduleFromGrid(pick)
+                    : undefined
+                }
+              />
+            </div>
+          )}
+        </div>
+      </section>
 
       <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
         {selected ? (
           <SheetContent
             side="right"
             showCloseButton
-            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,480px)] flex-col gap-0 overflow-hidden border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[480px]"
+            className="flex h-full max-h-[100dvh] w-full max-w-[min(100vw,24rem)] flex-col gap-0 overflow-hidden border-l border-[#e8e8e8] bg-white p-0 shadow-xl sm:max-w-96"
           >
             <VisitSummaryHeader
               patientName={selected.patient_name}
@@ -1162,7 +1067,7 @@ function DoctorSchedulePageInner() {
                 </div>
               ) : null}
 
-              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6">
+              <div className="mt-6 space-y-4 border-t border-[#e8e8e8] pt-6">
                 <VisitPriorChartNotes appointmentId={selected.id} />
                 <VisitAppointmentStaffNotes
                   value={handoffNotes}

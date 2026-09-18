@@ -45,7 +45,7 @@ export default function manifest(): MetadataRoute.Manifest {
         name: "Book an appointment",
         short_name: "Book",
         description: "Open the public booking page",
-        url: "/",
+        url: "/book",
         icons: [{ src: "/icon-192x192.png", sizes: "192x192", type: "image/png" }],
       },
       {

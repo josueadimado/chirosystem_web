@@ -30,6 +30,7 @@ export function VisitPriorChartNotes({
 
   useEffect(() => {
     let cancelled = false;
+    /* eslint-disable react-hooks/set-state-in-effect -- load prior notes when appointment changes */
     setLoading(true);
     void apiGetAuth<{ prior_visits?: PriorChartVisitRow[] }>(
       `/appointments/${appointmentId}/prior_chart_notes/`,
@@ -43,6 +44,7 @@ export function VisitPriorChartNotes({
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    /* eslint-enable react-hooks/set-state-in-effect */
     return () => {
       cancelled = true;
     };

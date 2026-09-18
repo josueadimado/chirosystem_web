@@ -1,12 +1,23 @@
 "use client";
 
-import { AdminPageIntro } from "@/components/admin-shell";
+import { IconMoreVertical } from "@/components/icons";
 import { Loader } from "@/components/loader";
 import { StatusChipView } from "@/components/status-chip";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ApiError, apiGetAuth, apiPost } from "@/lib/api";
 import { formatMonthDayYear } from "@/lib/format-date";
+import { cn } from "@/lib/utils";
+import { Search } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const PAGE_SIZE = 30;
 
@@ -73,41 +84,31 @@ function formatMoney(amount: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-function methodLabel(m: string): string {
-  if (m === "cash") return "Cash";
-  if (m === "card") return "Card";
-  if (m === "online") return "Online";
-  if (m === "manual") return "Manual";
-  return m;
-}
-
 function ReasonBadges({ row }: { row: ReconRow }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap gap-1">
-        {row.appointment_awaiting_payment ? (
-          <span className="rounded-md bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-900">
-            Awaiting payment
-          </span>
-        ) : row.appointment_status ? (
-          <StatusChipView status={row.appointment_status} />
-        ) : null}
-        {row.has_full_discount ? (
-          <span className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold text-sky-900">
-            Full discount
-          </span>
-        ) : null}
-        {row.has_cash_payment ? (
-          <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-950">
-            Cash recorded
-          </span>
-        ) : null}
-        {row.should_close ? (
-          <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-900">
-            Should close
-          </span>
-        ) : null}
-      </div>
+    <div className="flex flex-wrap gap-1">
+      {row.appointment_awaiting_payment ? (
+        <span className="rounded px-2 py-0.5 text-[11px] font-medium bg-[#ede9fe] text-[#5b21b6]">
+          Awaiting payment
+        </span>
+      ) : row.appointment_status ? (
+        <StatusChipView status={row.appointment_status} />
+      ) : null}
+      {row.has_full_discount ? (
+        <span className="rounded px-2 py-0.5 text-[11px] font-medium bg-[#dbeafe] text-[#1d4ed8]">
+          Full discount
+        </span>
+      ) : null}
+      {row.has_cash_payment ? (
+        <span className="rounded px-2 py-0.5 text-[11px] font-medium bg-[#fef3c7] text-[#92400e]">
+          Cash recorded
+        </span>
+      ) : null}
+      {row.should_close ? (
+        <span className="rounded px-2 py-0.5 text-[11px] font-medium bg-[#f0fdf4] text-[#166534]">
+          Should close
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -123,6 +124,27 @@ export function StaffPaymentReconciliation() {
   const [msg, setMsg] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const [markPaidRow, setMarkPaidRow] = useState<ReconRow | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (menuOpenId == null) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpenId(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpenId]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(q.trim()), 300);
@@ -131,6 +153,7 @@ export function StaffPaymentReconciliation() {
 
   useEffect(() => {
     setPage(1);
+    setMenuOpenId(null);
   }, [searchDebounced, tab]);
 
   const load = useCallback(async () => {
@@ -218,11 +241,9 @@ export function StaffPaymentReconciliation() {
     }
   };
 
-  const markPaidVerified = async (row: ReconRow) => {
-    const ok = window.confirm(
-      `Mark ${row.invoice_number} paid?\n\nOnly continue if Square (or the desk) already shows this bill as paid and automatic sync could not match it.`,
-    );
-    if (!ok) return;
+  const markPaidVerified = async () => {
+    if (!markPaidRow) return;
+    const row = markPaidRow;
     setBusyId(row.invoice_id);
     setMsg("");
     setError("");
@@ -232,6 +253,7 @@ export function StaffPaymentReconciliation() {
         invoice_number: row.invoice_number,
       });
       setMsg(out.detail || "Marked paid.");
+      setMarkPaidRow(null);
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not mark paid.");
@@ -259,213 +281,225 @@ export function StaffPaymentReconciliation() {
   ];
 
   return (
-    <div className="space-y-6">
-      <AdminPageIntro
-        title="Payment reconciliation"
-        description="Find invoices that still look outstanding after cash or Square payments, and correct them without charging again."
-        pageHelp="Use this alongside Billing and Square. “Close as paid” only works when local payments already cover the bill. Check Square looks for card/Terminal payments. Mark paid is for when Square’s app shows paid but sync cannot match."
-      />
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="block flex-1 space-y-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Search</span>
-            <input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Patient name, patient ID, or invoice #…"
-              className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm shadow-sm focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-            />
-          </label>
-          {tab === "fully_paid_still_open" ? (
-            <button
-              type="button"
-              disabled={batchBusy || (data?.summary.fully_paid_still_open ?? 0) === 0}
-              onClick={() => void closeAllZeroDue()}
-              className="rounded-xl bg-[#0d5c2e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0a4a25] disabled:opacity-50"
-            >
-              {batchBusy ? "Fixing…" : "Close all fully paid"}
-            </button>
-          ) : null}
-        </div>
-      </section>
-
-      {error ? (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {msg ? (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{msg}</p>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={
+            className={cn(
+              "rounded-xl border bg-white px-5 py-4 text-left transition",
               tab === t.id
-                ? "rounded-full bg-[#0d5c2e] px-4 py-2 text-sm font-semibold text-white"
-                : "rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            }
+                ? "border-[#16a349]/50 ring-2 ring-[#16a349]/15"
+                : "border-[#d1e8d8] hover:border-[#16a349]/35",
+            )}
           >
-            {t.label}
-            <span className="ml-2 tabular-nums opacity-80">{t.count}</span>
+            <p className="text-sm font-medium text-[#5a7a62]">{t.label}</p>
+            <p className="mt-1 text-3xl font-bold tabular-nums text-[#0d1f14]">{t.count}</p>
           </button>
         ))}
       </div>
 
-      {tab === "fully_paid_still_open" && data ? (
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 font-semibold text-violet-900">
-            Awaiting payment: {data.summary.awaiting_payment_stuck ?? 0}
-          </span>
-          <span className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 font-semibold text-sky-900">
-            Full discount: {data.summary.full_discount_stuck ?? 0}
-          </span>
-          <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 font-semibold text-amber-950">
-            Cash recorded: {data.summary.cash_recorded_stuck ?? 0}
-          </span>
-        </div>
+      {error ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {msg ? (
+        <p className="rounded-lg border border-[#d1e8d8] bg-[#f0fdf4] px-4 py-3 text-sm text-[#166534]">{msg}</p>
       ) : null}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5">
-          <h2 className="text-sm font-semibold text-slate-900">Invoices needing attention</h2>
-          {loading ? <Loader variant="spinner" label="Loading" /> : null}
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#d1e8d8] bg-white">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#d1e8d8] px-5 py-3">
+          <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5a7a62]"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search patient or invoice..."
+              className="w-full rounded-lg border border-[#d1e8d8] bg-[#f4fbf7] py-2.5 pl-10 pr-3 text-sm text-[#0d1f14] placeholder:text-[#5a7a62] focus:border-[#16a349]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              aria-label="Search reconciliation"
+            />
+          </div>
+          <select
+            value={tab}
+            onChange={(e) => setTab(e.target.value as TabKey)}
+            className="min-w-[12rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            aria-label="Filter list"
+          >
+            <option value="fully_paid_still_open">
+              Fully paid ({data?.summary.fully_paid_still_open ?? 0})
+            </option>
+            <option value="partial_payment">Partial ({data?.summary.partial_payment ?? 0})</option>
+            <option value="open_unpaid">Open unpaid ({data?.summary.open_unpaid ?? 0})</option>
+          </select>
+          {tab === "fully_paid_still_open" ? (
+            <button
+              type="button"
+              disabled={batchBusy || (data?.summary.fully_paid_still_open ?? 0) === 0}
+              onClick={() => void closeAllZeroDue()}
+              className="rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+            >
+              {batchBusy ? "Fixing..." : "Close all fully paid"}
+            </button>
+          ) : null}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Invoice</th>
-                <th className="px-4 py-3">Visit</th>
-                <th className="px-4 py-3">Invoice status</th>
-                <th className="px-4 py-3">Why stuck</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3 text-right">Paid</th>
-                <th className="px-4 py-3 text-right">Due</th>
-                <th className="px-4 py-3">Payments</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!loading && rows.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-slate-500">
-                    Nothing in this list — good news if Fully paid / still open is empty.
-                  </td>
+
+        <div className="min-h-0 flex-1 overflow-auto">
+          {loading && !data ? (
+            <div className="p-8">
+              <Loader variant="page" label="Loading" />
+            </div>
+          ) : (
+            <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+              <thead className="sticky top-0 z-[1] border-b border-[#d1e8d8] bg-[#f8fdf9]">
+                <tr className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">
+                  <th className="px-4 py-3">Patient</th>
+                  <th className="px-4 py-3">Invoice</th>
+                  <th className="px-4 py-3">Visit</th>
+                  <th className="px-4 py-3">Why stuck</th>
+                  <th className="px-4 py-3 text-right">Total</th>
+                  <th className="px-4 py-3 text-right">Paid</th>
+                  <th className="px-4 py-3 text-right">Due</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
-              ) : (
-                rows.map((row) => {
-                  const busy = busyId === row.invoice_id;
-                  return (
-                    <tr key={row.invoice_id} className="border-t border-slate-100 hover:bg-emerald-50/30">
-                      <td className="px-4 py-3 align-top">
-                        <p className="font-medium text-slate-900">{row.patient_name}</p>
-                        <Link
-                          href={`/admin/patients/${row.patient_id}/history`}
-                          className="text-xs font-semibold text-[#0d5c2e] hover:underline"
-                        >
-                          Open chart
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 align-top font-mono text-slate-700">{row.invoice_number}</td>
-                      <td className="px-4 py-3 align-top whitespace-nowrap text-slate-600">
-                        {row.appointment_date ? formatMonthDayYear(row.appointment_date) : "—"}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <StatusChipView status={row.status} />
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <ReasonBadges row={row} />
-                      </td>
-                      <td className="px-4 py-3 align-top text-right tabular-nums">
-                        <div>{formatMoney(row.total_amount)}</div>
-                        {row.has_full_discount && row.discount && row.subtotal ? (
-                          <p className="text-[11px] text-slate-500">
-                            {formatMoney(row.subtotal)} − {formatMoney(row.discount)} disc.
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 align-top text-right tabular-nums text-emerald-800">
-                        {formatMoney(row.amount_paid)}
-                      </td>
-                      <td className="px-4 py-3 align-top text-right font-semibold tabular-nums text-slate-900">
-                        {formatMoney(row.amount_due)}
-                      </td>
-                      <td className="px-4 py-3 align-top text-xs text-slate-600">
-                        {row.payments.length === 0
-                          ? row.has_full_discount
-                            ? "No payment (covered by discount)"
-                            : "—"
-                          : row.payments
-                              .map((p) => `${methodLabel(p.payment_method)} ${formatMoney(p.amount)}`)
-                              .join(" · ")}
-                      </td>
-                      <td className="px-4 py-3 align-top text-right">
-                        <div className="flex flex-col items-end gap-1.5">
+              </thead>
+              <tbody>
+                {!loading && rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-12 text-center text-[#5a7a62]">
+                      Nothing in this list.
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => {
+                    const busy = busyId === row.invoice_id;
+                    return (
+                      <tr
+                        key={row.invoice_id}
+                        className="border-b border-[#d1e8d8] last:border-b-0 hover:bg-[#f8fdf9]"
+                      >
+                        <td className="px-4 py-3.5 align-middle">
+                          <Link
+                            href={`/admin/patients/${row.patient_id}/history`}
+                            className="font-semibold text-[#0d1f14] hover:text-[#16a349] hover:underline"
+                          >
+                            {row.patient_name}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3.5 align-middle font-mono text-[#5a7a62]">
+                          {row.invoice_number}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-[#5a7a62]">
+                          {row.appointment_date ? formatMonthDayYear(row.appointment_date) : "-"}
+                        </td>
+                        <td className="px-4 py-3.5 align-middle">
+                          <ReasonBadges row={row} />
+                        </td>
+                        <td className="px-4 py-3.5 align-middle text-right tabular-nums text-[#0d1f14]">
+                          {formatMoney(row.total_amount)}
+                        </td>
+                        <td className="px-4 py-3.5 align-middle text-right tabular-nums text-[#166534]">
+                          {formatMoney(row.amount_paid)}
+                        </td>
+                        <td className="px-4 py-3.5 align-middle text-right font-semibold tabular-nums text-[#0d1f14]">
+                          {formatMoney(row.amount_due)}
+                        </td>
+                        <td className="px-4 py-3.5 align-middle text-right">
                           {tab === "fully_paid_still_open" ? (
                             <button
                               type="button"
                               disabled={busy}
                               onClick={() => void closeOne(row.invoice_id)}
-                              className="rounded-lg bg-[#0d5c2e] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0a4a25] disabled:opacity-50"
+                              className="rounded-lg bg-[#16a349] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
                             >
-                              {busy ? "Saving…" : "Close as paid"}
+                              {busy ? "Saving..." : "Close as paid"}
                             </button>
-                          ) : null}
-                          {tab !== "fully_paid_still_open" ? (
-                            <>
+                          ) : (
+                            <div
+                              className="relative inline-flex justify-end"
+                              ref={menuOpenId === row.invoice_id ? menuRef : undefined}
+                            >
                               <button
                                 type="button"
                                 disabled={busy}
-                                onClick={() => void checkSquare(row.invoice_id)}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                                aria-haspopup="menu"
+                                aria-expanded={menuOpenId === row.invoice_id}
+                                aria-label={`Actions for ${row.invoice_number}`}
+                                onClick={() =>
+                                  setMenuOpenId((id) => (id === row.invoice_id ? null : row.invoice_id))
+                                }
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1e8d8] bg-white text-[#5a7a62] hover:bg-[#f8fdf9] hover:text-[#0d1f14] disabled:opacity-50"
                               >
-                                {busy ? "Checking…" : "Check Square"}
+                                <IconMoreVertical className="h-4 w-4" />
                               </button>
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => void markPaidVerified(row)}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                              >
-                                Mark paid
-                              </button>
-                              <Link
-                                href="/admin/billing"
-                                className="text-xs font-semibold text-[#0d5c2e] hover:underline"
-                              >
-                                Record cash on Billing
-                              </Link>
-                            </>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                              {menuOpenId === row.invoice_id ? (
+                                <div
+                                  role="menu"
+                                  className="absolute right-0 top-full z-20 mt-1.5 w-52 overflow-hidden rounded-xl border border-[#d1e8d8] bg-white py-1 shadow-lg"
+                                >
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      void checkSquare(row.invoice_id);
+                                    }}
+                                    className="block w-full px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-50"
+                                  >
+                                    {busy ? "Checking..." : "Check Square"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      setMarkPaidRow(row);
+                                    }}
+                                    className="block w-full px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-50"
+                                  >
+                                    Mark paid
+                                  </button>
+                                  <Link
+                                    role="menuitem"
+                                    href="/admin/billing"
+                                    onClick={() => setMenuOpenId(null)}
+                                    className="block w-full px-3.5 py-2.5 text-left text-sm font-medium text-[#16a349] hover:bg-[#f8fdf9]"
+                                  >
+                                    Record cash on Billing
+                                  </Link>
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
-        <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <p className="text-sm text-slate-600">
+
+        <div className="flex flex-col gap-2 border-t border-[#d1e8d8] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-[#5a7a62]">
             {totalCount === 0 ? (
-              "No rows"
+              "0 invoices"
             ) : (
               <>
-                Showing{" "}
-                <span className="font-semibold tabular-nums text-slate-800">
-                  {rangeStart}–{rangeEnd}
+                <span className="tabular-nums text-[#0d1f14]">
+                  {rangeStart}-{rangeEnd}
                 </span>{" "}
-                of <span className="font-semibold tabular-nums text-slate-800">{totalCount}</span>
-                <span className="text-slate-400"> · {PAGE_SIZE} per page</span>
+                of <span className="tabular-nums text-[#0d1f14]">{totalCount}</span>
+                {loading ? <span className="ml-2">Loading...</span> : null}
               </>
             )}
           </p>
@@ -474,7 +508,7 @@ export function StaffPaymentReconciliation() {
               type="button"
               disabled={page <= 1 || loading}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold disabled:opacity-40"
+              className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-40"
             >
               Previous
             </button>
@@ -482,13 +516,80 @@ export function StaffPaymentReconciliation() {
               type="button"
               disabled={page >= totalPages || loading || totalCount === 0}
               onClick={() => setPage((p) => p + 1)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold disabled:opacity-40"
+              className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#0d1f14] hover:bg-[#f8fdf9] disabled:opacity-40"
             >
               Next
             </button>
           </div>
         </div>
       </section>
+
+      <Dialog
+        open={markPaidRow != null}
+        onOpenChange={(open) => {
+          if (!open && busyId == null) setMarkPaidRow(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {markPaidRow ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-[#0d1f14]">Mark invoice as paid?</DialogTitle>
+                <DialogDescription className="text-[#5a7a62]">
+                  Only continue if Square or the front desk already shows this bill as paid, and automatic sync could
+                  not match it. Nothing new will be charged.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="rounded-xl border border-[#d1e8d8] bg-[#f8fdf9] px-4 py-3">
+                <p className="font-semibold text-[#0d1f14]">{markPaidRow.patient_name}</p>
+                <p className="mt-0.5 font-mono text-xs text-[#5a7a62]">{markPaidRow.invoice_number}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">Total</p>
+                    <p className="tabular-nums text-[#0d1f14]">{formatMoney(markPaidRow.total_amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">Paid</p>
+                    <p className="tabular-nums text-[#166534]">{formatMoney(markPaidRow.amount_paid)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">Due</p>
+                    <p className="font-semibold tabular-nums text-[#0d1f14]">
+                      {formatMoney(markPaidRow.amount_due)}
+                    </p>
+                  </div>
+                </div>
+                {markPaidRow.appointment_date ? (
+                  <p className="mt-2 text-xs text-[#5a7a62]">
+                    Visit {formatMonthDayYear(markPaidRow.appointment_date)}
+                  </p>
+                ) : null}
+              </div>
+
+              <DialogFooter className="border-[#d1e8d8] bg-[#f8fdf9]">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busyId === markPaidRow.invoice_id}
+                  onClick={() => setMarkPaidRow(null)}
+                  className="border-[#d1e8d8]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={busyId === markPaidRow.invoice_id}
+                  onClick={() => void markPaidVerified()}
+                  className="bg-[#16a349] text-white hover:bg-[#13823d]"
+                >
+                  {busyId === markPaidRow.invoice_id ? "Saving..." : "Yes, mark paid"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

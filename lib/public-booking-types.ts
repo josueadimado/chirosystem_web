@@ -1,6 +1,6 @@
 /** Shared types for the public booking page (`app/page.tsx`). */
 
-export type PublicBookingStep = 1 | 2 | 3 | 4;
+export type PublicBookingStep = 1 | 2 | 3 | 4 | 5;
 
 export type BookingResult = {
   appointment_id: number;

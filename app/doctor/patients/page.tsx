@@ -1,16 +1,21 @@
 "use client";
 
-import { DoctorPageIntro } from "@/components/doctor-shell";
+import { IconMoreVertical } from "@/components/icons";
 import { PatientNoShowBadge } from "@/components/status-chip";
-import { PatientNameWithProfile } from "@/components/patient-payment-profile";
+import {
+  PatientIrisBadge,
+  PatientPaymentProfileBadge,
+} from "@/components/patient-payment-profile";
 import { Loader } from "@/components/loader";
 import { ApiError, apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatMonthDayYear } from "@/lib/format-date";
 import { isNewNavBadgeActive } from "@/lib/staff-announcements";
+import { Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /** Matches `PatientListSerializer` on `GET /patients/` */
 type PatientApi = {
@@ -49,21 +54,16 @@ type DirectoryFilter =
 
 const PAGE_SIZE = 25;
 
-/** Primary one-click filters (less crowding than showing every option as a pill). */
-const QUICK_FILTERS: { value: DirectoryFilter; label: string; hint: string }[] = [
-  { value: "", label: "All", hint: "Everyone in your directory, most recent visit first" },
-  { value: "no_upcoming", label: "No upcoming visit", hint: "No future appointment on the books" },
-  { value: "recall_due", label: "Not seen 6+ months", hint: "Last completed visit was over six months ago" },
-  { value: "upcoming", label: "Future booking", hint: "Has an upcoming appointment — soonest first" },
+/** Clinical directory filters (same options as before, shown like admin’s dropdown). */
+const DIRECTORY_FILTER_OPTIONS: { value: DirectoryFilter; label: string }[] = [
+  { value: "", label: "All patients" },
+  { value: "no_upcoming", label: "No upcoming visit" },
+  { value: "recall_due", label: "Not seen 6+ months" },
+  { value: "upcoming", label: "Future booking" },
+  { value: "seen_recent", label: "Seen last 30 days" },
+  { value: "never_seen", label: "No visit yet" },
+  { value: "new_patients", label: "0 visits" },
 ];
-
-const MORE_FILTERS: { value: DirectoryFilter; label: string; hint: string }[] = [
-  { value: "seen_recent", label: "Seen last 30 days", hint: "Completed a visit in the last month" },
-  { value: "never_seen", label: "No visit yet", hint: "Never completed a visit (may still be booked)" },
-  { value: "new_patients", label: "0 visits", hint: "No completed visits on file" },
-];
-
-const ALL_FILTERS = [...QUICK_FILTERS, ...MORE_FILTERS];
 
 function patientDirectoryName(p: PatientApi): { last: string; first: string } {
   const last = (p.last_name || "").trim() || "—";
@@ -116,9 +116,47 @@ function nextAppointmentLabel(p: PatientApi): string | null {
   return time ? `${date} · ${time}` : date;
 }
 
-function filterMeta(value: DirectoryFilter) {
-  return ALL_FILTERS.find((f) => f.value === value) ?? ALL_FILTERS[0];
+function filterLabel(value: DirectoryFilter): string {
+  return DIRECTORY_FILTER_OPTIONS.find((f) => f.value === value)?.label ?? "All patients";
 }
+
+type PatientRowStatus = "new" | "upcoming" | "no_upcoming" | "recall";
+
+function monthsSinceIso(dateIso: string | null | undefined): number | null {
+  if (!dateIso || !String(dateIso).trim()) return null;
+  const d = new Date(`${String(dateIso).trim()}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  return (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+}
+
+/** Simple clinical status for the Status column. */
+function patientRowStatus(p: PatientApi): PatientRowStatus {
+  if (!p.last_visit || !String(p.last_visit).trim()) return "new";
+  if (p.next_appointment_date) return "upcoming";
+  const months = monthsSinceIso(p.last_visit);
+  if (months != null && months >= 6) return "recall";
+  return "no_upcoming";
+}
+
+const STATUS_STYLES: Record<PatientRowStatus, { label: string; className: string }> = {
+  new: {
+    label: "New",
+    className: "bg-[#e8e8e8] text-[#949494]",
+  },
+  upcoming: {
+    label: "Upcoming",
+    className: "bg-[#ecfdf5] text-[#0d5c2e]",
+  },
+  no_upcoming: {
+    label: "No upcoming",
+    className: "bg-[#fef3c7] text-[#92400e]",
+  },
+  recall: {
+    label: "Recall due",
+    className: "bg-[#fee2e2] text-[#991b1b]",
+  },
+};
 
 async function fetchDirectoryCount(directory: DirectoryFilter): Promise<number> {
   const params = new URLSearchParams();
@@ -145,6 +183,45 @@ export default function DoctorPatientsPage() {
     neverSeen: 0,
     total: 0,
   });
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; openUp: boolean } | null>(null);
+  const [menuLinks, setMenuLinks] = useState<{ chart: string; history: string; label: string } | null>(
+    null,
+  );
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuButtonRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+
+  const closeMenu = useCallback(() => {
+    setMenuOpenId(null);
+    setMenuPos(null);
+    setMenuLinks(null);
+  }, []);
+
+  const openRowMenu = useCallback(
+    (p: PatientApi, displayName: string) => {
+      if (menuOpenId === p.id) {
+        closeMenu();
+        return;
+      }
+      const btn = menuButtonRefs.current.get(p.id);
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const menuHeight = 100;
+      const openUp = rect.bottom + menuHeight > window.innerHeight - 12;
+      setMenuPos({
+        top: openUp ? rect.top - 4 : rect.bottom + 4,
+        left: Math.min(window.innerWidth - 168, Math.max(8, rect.right - 160)),
+        openUp,
+      });
+      setMenuLinks({
+        chart: `/doctor/patients/${p.id}/record`,
+        history: `/doctor/patients/${p.id}/history`,
+        label: displayName,
+      });
+      setMenuOpenId(p.id);
+    },
+    [menuOpenId, closeMenu],
+  );
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -152,10 +229,34 @@ export default function DoctorPatientsPage() {
   }, [searchInput]);
 
   useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, directoryFilter]);
+    if (menuOpenId == null) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      const btn = menuButtonRefs.current.get(menuOpenId);
+      if (btn?.contains(target)) return;
+      closeMenu();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeMenu();
+    };
+    const onScroll = () => closeMenu();
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [menuOpenId, closeMenu]);
 
-  const activeFilter = filterMeta(directoryFilter);
+  /* eslint-disable react-hooks/set-state-in-effect -- reset pagination when search/filter changes */
+  useEffect(() => {
+    setPage(1);
+    closeMenu();
+  }, [debouncedSearch, directoryFilter, closeMenu]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const loadAttentionCounts = useCallback(async () => {
     try {
@@ -198,62 +299,110 @@ export default function DoctorPatientsPage() {
   }, [load]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  /* eslint-disable react-hooks/set-state-in-effect -- load attention badge counts once */
   useEffect(() => {
     void loadAttentionCounts();
   }, [loadAttentionCounts]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
     [totalCount],
   );
 
-  const rangeLabel = useMemo(() => {
-    if (totalCount === 0) return null;
-    const start = (page - 1) * PAGE_SIZE + 1;
-    const end = Math.min(page * PAGE_SIZE, totalCount);
-    return `${start}–${end}`;
-  }, [page, totalCount]);
+  const rangeStart = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, totalCount);
 
   const searching = debouncedSearch.length > 0;
   const filtering = directoryFilter !== "";
+  const hasActiveFilters = searching || filtering;
   const showPagination = !loading && totalCount > 0 && totalPages > 1;
-  const moreFilterActive = MORE_FILTERS.some((f) => f.value === directoryFilter);
-
-  const sortHint =
-    directoryFilter === "upcoming"
-      ? "sorted by next appointment"
-      : directoryFilter === "recall_due"
-        ? "sorted by oldest last visit"
-        : "sorted by most recent visit";
 
   const refreshAll = () => {
     void load();
     void loadAttentionCounts();
   };
 
+  const clearFilters = () => {
+    setDirectoryFilter("");
+    setSearchInput("");
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <DoctorPageIntro
-          eyebrow="Directory"
-          title="Patients"
-          description="Find charts quickly and spot who needs a next visit or a recall call."
-          pageHelp={
-            <>
-              Your list shows chiropractic or massage patients for your role. You can open other charts read-only if
-              needed. Admin can edit everyone. Use filters for patients with no upcoming visit or not seen in 6+ months.
-              Click a row or <strong>Chart</strong> to open the chart.
-            </>
-          }
-        />
-        <div className="mt-1 flex shrink-0 flex-wrap gap-2 sm:mt-8">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      {/* Toolbar — Banani Doctor Patients */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <div className="relative min-w-[14rem] max-w-md flex-1">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#949494]"
+              aria-hidden
+            />
+            <input
+              type="search"
+              placeholder="Search by name, phone, or ID…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="w-full rounded-lg border border-[#e8e8e8] bg-white py-2.5 pl-10 pr-10 text-sm text-[#0d1f14] placeholder:text-[#949494] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+              aria-label="Search patients"
+            />
+            {searchInput.trim() ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
+                aria-label="Clear search"
+                onClick={() => setSearchInput("")}
+              >
+                <span aria-hidden className="text-lg leading-none">
+                  ×
+                </span>
+              </button>
+            ) : null}
+          </div>
+
+          <select
+            id="doctor-patient-directory-filter"
+            value={directoryFilter}
+            onChange={(e) => setDirectoryFilter(e.target.value as DirectoryFilter)}
+            className="min-w-[11rem] rounded-lg border border-[#e8e8e8] bg-white px-3 py-2.5 text-sm text-[#949494] focus:border-[#16a349]/40 focus:text-[#0d1f14] focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            aria-label="Filter patients"
+          >
+            {DIRECTORY_FILTER_OPTIONS.map((o) => {
+              const count =
+                o.value === "no_upcoming"
+                  ? attentionCounts.noUpcoming
+                  : o.value === "recall_due"
+                    ? attentionCounts.recallDue
+                    : o.value === "never_seen"
+                      ? attentionCounts.neverSeen
+                      : null;
+              return (
+                <option key={o.value || "all"} value={o.value}>
+                  {count != null && count > 0 ? `${o.label} (${count})` : o.label}
+                </option>
+              );
+            })}
+          </select>
+
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-sm font-medium text-[#16a349] hover:underline"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
           <Link
             href="/doctor/patients/merge"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#e8e8e8] bg-white px-4 text-sm font-medium text-[#0d1f14] hover:bg-[#f5f5f5]"
           >
-            Merge patients
+            Merge
             {isNewNavBadgeActive("/doctor/patients/merge") ? (
-              <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+              <span className="rounded-full bg-[#dbe7fb] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#277eff]">
                 New
               </span>
             ) : null}
@@ -262,7 +411,7 @@ export default function DoctorPatientsPage() {
             type="button"
             onClick={refreshAll}
             disabled={loading}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex h-10 items-center rounded-lg border border-[#e8e8e8] bg-white px-4 text-sm font-medium text-[#0d1f14] hover:bg-[#f5f5f5] disabled:opacity-50"
           >
             Refresh
           </button>
@@ -270,411 +419,284 @@ export default function DoctorPatientsPage() {
       </div>
 
       {error ? (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">{error}</p>
       ) : null}
 
       {(attentionCounts.noUpcoming > 0 || attentionCounts.recallDue > 0 || attentionCounts.neverSeen > 0) && (
-        <section
-          className="rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3.5 shadow-sm ring-1 ring-amber-100"
-          aria-label="Needs attention"
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {attentionCounts.noUpcoming > 0 ? (
-              <button
-                type="button"
-                onClick={() => setDirectoryFilter("no_upcoming")}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                  directoryFilter === "no_upcoming"
-                    ? "border-amber-400 bg-amber-100 text-amber-950"
-                    : "border-amber-200 bg-white text-amber-900 hover:bg-amber-50",
-                )}
-              >
-                No upcoming visit ({attentionCounts.noUpcoming})
-              </button>
-            ) : null}
-            {attentionCounts.recallDue > 0 ? (
-              <button
-                type="button"
-                onClick={() => setDirectoryFilter("recall_due")}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                  directoryFilter === "recall_due"
-                    ? "border-rose-400 bg-rose-100 text-rose-900"
-                    : "border-rose-200 bg-white text-rose-800 hover:bg-rose-50",
-                )}
-              >
-                Not seen 6+ months ({attentionCounts.recallDue})
-              </button>
-            ) : null}
-            {attentionCounts.neverSeen > 0 ? (
-              <button
-                type="button"
-                onClick={() => setDirectoryFilter("never_seen")}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                  directoryFilter === "never_seen"
-                    ? "border-slate-400 bg-slate-100 text-slate-900"
-                    : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50",
-                )}
-              >
-                No visit yet ({attentionCounts.neverSeen})
-              </button>
-            ) : null}
-          </div>
+        <section className="flex flex-wrap gap-2" aria-label="Needs attention">
+          {attentionCounts.noUpcoming > 0 ? (
+            <button
+              type="button"
+              onClick={() => setDirectoryFilter("no_upcoming")}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                directoryFilter === "no_upcoming"
+                  ? "border-amber-400 bg-amber-100 text-amber-950"
+                  : "border-[#e8e8e8] bg-white text-[#92400e] hover:bg-[#f5f5f5]",
+              )}
+            >
+              No upcoming visit ({attentionCounts.noUpcoming})
+            </button>
+          ) : null}
+          {attentionCounts.recallDue > 0 ? (
+            <button
+              type="button"
+              onClick={() => setDirectoryFilter("recall_due")}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                directoryFilter === "recall_due"
+                  ? "border-rose-400 bg-rose-100 text-rose-900"
+                  : "border-[#e8e8e8] bg-white text-[#991b1b] hover:bg-[#f5f5f5]",
+              )}
+            >
+              Not seen 6+ months ({attentionCounts.recallDue})
+            </button>
+          ) : null}
+          {attentionCounts.neverSeen > 0 ? (
+            <button
+              type="button"
+              onClick={() => setDirectoryFilter("never_seen")}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
+                directoryFilter === "never_seen"
+                  ? "border-[#e8e8e8] bg-[#f5f5f5] text-[#0d1f14]"
+                  : "border-[#e8e8e8] bg-white text-[#0d1f14] hover:bg-[#f5f5f5]",
+              )}
+            >
+              No visit yet ({attentionCounts.neverSeen})
+            </button>
+          ) : null}
         </section>
       )}
 
-      {!loading && attentionCounts.total > 0 ? (
-        <p className="text-xs text-slate-500">
-          <span className="font-semibold tabular-nums text-slate-700">{attentionCounts.total}</span> patients in your
-          directory
-          {attentionCounts.noUpcoming > 0 ? (
-            <>
-              {" "}
-              · <span className="font-semibold tabular-nums text-amber-800">{attentionCounts.noUpcoming}</span> with no
-              upcoming visit
-            </>
-          ) : null}
-          {attentionCounts.recallDue > 0 ? (
-            <>
-              {" "}
-              · <span className="font-semibold tabular-nums text-rose-700">{attentionCounts.recallDue}</span> not seen 6+
-              months
-            </>
-          ) : null}
-        </p>
-      ) : null}
-
-      <div className="doctor-panel space-y-4">
-        <div className="sticky top-0 z-20 -mx-1 space-y-3 border-b border-slate-100 bg-[var(--card,white)]/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-white/90">
-          <label className="block max-w-md">
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Search by name or phone
-            </span>
-            <div className="relative">
-              <input
-                type="search"
-                autoComplete="off"
-                placeholder="Start typing…"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-10 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
-                aria-label="Search patients by name or phone"
-              />
-              {searchInput.trim() ? (
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
-                  aria-label="Clear search"
-                  onClick={() => setSearchInput("")}
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-          </label>
-
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Quick filters">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Filter</span>
-            {QUICK_FILTERS.map((f) => {
-              const active = directoryFilter === f.value;
-              const count =
-                f.value === "no_upcoming"
-                  ? attentionCounts.noUpcoming
-                  : f.value === "recall_due"
-                    ? attentionCounts.recallDue
-                    : null;
-              return (
-                <button
-                  key={f.value || "all"}
-                  type="button"
-                  title={f.hint}
-                  onClick={() => setDirectoryFilter(f.value)}
-                  className={cn(
-                    "rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition",
-                    active
-                      ? "border-[#16a349]/50 bg-[#ecfdf5] text-[#0d5c2e]"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                  )}
-                >
-                  {f.label}
-                  {count != null && count > 0 ? (
-                    <span className="ml-1 tabular-nums text-slate-500">({count})</span>
-                  ) : null}
-                </button>
-              );
-            })}
-            <label className="sr-only" htmlFor="doctor-patient-more-filter">
-              More filters
-            </label>
-            <select
-              id="doctor-patient-more-filter"
-              value={moreFilterActive ? directoryFilter : ""}
-              onChange={(e) => {
-                const v = e.target.value as DirectoryFilter;
-                if (v) setDirectoryFilter(v);
-              }}
-              className="max-w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/15"
-              aria-label="More patient filters"
-            >
-              <option value="">More…</option>
-              {MORE_FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-            {filtering || searching ? (
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {loading ? (
+          <div className="rounded-xl border border-[#e8e8e8] bg-white p-6">
+            <Loader variant="page" label="Loading patients" sublabel="Gathering patient records…" />
+          </div>
+        ) : patients.length === 0 ? (
+          <div className="rounded-xl border border-[#e8e8e8] bg-white py-12 text-center">
+            <p className="text-[#949494]">
+              {hasActiveFilters ? "No matching patients." : "No patients yet."}
+            </p>
+            {hasActiveFilters ? (
               <button
                 type="button"
-                onClick={() => {
-                  setDirectoryFilter("");
-                  setSearchInput("");
-                }}
-                className="text-xs font-semibold text-[#0d5c2e] hover:underline"
+                className="mt-4 text-sm font-semibold text-[#16a349] hover:underline"
+                onClick={clearFilters}
               >
-                Clear search & filters
+                Clear filters
               </button>
             ) : null}
           </div>
-          <p className="text-xs leading-relaxed text-slate-600">{activeFilter.hint}</p>
-        </div>
-
-        {loading ? (
-          <div className="py-12">
-            <Loader variant="page" label="Loading patients" />
-          </div>
-        ) : patients.length === 0 ? (
-          <p className="py-8 text-center text-slate-600">
-            {searching || filtering
-              ? "No patients match your search or filter. Try clearing filters or widening your search."
-              : "No patients are on file yet."}
-          </p>
         ) : (
           <>
-            {rangeLabel ? (
-              <p className="text-sm text-slate-600">
-                Showing <span className="tabular-nums font-medium text-slate-800">{rangeLabel}</span> of{" "}
-                <span className="tabular-nums">{totalCount}</span>
-                {filtering ? (
-                  <>
-                    {" "}
-                    · <span className="font-medium text-[#0d5c2e]">{activeFilter.label}</span>
-                  </>
-                ) : null}
-                {searching ? " (search)" : ""} — {sortHint}
-              </p>
-            ) : null}
-
-            <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-100/80">
-              <div className="max-h-[min(520px,65vh)] overflow-y-auto overscroll-contain">
-                <table className="w-full min-w-[720px] border-collapse text-sm">
-                  <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50/95 backdrop-blur">
-                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-4 py-3 pl-4">Patient</th>
-                      <th className="px-3 py-3">Last visit</th>
-                      <th className="px-3 py-3 text-center">Visits</th>
-                      <th className="hidden px-3 py-3 xl:table-cell">Last service</th>
-                      <th className="hidden px-3 py-3 lg:table-cell">Next appointment</th>
-                      <th className="px-3 py-3 pr-4 text-right">Open</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {patients.map((p) => {
-                      const { last, first } = patientDirectoryName(p);
-                      const phoneLine = formatPhoneCompact(p.phone);
-                      const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
-                      const nextAppt = nextAppointmentLabel(p);
-                      const service = (p.last_service || "").trim();
-                      const noShows = typeof p.no_show_count === "number" ? p.no_show_count : 0;
-                      const recordHref = `/doctor/patients/${p.id}/record`;
-                      const historyHref = `/doctor/patients/${p.id}/history`;
-                      const noUpcoming = !nextAppt && !!p.last_visit;
-                      const isNew = !p.last_visit;
-                      let rowAlert: "recall" | "attention" | "soft" | "none" = "none";
-                      if (directoryFilter === "recall_due") rowAlert = "recall";
-                      else if (directoryFilter === "no_upcoming" || directoryFilter === "never_seen")
-                        rowAlert = "attention";
-                      else if (noUpcoming) rowAlert = "soft";
-
-                      return (
-                        <tr
-                          key={p.id}
-                          tabIndex={0}
-                          className={cn(
-                            "group cursor-pointer border-t border-slate-100 transition",
-                            rowAlert === "recall" &&
-                              "bg-rose-50/50 hover:bg-rose-50 focus-visible:bg-rose-50",
-                            rowAlert === "attention" &&
-                              "bg-amber-50/40 hover:bg-amber-50/70 focus-visible:bg-amber-50/70",
-                            rowAlert === "soft" && "hover:bg-amber-50/30 focus-visible:bg-amber-50/40",
-                            rowAlert === "none" && "hover:bg-emerald-50/40 focus-visible:bg-emerald-50/50",
-                            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#16a349]",
-                          )}
-                          onClick={() => router.push(recordHref)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              router.push(recordHref);
-                            }
-                          }}
-                          aria-label={`Open chart for ${last}, ${first}`}
-                        >
-                          <td className="px-4 py-3.5 pl-4 align-middle">
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] text-[11px] font-bold uppercase tracking-[0.08em] text-[#065f46] ring-1 ring-[#16a349]/15"
-                                aria-hidden
-                              >
-                                {patientInitials(p)}
-                              </div>
-                              <div className="min-w-0">
-                                <p className="flex flex-wrap items-center gap-2 leading-snug text-slate-900">
-                                  <PatientNameWithProfile
-                                    name={
-                                      <span>
-                                        <span className="font-semibold tracking-tight">{last}</span>
-                                        <span className="font-normal text-slate-400">, </span>
-                                        <span className="font-medium text-slate-700">{first}</span>
-                                      </span>
-                                    }
-                                    profile={p.payment_profile}
-                                    irisTag={p.iris_tag}
-                                    compactBadge
-                                  />
-                                  <PatientNoShowBadge count={noShows} />
-                                  {noUpcoming ? (
-                                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                                      No upcoming
-                                    </span>
-                                  ) : null}
-                                  {isNew ? (
-                                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
-                                      New
-                                    </span>
-                                  ) : null}
-                                </p>
-                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
-                                  <span className="font-mono tabular-nums text-slate-400">
-                                    PT-{String(p.id).padStart(4, "0")}
-                                  </span>
-                                  {phoneLine ? (
-                                    <>
-                                      <span className="text-slate-300" aria-hidden>
-                                        ·
-                                      </span>
-                                      <span className="tabular-nums">{phoneLine}</span>
-                                    </>
-                                  ) : null}
-                                  {p.date_of_birth ? (
-                                    <>
-                                      <span className="text-slate-300" aria-hidden>
-                                        ·
-                                      </span>
-                                      <span>DOB {formatMonthDayYear(p.date_of_birth)}</span>
-                                    </>
-                                  ) : null}
-                                </p>
-                                {nextAppt ? (
-                                  <p className="mt-1 text-xs font-medium text-[#047857] lg:hidden">
-                                    Next: {nextAppt}
-                                  </p>
-                                ) : null}
-                                {service ? (
-                                  <p className="mt-0.5 truncate text-xs text-slate-500 xl:hidden">{service}</p>
-                                ) : null}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-3 py-3.5 align-middle text-slate-700">
-                            <span className={cn("tabular-nums", !p.last_visit && "italic text-slate-500")}>
-                              {lastVisitLabel(p)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3.5 align-middle text-center">
-                            <span
-                              className={cn(
-                                "inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 text-sm font-semibold tabular-nums",
-                                visits > 0 ? "bg-slate-100 text-slate-800" : "bg-slate-50 text-slate-400",
-                              )}
-                            >
-                              {visits}
-                            </span>
-                          </td>
-                          <td className="hidden max-w-[12rem] truncate px-3 py-3.5 align-middle text-slate-600 xl:table-cell">
-                            {service || <span className="text-slate-400">—</span>}
-                          </td>
-                          <td className="hidden px-3 py-3.5 align-middle lg:table-cell">
-                            {nextAppt ? (
-                              <span className="text-sm font-medium text-[#047857]">{nextAppt}</span>
-                            ) : (
-                              <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                                None
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-3.5 pr-4 align-middle text-right">
-                            <div className="flex flex-col items-end gap-1 sm:flex-row sm:justify-end sm:gap-3">
-                              <Link
-                                href={recordHref}
-                                className="text-xs font-semibold text-[#16a349] underline-offset-2 hover:underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                Chart
-                              </Link>
-                              <Link
-                                href={historyHref}
-                                className="text-xs font-semibold text-slate-600 underline-offset-2 hover:underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                History
-                              </Link>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-
-        {showPagination ? (
-          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-center text-sm text-slate-600 sm:text-left">
-              Page {page} of {totalPages}
-              {rangeLabel ? (
+            <p className="text-sm text-[#949494]">
+              Showing{" "}
+              <span className="tabular-nums text-[#0d1f14]">
+                {rangeStart}–{rangeEnd}
+              </span>{" "}
+              of <span className="tabular-nums text-[#0d1f14]">{totalCount}</span>
+              {filtering ? (
                 <>
                   {" "}
-                  <span className="text-slate-400">·</span> Showing {rangeLabel} of {totalCount}
+                  · <span className="font-medium text-[#0d1f14]">{filterLabel(directoryFilter)}</span>
                 </>
               ) : null}
             </p>
-            <div className="flex justify-center gap-2 sm:justify-end">
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={loading || page <= 1}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={loading || page >= totalPages}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Next
-              </button>
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e8e8e8] bg-white">
+              {/* Banani header row */}
+              <div className="hidden items-center gap-4 border-b border-[#e8e8e8] bg-[#f5f5f5] px-5 py-3 sm:flex">
+                <div className="min-w-0 flex-1 text-xs font-semibold text-[#949494]">Patient</div>
+                <div className="w-36 shrink-0 text-xs font-semibold text-[#949494]">Phone</div>
+                <div className="w-36 shrink-0 text-xs font-semibold text-[#949494]">Last visit</div>
+                <div className="w-16 shrink-0 text-center text-xs font-semibold text-[#949494]">Visits</div>
+                <div className="w-40 shrink-0 text-xs font-semibold text-[#949494]">Status</div>
+                <div className="w-16 shrink-0 text-right text-xs font-semibold text-[#949494]">Actions</div>
+              </div>
+
+              <ul className="min-h-0 flex-1 divide-y divide-[#e8e8e8] overflow-auto">
+                {patients.map((p) => {
+                  const { last, first } = patientDirectoryName(p);
+                  const displayName =
+                    first !== "—" && last !== "—"
+                      ? `${first} ${last}`
+                      : first !== "—"
+                        ? first
+                        : last;
+                  const phoneLine = formatPhoneCompact(p.phone);
+                  const visits = typeof p.visit_count === "number" ? p.visit_count : 0;
+                  const nextAppt = nextAppointmentLabel(p);
+                  const noShows = typeof p.no_show_count === "number" ? p.no_show_count : 0;
+                  const recordHref = `/doctor/patients/${p.id}/record`;
+                  const status = patientRowStatus(p);
+                  const statusUi = STATUS_STYLES[status];
+
+                  return (
+                    <li
+                      key={p.id}
+                      tabIndex={0}
+                      className={cn(
+                        "flex cursor-pointer flex-col gap-3 px-5 py-3.5 transition hover:bg-[#f8f8f7] sm:flex-row sm:items-center sm:gap-4",
+                        "focus-visible:bg-[#dbe7fb]/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#16a349]",
+                      )}
+                      onClick={() => router.push(recordHref)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          router.push(recordHref);
+                        }
+                      }}
+                      aria-label={`Open chart for ${displayName}`}
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <div
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e8e8e8] text-[11px] font-semibold uppercase text-[#0d1f14]"
+                          aria-hidden
+                        >
+                          {patientInitials(p)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-[#0d1f14]">{displayName}</span>
+                            <PatientPaymentProfileBadge profile={p.payment_profile} />
+                            <PatientIrisBadge irisTag={p.iris_tag} />
+                            <PatientNoShowBadge count={noShows} />
+                          </div>
+                          <p className="mt-0.5 text-xs text-[#949494]">
+                            {p.date_of_birth
+                              ? `DOB: ${formatMonthDayYear(p.date_of_birth)}`
+                              : `ID: #${p.id}`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="w-full text-sm text-[#949494] sm:w-36 sm:shrink-0">
+                        <span className="sm:hidden text-xs font-semibold text-[#949494]">Phone · </span>
+                        {phoneLine ? (
+                          <span className="tabular-nums">{phoneLine}</span>
+                        ) : (
+                          <span>—</span>
+                        )}
+                      </div>
+
+                      <div className="w-full text-sm text-[#949494] sm:w-36 sm:shrink-0">
+                        <span className="sm:hidden text-xs font-semibold text-[#949494]">Last visit · </span>
+                        <span className={cn(!p.last_visit && "italic")}>{lastVisitLabel(p)}</span>
+                      </div>
+
+                      <div className="hidden w-16 shrink-0 text-center sm:block">
+                        <span className="text-sm font-semibold tabular-nums text-[#0d1f14]">{visits}</span>
+                      </div>
+
+                      <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:shrink-0">
+                        <div className="w-40 shrink-0">
+                          <span
+                            className={cn(
+                              "inline-flex rounded px-2 py-0.5 text-xs font-semibold",
+                              statusUi.className,
+                            )}
+                          >
+                            {statusUi.label}
+                          </span>
+                          {status === "upcoming" && nextAppt ? (
+                            <p className="mt-0.5 text-[11px] leading-snug text-[#949494]">{nextAppt}</p>
+                          ) : null}
+                        </div>
+
+                        <div
+                          className="flex w-16 shrink-0 justify-end"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            ref={(el) => {
+                              if (el) menuButtonRefs.current.set(p.id, el);
+                              else menuButtonRefs.current.delete(p.id);
+                            }}
+                            aria-haspopup="menu"
+                            aria-expanded={menuOpenId === p.id}
+                            aria-label={`Actions for ${displayName}`}
+                            onClick={() => openRowMenu(p, displayName)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#e8e8e8] bg-white text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
+                          >
+                            <IconMoreVertical className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {showPagination ? (
+                <div className="flex flex-col gap-3 border-t border-[#e8e8e8] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-[#949494]">
+                    Page <span className="font-semibold tabular-nums text-[#0d1f14]">{page}</span> of{" "}
+                    <span className="tabular-nums">{totalPages}</span>
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="h-9 rounded-lg border border-[#e8e8e8] bg-white px-4 text-xs font-semibold text-[#0d1f14] hover:bg-[#f5f5f5] disabled:opacity-40"
+                      disabled={loading || page <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      aria-label="Previous page"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="h-9 rounded-lg border border-[#e8e8e8] bg-white px-4 text-xs font-semibold text-[#0d1f14] hover:bg-[#f5f5f5] disabled:opacity-40"
+                      disabled={loading || page >= totalPages}
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      aria-label="Next page"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
-          </div>
-        ) : null}
+          </>
+        )}
       </div>
+
+      {menuOpenId != null && menuPos && menuLinks
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              aria-label={`Actions for ${menuLinks.label}`}
+              className="fixed z-[200] w-40 overflow-hidden rounded-lg border border-[#e8e8e8] bg-white py-1 shadow-lg"
+              style={{
+                top: menuPos.openUp ? undefined : menuPos.top,
+                bottom: menuPos.openUp ? window.innerHeight - menuPos.top : undefined,
+                left: menuPos.left,
+              }}
+            >
+              <Link
+                href={menuLinks.chart}
+                role="menuitem"
+                className="flex w-full items-center px-3.5 py-2.5 text-left text-sm font-medium text-[#16a349] hover:bg-[#f5f5f5]"
+                onClick={closeMenu}
+              >
+                Chart
+              </Link>
+              <Link
+                href={menuLinks.history}
+                role="menuitem"
+                className="flex w-full items-center px-3.5 py-2.5 text-left text-sm font-medium text-[#0d1f14] hover:bg-[#f5f5f5]"
+                onClick={closeMenu}
+              >
+                History
+              </Link>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

@@ -20,29 +20,25 @@ export function appointmentStatusDisplayLabel(status: string): string {
   return key.replaceAll("_", " ");
 }
 
-/**
- * Background + text color for appointment status pills.
- * Checked in = light blue, in consultation = yellow, awaiting payment = violet,
- * completed = green, no-show = red, cancelled = stone, booked = neutral slate.
- */
+/** Background + text color for appointment status pills (Banani clinic palette). */
 export function appointmentStatusPillClass(status: string): string {
   switch (status) {
     case "checked_in":
-      return "bg-sky-100 text-sky-900";
+      return "bg-[#ecfdf5] text-[#0d5c2e] ring-1 ring-[#16a349]/25";
     case "in_consultation":
-      return "bg-yellow-100 text-yellow-950";
+      return "bg-[#dbe7fb] text-[#1d4ed8] ring-1 ring-[#277eff]/30";
     case "awaiting_payment":
-      return "bg-violet-100 text-violet-900";
+      return "bg-[#fff7ed] text-[#9a3412] ring-1 ring-[#e9982f]/40";
     case "completed":
-      return "bg-emerald-100 text-emerald-900";
+      return "bg-[#f0fdf4] text-[#166534] ring-1 ring-[#16a349]/20";
     case "no_show":
-      return "bg-red-200 text-red-950 ring-2 ring-red-500/70";
+      return "bg-[#fef2f2] text-[#b91c1c] ring-1 ring-[#ef4444]/45";
     case "cancelled":
-      return "bg-stone-200 text-stone-800";
+      return "bg-[#f5f5f5] text-[#6b7280] ring-1 ring-[#e8e8e8]";
     case "booked":
     case "scheduled":
     default:
-      return "bg-slate-100 text-slate-700";
+      return "bg-[#f8f8f7] text-[#277eff] ring-1 ring-[#dbe7fb]";
   }
 }
 
@@ -50,21 +46,21 @@ export function appointmentStatusPillClass(status: string): string {
 export function appointmentStatusStripeClass(status: string): string {
   switch (status) {
     case "checked_in":
-      return "border-l-[3px] border-l-sky-500";
+      return "border-l-[3px] border-l-[#16a349]";
     case "in_consultation":
-      return "border-l-[3px] border-l-yellow-500";
+      return "border-l-[3px] border-l-[#277eff]";
     case "awaiting_payment":
-      return "border-l-[3px] border-l-violet-500";
+      return "border-l-[3px] border-l-[#e9982f]";
     case "completed":
-      return "border-l-[3px] border-l-emerald-500";
+      return "border-l-[3px] border-l-[#0d5c2e]";
     case "no_show":
-      return "border-l-[4px] border-l-red-600 bg-red-50/80";
+      return "border-l-[4px] border-l-[#ef4444] bg-red-50/80";
     case "cancelled":
-      return "border-l-[3px] border-l-stone-500";
+      return "border-l-[3px] border-l-[#949494]";
     case "booked":
     case "scheduled":
     default:
-      return "border-l-[3px] border-l-slate-400";
+      return "border-l-[3px] border-l-[#277eff]/70";
   }
 }
 
@@ -84,7 +80,7 @@ type BadgeSize = "xs" | "sm" | "md";
 const badgeSizeClass: Record<BadgeSize, string> = {
   xs: "px-2 py-0.5 text-[10px]",
   sm: "px-2.5 py-1 text-[11px]",
-  md: "px-3 py-1 text-xs",
+  md: "px-2.5 py-1 text-xs",
 };
 
 /** Status pill with a clear no-show mark (used on charts, history, schedule lists). */
@@ -101,14 +97,14 @@ export function AppointmentStatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full font-bold uppercase tracking-wide",
+        "inline-flex items-center gap-1 rounded-md font-medium capitalize",
         appointmentStatusPillClass(status),
         badgeSizeClass[size],
         className,
       )}
     >
       {isNoShow ? (
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-600 text-[9px] font-black leading-none text-white">
+        <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-[#ef4444] text-[8px] font-black leading-none text-white">
           !
         </span>
       ) : null}

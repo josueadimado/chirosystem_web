@@ -1,6 +1,7 @@
 "use client";
 
 import { CalendarClock } from "lucide-react";
+import { useState } from "react";
 
 /**
  * Planned maintenance window (used only to show/hide the banner — not shown to staff).
@@ -13,7 +14,8 @@ const SCHEDULED_MAINTENANCE = {
 
 /** Shown on the admin dashboard before and during a planned maintenance window. */
 export function AdminMaintenanceNotice() {
-  const now = Date.now();
+  // Freeze "now" at first client render so we don't call Date.now() every paint.
+  const [now] = useState(() => Date.now());
   const startMs = new Date(SCHEDULED_MAINTENANCE.startIso).getTime();
   const endMs = new Date(SCHEDULED_MAINTENANCE.endIso).getTime();
 

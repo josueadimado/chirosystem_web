@@ -31,6 +31,7 @@ export function Cms1500PortalModal({ claim, onClose, basePath }: Props) {
     if (!claim) return;
     setEmailTo((claim.payer_email || "").trim());
     setEmailMsg("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via claim?.invoice_id / payer_email
   }, [claim?.invoice_id, claim?.payer_email]);
 
   useEffect(() => {

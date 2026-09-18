@@ -27,15 +27,19 @@ type SidebarProps = {
 };
 
 function navActiveClasses(accent: "default" | "doctor" | "admin", active: boolean): string {
+  // Banani doctor + admin: dark green sidebar, green active pill
+  if (accent === "admin" || accent === "doctor") {
+    return active
+      ? "bg-[#16a349] text-white shadow-sm shadow-black/20"
+      : "text-white/70 hover:bg-white/10 hover:text-white";
+  }
   if (!active) return "text-muted-foreground hover:bg-muted/80";
-  if (accent === "admin" || accent === "doctor")
-    return "bg-primary/12 text-teal-800 shadow-sm shadow-primary/10";
   return "bg-muted text-foreground";
 }
 
 function navIconClass(accent: "default" | "doctor" | "admin", active: boolean): string {
+  if (accent === "admin" || accent === "doctor") return active ? "text-white" : "text-white/70";
   if (!active) return "text-muted-foreground";
-  if (accent === "admin" || accent === "doctor") return "text-primary";
   return "text-foreground";
 }
 
@@ -75,7 +79,12 @@ function NavLink({
           {item.icon}
           {!open && item.badge === "new" ? (
             <span
-              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-sidebar"
+              className={cn(
+                "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-400",
+                accent === "admin" || accent === "doctor"
+                  ? "ring-2 ring-[#0d5c2e]"
+                  : "ring-2 ring-sidebar",
+              )}
               aria-hidden
             />
           ) : null}
@@ -85,7 +94,12 @@ function NavLink({
         <span className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate">{item.label}</span>
           {item.badge === "new" ? (
-            <span className="shrink-0 rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+            <span
+              className={cn(
+                "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white",
+                accent === "admin" || accent === "doctor" ? "bg-[#e9982f]" : "bg-emerald-600",
+              )}
+            >
               New
             </span>
           ) : null}
@@ -142,8 +156,8 @@ export function Sidebar({
   }, [open]);
 
   const chrome =
-    accent === "doctor" || accent === "admin"
-      ? "border-primary/10 bg-gradient-to-b from-sidebar via-sidebar to-primary/[0.06]"
+    accent === "admin" || accent === "doctor"
+      ? "border-[#0a4a25] bg-[#0d5c2e] text-white"
       : "border-border bg-sidebar";
 
   return (
@@ -172,9 +186,20 @@ export function Sidebar({
           className={cn(
             "flex items-center gap-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] lg:pt-4",
             open ? "" : "justify-center px-0",
+            (accent === "admin" || accent === "doctor") && open && "px-4 pb-5",
           )}
         >
-          {open ? (
+          {accent === "admin" || accent === "doctor" ? (
+            open ? (
+              <div className="w-full overflow-hidden rounded-xl bg-white p-2.5 shadow-sm shadow-black/15">
+                <BrandLogo variant="full" className="!max-h-10 w-full !max-w-full object-contain object-left" priority />
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-lg bg-white p-1.5 shadow-sm shadow-black/15">
+                <BrandLogo variant="mark" className="!h-8 !w-8 shrink-0 rounded-md object-contain" priority />
+              </div>
+            )
+          ) : open ? (
             <BrandLogo variant="full" className="min-h-10 min-w-0 max-h-11" priority />
           ) : (
             <BrandLogo variant="mark" className="shrink-0 rounded-lg ring-1 ring-primary/10" priority />
@@ -190,7 +215,12 @@ export function Sidebar({
             groups.map((group) => (
               <div key={group.label || "main"} className="space-y-1">
                 {open && group.label ? (
-                  <p className="mt-4 mb-1 px-3 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground first:mt-0 leading-normal">
+                  <p
+                    className={cn(
+                      "mt-4 mb-1 px-3 text-[13px] font-semibold uppercase tracking-wider first:mt-0 leading-normal",
+                      accent === "admin" || accent === "doctor" ? "text-white/50" : "text-muted-foreground",
+                    )}
+                  >
                     {group.label}
                   </p>
                 ) : null}

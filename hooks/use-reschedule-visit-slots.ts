@@ -96,6 +96,7 @@ export function useRescheduleVisitSlots({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: source fields tracked via source?.id / bookedServiceId / startTimeIso
   }, [source?.id, source?.bookedServiceId, source?.startTimeIso, date, providerId]);
 
   const submit = useCallback(async () => {

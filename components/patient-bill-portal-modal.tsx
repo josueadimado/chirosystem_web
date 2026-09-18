@@ -31,9 +31,11 @@ export function PatientBillPortalModal({
   const [portalReady, setPortalReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- mark document ready for createPortal after mount */
   useEffect(() => {
     setPortalReady(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (typeof document === "undefined" || !bill) return;

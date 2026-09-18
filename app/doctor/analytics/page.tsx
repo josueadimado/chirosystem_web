@@ -1,20 +1,28 @@
 "use client";
 
-import { DoctorPageIntro, DoctorSectionLabel } from "@/components/doctor-shell";
 import { HelpTip } from "@/components/help-tip";
 import { Loader } from "@/components/loader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiGetAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  Calendar,
+  CheckCircle2,
+  Clock,
+  TrendingUp,
+  UserPlus,
+  Users,
+  UserX,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 // Recharts is large — load it only when the analytics page is actually visited.
 const AnalyticsTrendChart = dynamic(
   () =>
     import("@/components/analytics-trend-chart").then((m) => ({ default: m.AnalyticsTrendChart })),
-  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-slate-100" /> },
+  { ssr: false, loading: () => <div className="h-[220px] animate-pulse rounded-xl bg-[#f8fdf9]" /> },
 );
 
 type DoctorAnalyticsPayload = {
@@ -71,7 +79,20 @@ type DoctorAnalyticsPayload = {
   care_plan_sessions?: number;
 };
 
-type AnalyticsTab = "outreach" | "performance" | "trends";
+type AnalyticsTab = "overview" | "outreach" | "performance";
+
+type AttentionItem = {
+  id: string;
+  tone: "rose" | "amber";
+  title: string;
+  detail: string;
+  cta: string;
+  tab: AnalyticsTab;
+};
+
+type StatTone = "primary" | "green" | "consult" | "red" | "grey";
+
+const BANANI_CARD = "rounded-xl border border-[#e8e8e8] bg-white";
 
 const SESSION_PERIOD_OPTIONS = [
   { value: 4, label: "4 wk" },
@@ -84,7 +105,7 @@ const SESSION_PERIOD_OPTIONS = [
 const NO_SHOW_RATE_ALERT = 15;
 
 const TAB_TRIGGER_CLASS =
-  "min-w-[6.5rem] flex-1 rounded-lg border-0 px-3 py-2 text-sm font-medium text-slate-600 shadow-none after:hidden hover:text-slate-900 data-active:bg-white data-active:text-slate-900 data-active:shadow-sm sm:flex-none";
+  "min-w-[5.5rem] flex-1 rounded-none border-0 border-b-2 border-transparent bg-transparent px-4 py-2.5 text-sm font-medium text-[#5a7a62] shadow-none after:hidden hover:text-[#0d1f14] data-active:border-[#16a349] data-active:bg-transparent data-active:text-[#16a349] data-active:shadow-none sm:flex-none";
 
 const CHART_GREEN = "#16a349";
 const CHART_ROSE = "#e11d48";
@@ -97,7 +118,88 @@ function formatSeen(iso: string | null): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-/** Needs-attention column: capped height + scroll so one long list does not stretch the page. */
+function SectionHeading({ children }: { children: ReactNode }) {
+  return <h3 className="mb-3 text-sm font-semibold text-[#0d1f14]">{children}</h3>;
+}
+
+function SnapshotStatCard({
+  label,
+  value,
+  icon,
+  tone = "primary",
+  alert,
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+  tone?: StatTone;
+  alert?: boolean;
+}) {
+  const iconWrap: Record<StatTone, string> = {
+    primary: "bg-[#ecfdf5] text-[#16a349]",
+    green: "bg-[#f0fdf4] text-[#166534]",
+    consult: "bg-[#fef3c7] text-[#92400e]",
+    red: "bg-[#fee2e2] text-[#991b1b]",
+    grey: "bg-[#f3f4f6] text-[#4b5563]",
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-3 rounded-lg border border-[#d1e8d8] bg-white px-4 py-3.5",
+        alert && "border-rose-200 bg-rose-50/60",
+      )}
+    >
+      <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", iconWrap[tone])}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className={cn("truncate text-xl font-bold tabular-nums leading-none text-[#0d1f14]", alert && "text-rose-700")}>
+          {value}
+        </p>
+        <p className="mt-1 truncate text-xs text-[#5a7a62]">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({
+  title,
+  value,
+  help,
+  alert,
+  icon,
+}: {
+  title: string;
+  value: string;
+  help?: string;
+  alert?: boolean;
+  icon: ReactNode;
+}) {
+  return (
+    <div className={cn(BANANI_CARD, "px-4 py-4", alert && "border-rose-200 bg-rose-50/50")}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="flex items-center gap-1 text-xs font-medium text-[#5a7a62]">
+          {title}
+          {help ? <HelpTip label={title}>{help}</HelpTip> : null}
+        </p>
+        <div
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+            alert ? "bg-[#fee2e2] text-[#991b1b]" : "bg-[#ecfdf5] text-[#16a349]",
+          )}
+        >
+          {icon}
+        </div>
+      </div>
+      <p className={cn("mt-2 text-2xl font-bold tabular-nums text-[#0d1f14] sm:text-3xl", alert && "text-rose-700")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/** Outreach column: capped height + scroll so one long list does not stretch the page. */
 function AttentionList({
   title,
   help,
@@ -119,16 +221,20 @@ function AttentionList({
   return (
     <div
       className={cn(
-        "doctor-panel flex flex-col",
+        BANANI_CARD,
+        "flex flex-col p-4",
         tone === "rose" && "border-rose-200/80 bg-rose-50/40",
         tone === "amber" && "border-amber-200/80 bg-amber-50/40",
       )}
     >
-      <DoctorSectionLabel help={help}>{heading}</DoctorSectionLabel>
+      <div className="mb-3 flex items-center gap-1.5">
+        <p className="text-sm font-semibold text-[#0d1f14]">{heading}</p>
+        <HelpTip label={title}>{help}</HelpTip>
+      </div>
       {isEmpty ? (
-        <p className="text-sm text-slate-500">{empty}</p>
+        <p className="text-sm text-[#5a7a62]">{empty}</p>
       ) : (
-        <div className="max-h-[min(20rem,42vh)] overflow-y-auto overscroll-y-contain rounded-lg border border-slate-100/90 bg-white/80 pr-0.5">
+        <div className="max-h-[min(20rem,42vh)] overflow-y-auto overscroll-y-contain rounded-lg border border-[#d1e8d8] bg-white pr-0.5">
           {children}
         </div>
       )}
@@ -142,7 +248,7 @@ export default function DoctorAnalyticsPage() {
   const [chartLoading, setChartLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionWeeks, setSessionWeeks] = useState(8);
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>("outreach");
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>("overview");
 
   const load = useCallback(
     async (opts?: { weeks?: number; chartOnly?: boolean }) => {
@@ -192,14 +298,61 @@ export default function DoctorAnalyticsPage() {
     return { missed, soon, unscheduled, total: missed + soon + unscheduled };
   }, [data]);
 
+  const attentionItems = useMemo((): AttentionItem[] => {
+    if (!data) return [];
+    const items: AttentionItem[] = [];
+    const { missed, soon, unscheduled } = attentionTotals;
+
+    if (unscheduled > 0) {
+      items.push({
+        id: "unscheduled",
+        tone: "amber",
+        title: `${unscheduled} patient${unscheduled === 1 ? "" : "s"} with no upcoming session`,
+        detail: "They saw you before but nothing is booked ahead — good candidates to call.",
+        tab: "outreach",
+        cta: "View outreach",
+      });
+    }
+
+    if (missed > 0) {
+      items.push({
+        id: "missed",
+        tone: "rose",
+        title: `${missed} patient${missed === 1 ? "" : "s"} missed 2+ sessions`,
+        detail: "Last two or more visits were cancelled or no-show.",
+        tab: "outreach",
+        cta: "View outreach",
+      });
+    }
+
+    if (soon > 0) {
+      items.push({
+        id: "completing",
+        tone: "amber",
+        title: `${soon} patient${soon === 1 ? "" : "s"} completing a program soon`,
+        detail: "Within a couple of sessions of finishing their care plan.",
+        tab: "outreach",
+        cta: "View outreach",
+      });
+    }
+
+    if (data.monthly_kpis.no_show_rate >= NO_SHOW_RATE_ALERT) {
+      items.push({
+        id: "noshow-rate",
+        tone: "rose",
+        title: `No-show rate is ${data.monthly_kpis.no_show_rate}% this month`,
+        detail: "Higher than usual — review reminders and patients who keep missing.",
+        tab: "performance",
+        cta: "View performance",
+      });
+    }
+
+    return items;
+  }, [data, attentionTotals]);
+
   if (loading) {
     return (
-      <div className="space-y-6">
-        <DoctorPageIntro
-          eyebrow="Insights"
-          title="My analytics"
-          description="Your performance and patients who may need a follow-up."
-        />
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
         <Loader variant="page" label="Loading analytics" sublabel="Your clinic stats…" />
       </div>
     );
@@ -207,14 +360,13 @@ export default function DoctorAnalyticsPage() {
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <DoctorPageIntro eyebrow="Insights" title="My analytics" description="Your performance overview." />
-        <div className="doctor-panel border-amber-200 bg-amber-50 text-amber-950">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+        <div className={cn(BANANI_CARD, "border-rose-200 bg-rose-50 p-5 text-rose-800")}>
           <p className="text-sm font-medium">{error}</p>
           <button
             type="button"
             onClick={() => void load()}
-            className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-amber-50"
+            className="mt-3 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-sm font-medium text-rose-900 hover:bg-rose-50"
           >
             Try again
           </button>
@@ -229,122 +381,126 @@ export default function DoctorAnalyticsPage() {
   const next = data.today.next_patient;
   const attn = data.needs_attention;
   const noShowAlert = data.monthly_kpis.no_show_rate >= NO_SHOW_RATE_ALERT;
+  const nextLabel = next
+    ? next.minutes_until <= 0
+      ? next.name
+      : `${next.name} · ${next.time}`
+    : "None";
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <DoctorPageIntro
-          eyebrow="Insights"
-          title="My analytics"
-          description="Patients who may need outreach, your monthly performance, and session trends — only your appointments."
-          pageHelp={
-            <>
-              Program names come from each patient&apos;s visit type. Care plans use a default of{" "}
-              <strong>{planSessions} sessions</strong> until per-patient plans are added in the system. Use{" "}
-              <strong>My Dashboard</strong> for today&apos;s live schedule and visits.
-            </>
-          }
-        />
+    <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+      <div className="flex items-center justify-end gap-3">
         <button
           type="button"
           onClick={() => void load()}
-          className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          className="rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-sm font-medium text-[#0d1f14] hover:bg-[#f8fdf9]"
         >
           Refresh
         </button>
       </div>
 
-      {/* Compact today line — full day workflow lives on Dashboard */}
-      <section className="rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Today</p>
-            <p className="mt-1 text-sm text-slate-700">
-              <span className="font-semibold tabular-nums text-slate-900">{data.today.total}</span> patients ·{" "}
-              <span className="font-semibold tabular-nums text-[#166534]">{data.today.completed}</span> done ·{" "}
-              <span className="font-semibold tabular-nums text-amber-800">{data.today.remaining}</span> remaining
-              {next ? (
-                <>
-                  {" "}
-                  · Next: <span className="font-semibold text-slate-900">{next.name}</span> at {next.time}
-                </>
-              ) : null}
-            </p>
-          </div>
-          <Link
-            href="/doctor/dashboard"
-            className="shrink-0 rounded-lg border border-[#16a349]/30 bg-[#ecfdf5] px-3 py-1.5 text-xs font-semibold text-[#0d5c2e] hover:bg-[#d1fae5]"
-          >
-            Open dashboard →
-          </Link>
-        </div>
-      </section>
-
-      {attentionTotals.total > 0 ? (
-        <section
-          className="rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-3.5 shadow-sm ring-1 ring-amber-100"
-          aria-label="Needs attention"
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Needs attention</p>
-          <p className="mt-1 text-sm text-amber-950">
-            <span className="font-semibold tabular-nums">{attentionTotals.total}</span> patient
-            {attentionTotals.total === 1 ? "" : "s"} may need a follow-up.
-          </p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {attentionTotals.unscheduled > 0 ? (
-              <button
-                type="button"
-                onClick={() => setActiveTab("outreach")}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+      {attentionItems.length > 0 ? (
+        <section aria-label="Needs attention" className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#5a7a62]">Needs attention</p>
+          <ul className="space-y-2">
+            {attentionItems.map((item) => (
+              <li
+                key={item.id}
+                className={cn(
+                  "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3.5 py-2.5",
+                  item.tone === "rose" ? "border-rose-200 bg-rose-50" : "border-orange-200 bg-orange-50",
+                )}
               >
-                No upcoming session ({attentionTotals.unscheduled})
-              </button>
-            ) : null}
-            {attentionTotals.missed > 0 ? (
-              <button
-                type="button"
-                onClick={() => setActiveTab("outreach")}
-                className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50"
-              >
-                Missed 2+ sessions ({attentionTotals.missed})
-              </button>
-            ) : null}
-            {attentionTotals.soon > 0 ? (
-              <button
-                type="button"
-                onClick={() => setActiveTab("outreach")}
-                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50"
-              >
-                Completing soon ({attentionTotals.soon})
-              </button>
-            ) : null}
-          </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#0d1f14]">{item.title}</p>
+                  <p className="mt-0.5 text-xs text-[#5a7a62]">{item.detail}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(item.tab)}
+                  className="shrink-0 rounded-lg border border-[#d1e8d8] bg-white px-3 py-1.5 text-xs font-semibold text-[#16a349] hover:bg-[#f8fdf9]"
+                >
+                  {item.cta}
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
-      {noShowAlert ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-950">
-          <p className="font-semibold">No-show rate is {data.monthly_kpis.no_show_rate}% this month</p>
-          <p className="mt-1 text-rose-900/90">
-            Higher than usual — review reminders and patients who keep missing. See Performance for the full monthly
-            picture.
-          </p>
-          <button
-            type="button"
-            onClick={() => setActiveTab("performance")}
-            className="mt-2 text-xs font-semibold text-rose-900 underline hover:no-underline"
-          >
-            View performance →
-          </button>
+      <section>
+        <SectionHeading>Today</SectionHeading>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <SnapshotStatCard
+            label="On schedule"
+            value={String(data.today.total)}
+            icon={<Calendar className="h-[18px] w-[18px]" />}
+          />
+          <SnapshotStatCard
+            label="Completed"
+            value={String(data.today.completed)}
+            tone="green"
+            icon={<CheckCircle2 className="h-[18px] w-[18px]" />}
+          />
+          <SnapshotStatCard
+            label="Remaining"
+            value={String(data.today.remaining)}
+            tone="consult"
+            alert={data.today.remaining > 0}
+            icon={<Clock className="h-[18px] w-[18px]" />}
+          />
+          <SnapshotStatCard
+            label="Next patient"
+            value={nextLabel}
+            tone="grey"
+            icon={<Users className="h-[18px] w-[18px]" />}
+          />
         </div>
-      ) : null}
+      </section>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalyticsTab)} className="gap-6">
-        <TabsList className="flex h-auto w-full max-w-2xl flex-wrap gap-1 rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner shadow-slate-200/30">
+      <section>
+        <SectionHeading>This month</SectionHeading>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            title="Patients seen"
+            value={String(data.monthly_kpis.patients_seen)}
+            help="Unique patients with a completed visit this month."
+            icon={<Users className="h-4 w-4" />}
+          />
+          <KpiCard
+            title="New patients"
+            value={String(data.monthly_kpis.new_patients)}
+            help="First appointment with you was this month."
+            icon={<UserPlus className="h-4 w-4" />}
+          />
+          <KpiCard
+            title="Sessions completed"
+            value={String(data.monthly_kpis.sessions_completed)}
+            help="Completed visits you documented this month."
+            icon={<TrendingUp className="h-4 w-4" />}
+          />
+          <KpiCard
+            title="No-show rate"
+            value={`${data.monthly_kpis.no_show_rate}%`}
+            help="No-shows ÷ (completed + cancelled + no-shows) this month."
+            alert={noShowAlert}
+            icon={<UserX className="h-4 w-4" />}
+          />
+        </div>
+      </section>
+
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalyticsTab)} className="gap-5">
+        <TabsList
+          variant="line"
+          className="h-auto w-full justify-start gap-0 rounded-none border-b border-[#d1e8d8] bg-transparent p-0"
+        >
+          <TabsTrigger value="overview" className={TAB_TRIGGER_CLASS}>
+            Overview
+          </TabsTrigger>
           <TabsTrigger value="outreach" className={TAB_TRIGGER_CLASS}>
             Outreach
             {attentionTotals.total > 0 ? (
-              <span className="ml-1.5 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-900">
+              <span className="ml-1.5 rounded-md bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-orange-900">
                 {attentionTotals.total}
               </span>
             ) : null}
@@ -352,17 +508,36 @@ export default function DoctorAnalyticsPage() {
           <TabsTrigger value="performance" className={TAB_TRIGGER_CLASS}>
             Performance
           </TabsTrigger>
-          <TabsTrigger value="trends" className={TAB_TRIGGER_CLASS}>
-            Trends
-          </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="overview" className="mt-0 space-y-5">
+          <AnalyticsTrendChart
+            title="Session breakdown"
+            help=""
+            data={data.weekly_sessions}
+            xKey="week"
+            series={[
+              { dataKey: "completed", name: "Completed", color: CHART_GREEN },
+              { dataKey: "missed", name: "Cancelled / no-show", color: CHART_ROSE },
+              { dataKey: "sessions", name: "Scheduled", color: CHART_SLATE },
+            ]}
+            periodLabel="Show"
+            periodValue={sessionWeeks}
+            periodOptions={[...SESSION_PERIOD_OPTIONS]}
+            onPeriodChange={(v) => {
+              if (v === sessionWeeks) return;
+              void load({ weeks: v, chartOnly: true });
+            }}
+            valueFormatter={(v) => `${v} visit${v === 1 ? "" : "s"}`}
+            yTickFormatter={(v) => String(Math.round(v))}
+            height={240}
+            loading={chartLoading}
+            panelClassName={cn(BANANI_CARD, "p-4")}
+          />
+        </TabsContent>
+
         <TabsContent value="outreach" className="mt-0 space-y-4">
-          <p className="text-sm text-slate-600">
-            Patients who may need a call or a next booking. Open a chart to schedule from there.
-          </p>
           <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
-            {/* Unscheduled first — usually the longest, most actionable list */}
             <AttentionList
               title="No upcoming session"
               help="Had a visit with you before but nothing scheduled ahead. Scroll inside this box when the list is long."
@@ -374,9 +549,12 @@ export default function DoctorAnalyticsPage() {
               {attn.unscheduled.length > 0 ? (
                 <ul className="space-y-2 p-2">
                   {attn.unscheduled.map((row) => (
-                    <li key={row.patient_id} className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2">
-                      <p className="text-sm font-semibold leading-snug text-slate-900">{row.name}</p>
-                      <p className="mt-0.5 text-[11px] leading-snug text-slate-600">
+                    <li
+                      key={row.patient_id}
+                      className="rounded-lg border border-[#d1e8d8] bg-[#f8fdf9] px-3 py-2"
+                    >
+                      <p className="text-sm font-semibold leading-snug text-[#0d1f14]">{row.name}</p>
+                      <p className="mt-0.5 text-[11px] leading-snug text-[#5a7a62]">
                         {row.program} · Last session {formatSeen(row.last_session)}
                       </p>
                       <Link
@@ -402,9 +580,12 @@ export default function DoctorAnalyticsPage() {
               {attn.missed_sessions.length > 0 ? (
                 <ul className="space-y-2 p-2">
                   {attn.missed_sessions.map((row) => (
-                    <li key={row.patient_id} className="rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-2">
-                      <p className="font-semibold text-slate-900">{row.name}</p>
-                      <p className="text-xs text-slate-600">
+                    <li
+                      key={row.patient_id}
+                      className="rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-2"
+                    >
+                      <p className="font-semibold text-[#0d1f14]">{row.name}</p>
+                      <p className="text-xs text-[#5a7a62]">
                         {row.program} · Last seen {formatSeen(row.last_seen)}
                       </p>
                       <Link
@@ -430,9 +611,12 @@ export default function DoctorAnalyticsPage() {
               {attn.completing_soon.length > 0 ? (
                 <ul className="space-y-2 p-2">
                   {attn.completing_soon.map((row) => (
-                    <li key={row.patient_id} className="rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2">
-                      <p className="font-semibold text-slate-900">{row.name}</p>
-                      <p className="text-xs text-slate-600">
+                    <li
+                      key={row.patient_id}
+                      className="rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2"
+                    >
+                      <p className="font-semibold text-[#0d1f14]">{row.name}</p>
+                      <p className="text-xs text-[#5a7a62]">
                         {row.program} · {row.sessions_left} session{row.sessions_left === 1 ? "" : "s"} left
                       </p>
                       <Link
@@ -449,75 +633,21 @@ export default function DoctorAnalyticsPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="performance" className="mt-0 space-y-6">
-          <section>
-            <DoctorSectionLabel help="Current calendar month for your provider.">
-              My monthly stats
-            </DoctorSectionLabel>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {(
-                [
-                  {
-                    label: "Patients seen",
-                    value: String(data.monthly_kpis.patients_seen),
-                    help: "Unique patients with a completed visit this month.",
-                    alert: false,
-                  },
-                  {
-                    label: "New patients",
-                    value: String(data.monthly_kpis.new_patients),
-                    help: "First appointment with you was this month.",
-                    alert: false,
-                  },
-                  {
-                    label: "Sessions completed",
-                    value: String(data.monthly_kpis.sessions_completed),
-                    help: "Completed visits you documented this month.",
-                    alert: false,
-                  },
-                  {
-                    label: "No-show rate",
-                    value: `${data.monthly_kpis.no_show_rate}%`,
-                    help: "No-shows ÷ (completed + cancelled + no-shows) this month.",
-                    alert: noShowAlert,
-                  },
-                ] as const
-              ).map((card) => (
-                <div
-                  key={card.label}
-                  className={cn(
-                    "doctor-panel",
-                    card.alert && "border-rose-300/80 bg-rose-50/70 ring-1 ring-rose-200/50",
-                  )}
-                >
-                  <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-                    {card.label}
-                    <HelpTip label={card.label}>{card.help}</HelpTip>
-                  </p>
-                  <p
-                    className={cn(
-                      "mt-3 text-3xl font-bold tabular-nums",
-                      card.alert ? "text-rose-800" : "text-slate-900",
-                    )}
-                  >
-                    {card.value}
-                  </p>
-                </div>
-              ))}
+        <TabsContent value="performance" className="mt-0 space-y-5">
+          <section className={cn(BANANI_CARD, "p-4")}>
+            <div className="mb-3 flex items-center gap-1.5">
+              <p className="text-sm font-semibold text-[#0d1f14]">Program completion this month</p>
+              <HelpTip label="Program completion">
+                Grouped by visit type (program). Certificate = finished the care plan this month.
+              </HelpTip>
             </div>
-          </section>
-
-          <section className="doctor-panel">
-            <DoctorSectionLabel help="Grouped by visit type (program). Certificate = finished the care plan this month.">
-              Program completion this month
-            </DoctorSectionLabel>
             {data.completions_this_month.length === 0 ? (
-              <p className="text-sm text-slate-500">No completed sessions recorded this month yet.</p>
+              <p className="text-sm text-[#5a7a62]">No completed sessions recorded this month yet.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[480px] text-sm">
                   <thead>
-                    <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <tr className="border-b border-[#d1e8d8] text-left text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">
                       <th className="py-2 pr-4">Program</th>
                       <th className="py-2 pr-4 text-right">Clients completed</th>
                       <th className="py-2 pr-4 text-right">Certificates</th>
@@ -526,11 +656,11 @@ export default function DoctorAnalyticsPage() {
                   </thead>
                   <tbody>
                     {data.completions_this_month.map((row) => (
-                      <tr key={row.program} className="border-b border-slate-100 last:border-0">
-                        <td className="py-2.5 pr-4 font-medium text-slate-800">{row.program}</td>
-                        <td className="py-2.5 pr-4 text-right tabular-nums">{row.clients_completed}</td>
-                        <td className="py-2.5 pr-4 text-right tabular-nums">{row.certificates_issued}</td>
-                        <td className="py-2.5 text-right tabular-nums text-slate-600">
+                      <tr key={row.program} className="border-b border-[#d1e8d8]/70 last:border-0">
+                        <td className="py-2.5 pr-4 font-medium text-[#0d1f14]">{row.program}</td>
+                        <td className="py-2.5 pr-4 text-right tabular-nums text-[#0d1f14]">{row.clients_completed}</td>
+                        <td className="py-2.5 pr-4 text-right tabular-nums text-[#0d1f14]">{row.certificates_issued}</td>
+                        <td className="py-2.5 text-right tabular-nums text-[#5a7a62]">
                           {row.avg_sessions_to_complete != null ? row.avg_sessions_to_complete.toFixed(1) : "—"}
                         </td>
                       </tr>
@@ -540,37 +670,6 @@ export default function DoctorAnalyticsPage() {
               </div>
             )}
           </section>
-        </TabsContent>
-
-        <TabsContent value="trends" className="mt-0">
-          <AnalyticsTrendChart
-            title="Session breakdown"
-            help={
-              <>
-                Your appointments by week (Monday–Sunday). Use the period buttons to see a longer or shorter performance
-                trend.
-              </>
-            }
-            data={data.weekly_sessions}
-            xKey="week"
-            series={[
-              { dataKey: "completed", name: "Completed", color: CHART_GREEN },
-              { dataKey: "missed", name: "Cancelled / no-show", color: CHART_ROSE },
-              { dataKey: "sessions", name: "Scheduled", color: CHART_SLATE },
-            ]}
-            periodLabel="Show"
-            periodValue={sessionWeeks}
-            periodOptions={[...SESSION_PERIOD_OPTIONS]}
-            onPeriodChange={(v) => {
-              if (v === sessionWeeks) return;
-              void load({ weeks: v, chartOnly: true });
-            }}
-            valueFormatter={(v) => `${v} visit${v === 1 ? "" : "s"}`}
-            yTickFormatter={(v) => String(Math.round(v))}
-            height={220}
-            panelClassName="doctor-panel"
-            loading={chartLoading}
-          />
         </TabsContent>
       </Tabs>
     </div>
