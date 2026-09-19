@@ -847,31 +847,38 @@ function TimeLabelsColumn({ dayEndMin, gridPx }: { dayEndMin: number; gridPx: nu
     rows.push(m);
   }
   return (
-    <div className="flex w-[5.25rem] shrink-0 flex-col border-r border-[#d1e8d8] bg-[#f8fdf9]/80">
+    <div className="flex w-11 shrink-0 flex-col border-r border-[#d1e8d8] bg-[#f8fdf9]/80 md:w-[5.25rem]">
       <div
-        className="flex shrink-0 items-center justify-center border-b border-[#d1e8d8] bg-[#f8fdf9] px-2 py-2.5"
+        className="flex shrink-0 items-center justify-center border-b border-[#d1e8d8] bg-[#f8fdf9] px-1 py-2.5 md:px-2"
         style={{ minHeight: SCHEDULE_GRID_HEADER_MIN_PX }}
         aria-hidden
       >
-        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Time</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 md:text-[10px]">Time</span>
       </div>
       <div
-        className="relative text-[13px] font-medium leading-none text-slate-600"
+        className="relative text-[11px] font-medium leading-none text-slate-600 md:text-[13px]"
         style={{ height: gridPx, minHeight: gridPx }}
       >
         {rows.map((m) => {
           const pct = ((m - SCHEDULE_DAY_START_MIN) / totalMin) * 100;
           const onHour = m % 60 === 0;
+          const label = minutesToLabel(m);
+          // Compact hour labels on phones (e.g. "9a") so the time rail stays narrow.
+          const compact =
+            onHour && label.includes(" ")
+              ? label.replace(":00 ", "").replace(" AM", "a").replace(" PM", "p")
+              : label.replace(" ", "\u00a0");
           return (
             <span
               key={m}
               className={cn(
-                "absolute left-0 right-1 -translate-y-1/2 text-right tabular-nums tracking-tight",
-                onHour ? "text-[13px] font-medium text-slate-600" : "text-[10px] font-normal text-slate-400",
+                "absolute left-0 right-0.5 -translate-y-1/2 text-right tabular-nums tracking-tight md:right-1",
+                onHour ? "font-medium text-slate-600" : "text-[9px] font-normal text-slate-400 md:text-[10px]",
               )}
               style={{ top: `${pct}%` }}
             >
-              {minutesToLabel(m).replace(" ", "\u00a0")}
+              <span className="md:hidden">{onHour ? compact : ""}</span>
+              <span className="hidden md:inline">{label.replace(" ", "\u00a0")}</span>
             </span>
           );
         })}
@@ -971,10 +978,18 @@ function DayGrid({
   }, [dragActive]);
 
   return (
-    <div className="overflow-x-auto bg-white">
-      <div className="flex min-w-[840px]">
+    <div className="overflow-x-auto bg-white [-webkit-overflow-scrolling:touch]">
+      <div
+        className={cn("flex", providers.length <= 1 ? "min-w-0 w-full" : "min-w-[min(100%,840px)]")}
+        style={providers.length > 1 ? { minWidth: Math.max(640, 44 + providers.length * 140) } : undefined}
+      >
         <TimeLabelsColumn dayEndMin={dayEndMin} gridPx={gridPx} />
-        <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${providers.length}, minmax(140px, 1fr))` }}>
+        <div
+          className="grid min-w-0 flex-1"
+          style={{
+            gridTemplateColumns: `repeat(${providers.length}, minmax(${providers.length <= 1 ? "0" : "120px"}, 1fr))`,
+          }}
+        >
           {providers.map((p) => (
             <DayProviderColumn
               key={p.id}
@@ -1489,12 +1504,13 @@ function WeekGrid({
   }, [dragActive]);
 
   return (
-    <div className="overflow-x-auto bg-white">
-      <div className="flex min-w-[980px]">
+    <div className="overflow-x-auto bg-white [-webkit-overflow-scrolling:touch]">
+      {/* Week stays scrollable sideways on phones; narrower day columns than before */}
+      <div className="flex" style={{ minWidth: Math.max(560, 44 + weekDays.length * 100) }}>
         <TimeLabelsColumn dayEndMin={dayEndMin} gridPx={gridPx} />
         <div
-          className="grid flex-1"
-          style={{ gridTemplateColumns: `repeat(${weekDays.length}, minmax(140px, 1fr))` }}
+          className="grid min-w-0 flex-1"
+          style={{ gridTemplateColumns: `repeat(${weekDays.length}, minmax(100px, 1fr))` }}
         >
           {weekDays.map((d) => {
             const iso = toIsoDate(d);
@@ -2015,8 +2031,9 @@ function MonthGrid({
     <div className="flex h-full min-h-0 flex-col bg-white">
       <div className="grid shrink-0 grid-cols-7 border-b border-[#d1e8d8] bg-[#f8fdf9] text-center text-[11px] font-semibold uppercase tracking-wide text-[#5a7a62]">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((x) => (
-          <div key={x} className="border-r border-[#d1e8d8] px-2 py-3 last:border-r-0">
-            {x}
+          <div key={x} className="border-r border-[#d1e8d8] px-1 py-2 last:border-r-0 sm:px-2 sm:py-3">
+            <span className="sm:hidden">{x.charAt(0)}</span>
+            <span className="hidden sm:inline">{x}</span>
           </div>
         ))}
       </div>

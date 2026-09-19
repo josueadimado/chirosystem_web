@@ -145,6 +145,7 @@ export default function DoctorPatientRecordPage() {
   const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
   const [billLoadError, setBillLoadError] = useState("");
   const [visitSearch, setVisitSearch] = useState("");
+  const [visitsDrawerOpen, setVisitsDrawerOpen] = useState(false);
 
   useEffect(() => {
     setSelectedVisit(null);
@@ -517,9 +518,24 @@ export default function DoctorPatientRecordPage() {
           </p>
         ) : null}
 
-        {/* Chart + compact history side-by-side */}
+        {/* Chart + compact history side-by-side on desktop; visits drawer on phones */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center gap-2 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setVisitsDrawerOpen(true)}
+                className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-[#e8e8e8] bg-white px-4 py-2.5 text-sm font-semibold text-[#0d5c2e] hover:bg-[#ecfdf5]"
+              >
+                Recent visits ({visitsNewestFirst.length})
+              </button>
+              <Link
+                href={`/doctor/patients/${detail.id}/history`}
+                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#13823d]"
+              >
+                Full history
+              </Link>
+            </div>
             <PatientDemographicsEditor
               patient={detail}
               intakeSavePath="/doctor/patient_intake/"
@@ -531,7 +547,7 @@ export default function DoctorPatientRecordPage() {
             />
           </div>
 
-          <aside className="flex max-h-[40vh] flex-col border-t border-[#e8e8e8] bg-white lg:max-h-none lg:w-80 lg:shrink-0 lg:border-l lg:border-t-0">
+          <aside className="hidden min-h-0 flex-col border-t border-[#e8e8e8] bg-white lg:flex lg:w-80 lg:shrink-0 lg:border-l lg:border-t-0">
             <div className="shrink-0 border-b border-[#e8e8e8] px-4 py-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold text-[#949494]">RECENT VISITS</p>
@@ -620,6 +636,51 @@ export default function DoctorPatientRecordPage() {
           </aside>
         </div>
       </div>
+
+      {/* Mobile visits list */}
+      <Sheet open={visitsDrawerOpen} onOpenChange={setVisitsDrawerOpen}>
+        <SheetContent
+          side="bottom"
+          showCloseButton
+          className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden rounded-t-2xl border-[#e8e8e8] p-0 lg:hidden"
+        >
+          <div className="shrink-0 border-b border-[#e8e8e8] px-4 pb-3 pt-10">
+            <p className="text-sm font-semibold text-[#0d5c2e]">Recent visits</p>
+            <input
+              type="search"
+              value={visitSearch}
+              onChange={(e) => setVisitSearch(e.target.value)}
+              placeholder="Search visits…"
+              className="mt-2 w-full rounded-md border border-[#e8e8e8] bg-[#f8f8f7] px-3 py-2.5 text-sm"
+              aria-label="Search visits"
+            />
+          </div>
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+            {filteredVisits.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => {
+                  setVisitsDrawerOpen(false);
+                  setSelectedVisit(a);
+                }}
+                className="w-full rounded-lg border border-[#e8e8e8] px-3 py-3 text-left hover:bg-[#ecfdf5]"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900">
+                    {formatMonthDayYear(a.appointment_date)}
+                  </span>
+                  <AppointmentStatusBadge status={a.status} size="xs" />
+                </div>
+                <p className="mt-1 text-xs text-[#949494]">
+                  {a.start_time}
+                  {a.service ? ` · ${a.service}` : ""}
+                </p>
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={selectedVisit !== null} onOpenChange={(open) => !open && setSelectedVisit(null)}>
         {selectedVisit ? (

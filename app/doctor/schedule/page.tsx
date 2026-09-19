@@ -756,13 +756,13 @@ function DoctorSchedulePageInner() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* Banani DoctorSchedule toolbar — date nav left, view + calendar + New Appointment right */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
           <button
             type="button"
             aria-label="Previous period"
             onClick={() => setFocusDate(navigateFocusDate(view, focusDate, -1))}
-            className="rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[#e8e8e8] bg-white text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
           >
             ←
           </button>
@@ -773,21 +773,21 @@ function DoctorSchedulePageInner() {
             type="button"
             aria-label="Next period"
             onClick={() => setFocusDate(navigateFocusDate(view, focusDate, 1))}
-            className="rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[#e8e8e8] bg-white text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
           >
             →
           </button>
           <button
             type="button"
             onClick={() => setFocusDate(new Date())}
-            className="rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-sm text-[#0d1f14] hover:bg-[#f5f5f5]"
+            className="min-h-11 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-sm text-[#0d1f14] hover:bg-[#f5f5f5]"
           >
             Today
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex overflow-hidden rounded-lg bg-[#e8e8e8]" role="group" aria-label="Calendar view">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="flex min-h-11 overflow-hidden rounded-lg bg-[#e8e8e8]" role="group" aria-label="Calendar view">
             {(
               [
                 ["day", "Day"],
@@ -799,7 +799,7 @@ function DoctorSchedulePageInner() {
                 key={value}
                 type="button"
                 onClick={() => setView(value)}
-                className={`px-4 py-2 text-sm transition ${
+                className={`min-h-11 px-3 py-2 text-sm transition sm:px-4 ${
                   view === value
                     ? "bg-white font-semibold text-[#0d1f14]"
                     : "text-[#949494] hover:text-[#0d1f14]"

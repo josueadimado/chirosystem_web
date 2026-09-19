@@ -72,14 +72,14 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
         <main
           className={cn(
             "doctor-zone min-h-0 flex-1 overscroll-contain",
-            isFullBleed ? "flex flex-col overflow-hidden" : "overflow-y-auto pb-24",
+            isFullBleed ? "flex flex-col overflow-hidden pb-24" : "overflow-y-auto pb-24",
           )}
         >
           <div
             className={cn(
               PORTAL_ZONE_CLASSES,
               isFullBleed
-                ? "flex h-full min-h-0 flex-col px-[max(0.75rem,env(safe-area-inset-left))] py-4 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-4 lg:px-5"
+                ? "flex h-full min-h-0 flex-col px-[max(0.75rem,env(safe-area-inset-left))] py-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-4 lg:px-5"
                 : isUserGuide
                   ? "mx-auto w-full max-w-none px-3 py-6 pb-8 sm:px-4 lg:px-5"
                   : "mx-auto w-full max-w-7xl px-[max(1rem,env(safe-area-inset-left))] py-6 pb-12 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 lg:px-8",
@@ -163,7 +163,7 @@ function DoctorHeader({
         <button
           type="button"
           onClick={handleLogout}
-          className="min-h-10 rounded-lg border border-[#e8e8e8] bg-white px-4 py-2 text-sm font-medium leading-normal text-[#0d1f14] transition-colors hover:bg-[#f5f5f5]"
+          className="min-h-11 rounded-lg border border-[#e8e8e8] bg-white px-4 py-2 text-sm font-medium leading-normal text-[#0d1f14] transition-colors hover:bg-[#f5f5f5]"
         >
           Log out
         </button>

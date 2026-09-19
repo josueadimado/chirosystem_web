@@ -168,11 +168,8 @@ function PatientAccountSummaryCard({
   const lcDue = parseFloat(summary.balance_late_cancel_fee) || 0;
   const hasBalance = totalDue > 0.009;
 
-  return (
-    <section
-      className="grid grid-cols-1 gap-6 border-t border-[#e8e8e8] bg-[#ecfdf5] px-4 py-4 sm:grid-cols-3 sm:px-6"
-      aria-label="Account summary"
-    >
+  const body = (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6">
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold text-[#949494]">BALANCE DUE</p>
@@ -223,6 +220,26 @@ function PatientAccountSummaryCard({
           <p className="text-xs text-[#949494]">No upcoming appointments</p>
         )}
       </div>
+    </div>
+  );
+
+  return (
+    <section className="border-t border-[#e8e8e8] bg-[#ecfdf5]" aria-label="Account summary">
+      {/* Phones: collapse summary so visit details get more room */}
+      <details className="group sm:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-[#0d5c2e] marker:content-none [&::-webkit-details-marker]:hidden">
+          <span>
+            {hasBalance ? `Balance ${formatMoney(summary.balance_total)}` : "No balance due"}
+            <span className="ml-2 font-normal text-[#949494]">
+              · {summary.visit_count} visits · {summary.upcoming_count} upcoming
+            </span>
+          </span>
+          <span className="text-xs text-[#16a349] group-open:hidden">Show</span>
+          <span className="hidden text-xs text-[#16a349] group-open:inline">Hide</span>
+        </summary>
+        <div className="px-4 pb-4">{body}</div>
+      </details>
+      <div className="hidden px-4 py-4 sm:block sm:px-6">{body}</div>
     </section>
   );
 }
@@ -730,11 +747,11 @@ function VisitRecordCard({
               onClick={() => {
                 if (a.invoice) onPrintBill(a.invoice.id, a.invoice.status);
               }}
-              className="rounded-lg border border-[#e8e8e8] bg-white p-1.5 hover:bg-[#f5f5f5] disabled:opacity-40"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[#e8e8e8] bg-white hover:bg-[#f5f5f5] disabled:opacity-40"
               title="Print bill"
               aria-label="Print bill"
             >
-              <Printer className="h-3.5 w-3.5 text-[#949494]" aria-hidden />
+              <Printer className="h-4 w-4 text-[#949494]" aria-hidden />
             </button>
           </div>
         </div>
@@ -1259,11 +1276,11 @@ export function PatientHistoryPage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#f5f5f5]">
-      <header className="sticky top-0 z-20 border-b border-[#e8e8e8] bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+      <header className="shrink-0 border-b border-[#e8e8e8] bg-white lg:sticky lg:top-0 lg:z-20">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-6 sm:py-4">
           <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-2xl font-bold tracking-tight text-[#0d5c2e]">
+            <div className="mb-0.5 flex flex-wrap items-center gap-2 sm:mb-1">
+              <h1 className="truncate text-xl font-bold tracking-tight text-[#0d5c2e] sm:text-2xl">
                 <PatientNameWithProfile
                   name={patientFullName(detail.first_name, detail.last_name)}
                   profile={detail.payment_profile}

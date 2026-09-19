@@ -332,8 +332,8 @@ export default function DoctorPatientsPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       {/* Toolbar — Banani Doctor Patients */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-          <div className="relative min-w-[14rem] max-w-md flex-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+          <div className="relative w-full min-w-0 max-w-md flex-1">
             <Search
               className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#949494]"
               aria-hidden
@@ -349,7 +349,7 @@ export default function DoctorPatientsPage() {
             {searchInput.trim() ? (
               <button
                 type="button"
-                className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
+                className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-md text-[#949494] hover:bg-[#f5f5f5] hover:text-[#0d1f14]"
                 aria-label="Clear search"
                 onClick={() => setSearchInput("")}
               >
@@ -364,7 +364,7 @@ export default function DoctorPatientsPage() {
             id="doctor-patient-directory-filter"
             value={directoryFilter}
             onChange={(e) => setDirectoryFilter(e.target.value as DirectoryFilter)}
-            className="min-w-[11rem] rounded-lg border border-[#e8e8e8] bg-white px-3 py-2.5 text-sm text-[#949494] focus:border-[#16a349]/40 focus:text-[#0d1f14] focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            className="w-full rounded-lg border border-[#e8e8e8] bg-white px-3 py-2.5 text-sm text-[#949494] focus:border-[#16a349]/40 focus:text-[#0d1f14] focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:w-auto sm:min-w-[11rem]"
             aria-label="Filter patients"
           >
             {DIRECTORY_FILTER_OPTIONS.map((o) => {
@@ -507,7 +507,7 @@ export default function DoctorPatientsPage() {
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e8e8e8] bg-white">
               {/* Banani header row */}
-              <div className="hidden items-center gap-4 border-b border-[#e8e8e8] bg-[#f5f5f5] px-5 py-3 sm:flex">
+              <div className="hidden items-center gap-4 border-b border-[#e8e8e8] bg-[#f5f5f5] px-5 py-3 lg:flex">
                 <div className="min-w-0 flex-1 text-xs font-semibold text-[#949494]">Patient</div>
                 <div className="w-36 shrink-0 text-xs font-semibold text-[#949494]">Phone</div>
                 <div className="w-36 shrink-0 text-xs font-semibold text-[#949494]">Last visit</div>
@@ -538,7 +538,7 @@ export default function DoctorPatientsPage() {
                       key={p.id}
                       tabIndex={0}
                       className={cn(
-                        "flex cursor-pointer flex-col gap-3 px-5 py-3.5 transition hover:bg-[#f8f8f7] sm:flex-row sm:items-center sm:gap-4",
+                        "flex cursor-pointer flex-col gap-3 px-4 py-3.5 transition hover:bg-[#f8f8f7] sm:px-5 lg:flex-row lg:items-center lg:gap-4",
                         "focus-visible:bg-[#dbe7fb]/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#16a349]",
                       )}
                       onClick={() => router.push(recordHref)}
@@ -572,8 +572,8 @@ export default function DoctorPatientsPage() {
                         </div>
                       </div>
 
-                      <div className="w-full text-sm text-[#949494] sm:w-36 sm:shrink-0">
-                        <span className="sm:hidden text-xs font-semibold text-[#949494]">Phone · </span>
+                      <div className="w-full text-sm text-[#949494] lg:w-36 lg:shrink-0">
+                        <span className="lg:hidden text-xs font-semibold text-[#949494]">Phone · </span>
                         {phoneLine ? (
                           <span className="tabular-nums">{phoneLine}</span>
                         ) : (
@@ -581,17 +581,17 @@ export default function DoctorPatientsPage() {
                         )}
                       </div>
 
-                      <div className="w-full text-sm text-[#949494] sm:w-36 sm:shrink-0">
-                        <span className="sm:hidden text-xs font-semibold text-[#949494]">Last visit · </span>
+                      <div className="w-full text-sm text-[#949494] lg:w-36 lg:shrink-0">
+                        <span className="lg:hidden text-xs font-semibold text-[#949494]">Last visit · </span>
                         <span className={cn(!p.last_visit && "italic")}>{lastVisitLabel(p)}</span>
                       </div>
 
-                      <div className="hidden w-16 shrink-0 text-center sm:block">
+                      <div className="hidden w-16 shrink-0 text-center lg:block">
                         <span className="text-sm font-semibold tabular-nums text-[#0d1f14]">{visits}</span>
                       </div>
 
-                      <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:shrink-0">
-                        <div className="w-40 shrink-0">
+                      <div className="flex w-full items-center justify-between gap-3 lg:w-auto lg:shrink-0">
+                        <div className="min-w-0 lg:w-40 lg:shrink-0">
                           <span
                             className={cn(
                               "inline-flex rounded px-2 py-0.5 text-xs font-semibold",

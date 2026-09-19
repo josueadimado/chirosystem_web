@@ -1009,7 +1009,7 @@ function AdminSchedulePageContent() {
             onChange={(e) => setView(e.target.value as "day" | "week" | "month")}
             title="Calendar view"
             aria-label="Calendar view"
-            className="min-w-[7.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            className="w-full min-w-0 rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm font-medium text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:w-auto sm:min-w-[7.5rem]"
           >
             <option value="day">Day</option>
             <option value="week">Week</option>
@@ -1021,7 +1021,7 @@ function AdminSchedulePageContent() {
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}
             title="Filter by provider"
-            className="min-w-[9.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            className="w-full min-w-0 rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:w-auto sm:min-w-[9.5rem]"
           >
             <option value="">All providers</option>
             {providers.map((p) => (
@@ -1036,7 +1036,7 @@ function AdminSchedulePageContent() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             title="Filter by visit status"
-            className="min-w-[9.5rem] rounded-lg border border-[#d1e8d8] bg-white px-3 py-2 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20"
+            className="w-full min-w-0 rounded-lg border border-[#d1e8d8] bg-white px-3 py-2.5 text-sm text-[#0d1f14] focus:border-[#16a349]/40 focus:outline-none focus:ring-2 focus:ring-[#16a349]/20 sm:w-auto sm:min-w-[9.5rem]"
           >
             {STATUS_OPTIONS.map((o) => (
               <option key={o.value || "all"} value={o.value}>
