@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 type PatientBillPortalModalProps = {
   bill: PatientBillPayload | null;
   onClose: () => void;
-  /** When set and bill is paid (not preview), shows Email bill button. */
+  /** When set, shows Email bill — including bills that still have a balance due. */
   onEmailBill?: () => void | Promise<void>;
   emailingBill?: boolean;
   /** Set after a successful send — shows a green confirmation bar and updates the button. */
@@ -102,7 +102,7 @@ export function PatientBillPortalModal({
               Preview
             </span>
           )}
-          {!bill.is_preview && bill.status === "paid" && onEmailBill ? (
+          {onEmailBill ? (
             <button
               type="button"
               disabled={emailingBill || !!emailSentTo}
