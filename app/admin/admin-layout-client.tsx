@@ -44,6 +44,7 @@ const mainItems: NavItem[] = [
 
 const operationsItemsBase: NavItem[] = [
   { label: "Invoices & Billing", href: "/admin/billing", icon: <IconFileDollar className="w-5 h-5" /> },
+  { label: "Patient credit", href: "/admin/credit", icon: <IconFileDollar className="w-5 h-5" /> },
   {
     label: "Payment reconciliation",
     href: "/admin/reconciliation",
@@ -72,6 +73,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin/patients/merge": "Merge patients",
   "/admin/intake": "Intake forms",
   "/admin/billing": "Invoices & Billing",
+  "/admin/credit": "Patient credit",
   "/admin/reconciliation": "Payment reconciliation",
   "/admin/insurance-claims": "Insurance claims",
   "/admin/insurance-companies": "Insurance companies",
@@ -111,11 +113,11 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const operationsItems = [
-    ...operationsItemsBase.slice(0, 5),
+    ...operationsItemsBase.slice(0, 6),
     ...(isOwnerAdmin
       ? [{ label: "Team & logins", href: "/admin/team", icon: <IconUserPlus className="w-5 h-5" /> }]
       : []),
-    ...operationsItemsBase.slice(5),
+    ...operationsItemsBase.slice(6),
   ];
 
   const toolsItems = [
@@ -151,6 +153,7 @@ export function AdminLayoutClient({ children }: { children: React.ReactNode }) {
     pathname === "/admin/patients" ||
     pathname === "/admin/intake" ||
     pathname === "/admin/billing" ||
+    pathname === "/admin/credit" ||
     pathname === "/admin/reconciliation" ||
     pathname === "/admin/insurance-claims" ||
     pathname === "/admin/insurance-companies" ||

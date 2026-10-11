@@ -568,6 +568,9 @@ export default function AdminBillingPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <Link href="/admin/credit" className="font-semibold text-[#16a349] hover:underline">
+          Add patient credit
+        </Link>
         <Link href="/admin/reconciliation" className="font-semibold text-[#16a349] hover:underline">
           Payment reconciliation
         </Link>
