@@ -28,7 +28,9 @@ import {
   addDays,
   endOfMonth,
   filterAppointmentsForScheduleGrid,
+  apiTimeToTimeInputValue,
   minutesToApiTime,
+  minutesToTimeInputValue,
   mondayOfWeekContaining,
   parseTimeToMinutes,
   scheduleRangeIncludesToday,
@@ -89,6 +91,7 @@ import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/
 import {
   confirmBookNextVisit,
   confirmCheckIn,
+  confirmExtendDuration,
   confirmCheckInPastVisit,
   confirmDeskBook,
   confirmDragReschedule,
@@ -209,6 +212,8 @@ function DoctorSchedulePageInner() {
   const [selected, setSelected] = useState<AppointmentRow | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
   const [appointmentSaving, setAppointmentSaving] = useState(false);
+  const [showAdjustDuration, setShowAdjustDuration] = useState(false);
+  const [adjustEndTime, setAdjustEndTime] = useState("");
 
   const [handoffNotes, setHandoffNotes] = useState("");
   const [handoffLoading, setHandoffLoading] = useState(false);
@@ -308,7 +313,60 @@ function DoctorSchedulePageInner() {
 
   useEffect(() => {
     setTerminalCheckoutId(null);
+    setShowAdjustDuration(false);
+    if (selected) setAdjustEndTime(apiTimeToTimeInputValue(selected.end_time));
+    // Reset the length editor only when a different visit is opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selected.id is the visit identity
   }, [selected?.id]);
+
+  const adjustDurationPreviewMin = useMemo(() => {
+    if (!selected) return 15;
+    const startMin = parseTimeToMinutes(selected.start_time);
+    const endMin = parseTimeToMinutes(adjustEndTime || selected.end_time);
+    return Math.max(15, endMin - startMin);
+  }, [selected, adjustEndTime]);
+
+  const canChangeVisitLength = (s: string) => s === "booked" || s === "checked_in" || s === "scheduled";
+
+  const applyDurationDelta = (delta: number) => {
+    if (!selected) return;
+    const startMin = parseTimeToMinutes(selected.start_time);
+    const endMin = parseTimeToMinutes(adjustEndTime || selected.end_time);
+    const newEnd = Math.max(startMin + 15, endMin + delta);
+    const capped = Math.min(newEnd, SCHEDULE_DESK_DAY_END_MIN);
+    setAdjustEndTime(minutesToTimeInputValue(capped));
+  };
+
+  const submitAdjustDuration = async () => {
+    if (!selected || !adjustEndTime || !canChangeVisitLength(appointmentUiStatus(selected))) return;
+    const ok = await requestConfirm(
+      confirmExtendDuration(
+        selected.patient_name,
+        formatTime(adjustEndTime.length === 5 ? `${adjustEndTime}:00` : adjustEndTime),
+      ),
+    );
+    if (!ok) return;
+    const endApi = adjustEndTime.length === 5 ? `${adjustEndTime}:00` : adjustEndTime;
+    setAppointmentSaving(true);
+    let saved = false;
+    try {
+      await runWithFeedback(
+        async () => {
+          await apiPatch(`/appointments/${selected.id}/`, { end_time: endApi });
+          await loadAppointments();
+          saved = true;
+        },
+        {
+          loadingMessage: "Updating visit length…",
+          successMessage: "Visit length updated on the calendar.",
+          errorFallback: "Could not change the length — that time may already be booked or outside booking hours.",
+        },
+      );
+    } finally {
+      setAppointmentSaving(false);
+    }
+    if (saved) setShowAdjustDuration(false);
+  };
 
   const showNoShowBilling =
     selected != null &&
@@ -1043,6 +1101,21 @@ function DoctorSchedulePageInner() {
                   onBookNext={() => openBookNext(selected)}
                   onNoShow={() => handleNoShow(selected)}
                   onCancel={() => handleCancel(selected)}
+                  adjustDuration={
+                    canChangeVisitLength(appointmentUiStatus(selected))
+                      ? {
+                          open: showAdjustDuration,
+                          startTimeDisplay:
+                            selected.start_time_display || formatTime(selected.start_time),
+                          currentDurationMin: adjustDurationPreviewMin,
+                          endTime: adjustEndTime,
+                          onToggle: () => setShowAdjustDuration((v) => !v),
+                          onEndTimeChange: setAdjustEndTime,
+                          onAddMinutes: applyDurationDelta,
+                          onSave: () => void submitAdjustDuration(),
+                        }
+                      : undefined
+                  }
                 />
               )}
               {terminalCheckoutId && selected?.invoice_id ? (

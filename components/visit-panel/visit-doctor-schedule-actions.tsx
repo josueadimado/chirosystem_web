@@ -10,6 +10,10 @@ import {
   confirmReopenAndCheckIn,
 } from "@/lib/appointment-action-confirm-messages";
 import { appointmentBlocksDeskActions, effectiveAppointmentStatus } from "@/lib/visit-status-utils";
+import {
+  VisitAdjustDurationControls,
+  type AdjustDurationState,
+} from "@/components/visit-panel/visit-desk-actions";
 
 /** Doctor schedule side panel: check-in, reschedule, cancel, no-show, and book-next (with confirm before each action). */
 export function VisitDoctorScheduleActions({
@@ -29,6 +33,7 @@ export function VisitDoctorScheduleActions({
   onBookNext,
   onNoShow,
   onCancel,
+  adjustDuration,
 }: {
   patientName: string;
   /** When set, staff must confirm before each appointment action runs. */
@@ -47,6 +52,8 @@ export function VisitDoctorScheduleActions({
   onBookNext: () => void;
   onNoShow?: () => void;
   onCancel?: () => void;
+  /** Change how long this upcoming visit lasts. Start time stays the same. */
+  adjustDuration?: AdjustDurationState;
 }) {
   const uiStatus = displayStatus ?? effectiveAppointmentStatus(status, invoiceKind);
   const canPreVisit = uiStatus === "booked" || uiStatus === "checked_in" || uiStatus === "scheduled";
@@ -132,6 +139,9 @@ export function VisitDoctorScheduleActions({
           {checkingIn ? "Completing check-in…" : "Check in"}
         </button>
       )}
+      {adjustDuration ? (
+        <VisitAdjustDurationControls adjustDuration={adjustDuration} saving={saving} />
+      ) : null}
       <button
         type="button"
         onClick={() => void runConfirmed(confirmOpenReschedulePicker(patientName), onReschedule)}

@@ -167,9 +167,9 @@ export function confirmExtendDuration(
   endTimeLabel: string,
 ): AppointmentConfirmOptions {
   return base(
-    "Extend visit on calendar?",
-    `Extend ${patientName}'s visit so it ends at ${endTimeLabel}? This changes the blocked time on the schedule.`,
-    "Extend visit",
+    "Change visit length?",
+    `Change ${patientName}'s visit so it ends at ${endTimeLabel}? The start time stays the same, and the calendar block updates.`,
+    "Save length",
   );
 }
 

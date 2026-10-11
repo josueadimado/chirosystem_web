@@ -86,16 +86,23 @@ import {
   confirmOpenBookNextPicker,
   confirmDismissPaymentBanner,
   confirmOpenReschedulePicker,
+  confirmExtendDuration,
   confirmRescheduleBySlots,
   confirmStartVisit,
 } from "@/lib/appointment-action-confirm-messages";
+import { VisitAdjustDurationControls } from "@/components/visit-panel/visit-desk-actions";
 import type { DeskBookSlotSeed } from "@/components/admin-desk-book-from-slot-modal";
 import type { ProviderBlock, ScheduleAppointment } from "@/components/admin-schedule-calendar";
 import {
   addDays,
+  apiTimeToTimeInputValue,
   endOfMonth,
   filterAppointmentsForScheduleGrid,
+  minutesToLabel,
+  minutesToTimeInputValue,
   mondayOfWeekContaining,
+  parseTimeToMinutes,
+  SCHEDULE_DESK_DAY_END_MIN,
   startOfMonth,
   toIsoDate,
 } from "@/lib/admin-schedule-utils";
@@ -507,6 +514,8 @@ export default function DoctorDashboardPage() {
       ),
   });
   const [savingDesk] = useState(false);
+  const [durationEdit, setDurationEdit] = useState<{ id: number; endTime: string } | null>(null);
+  const [savingDurationId, setSavingDurationId] = useState<number | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [billSearchQuery, setBillSearchQuery] = useState("");
   const [billSearchResults, setBillSearchResults] = useState<Array<{
@@ -2175,6 +2184,33 @@ export default function DoctorDashboardPage() {
   /** Before the visit starts, doctors can mark no-show/cancel or reschedule (front desk rules apply for trickier cases). */
   const canDoctorPreVisitDesk = (s: string) => s === "booked" || s === "checked_in";
 
+  const saveVisitLength = async (appt: Appointment, endTime: string) => {
+    if (!endTime) return;
+    const ok = await requestConfirm(
+      confirmExtendDuration(appt.patient, minutesToLabel(parseTimeToMinutes(endTime))),
+    );
+    if (!ok) return;
+    const endApi = endTime.length === 5 ? `${endTime}:00` : endTime;
+    setSavingDurationId(appt.id);
+    try {
+      const saved = await runWithFeedback(
+        async () => {
+          await apiPatch(`/appointments/${appt.id}/`, { end_time: endApi });
+          await load();
+          return true;
+        },
+        {
+          loadingMessage: "Updating visit length…",
+          successMessage: "Visit length updated.",
+          errorFallback: "Could not change the length — that time may already be booked or outside booking hours.",
+        },
+      );
+      if (saved) setDurationEdit(null);
+    } finally {
+      setSavingDurationId(null);
+    }
+  };
+
   const openReschedule = async (appt: Appointment) => {
     const ok = await requestConfirm(confirmOpenReschedulePicker(appt.patient));
     if (!ok) return;
@@ -3636,6 +3672,56 @@ export default function DoctorDashboardPage() {
                         >
                           Reschedule
                         </button>
+                        <VisitAdjustDurationControls
+                          className="basis-full"
+                          saving={savingDurationId === appt.id}
+                          adjustDuration={{
+                            open: durationEdit?.id === appt.id,
+                            startTimeDisplay: appt.start_time,
+                            currentDurationMin: Math.max(
+                              15,
+                              parseTimeToMinutes(
+                                durationEdit?.id === appt.id
+                                  ? durationEdit.endTime
+                                  : appt.end_time_iso || appt.end_time,
+                              ) - parseTimeToMinutes(appt.start_time_iso || appt.start_time),
+                            ),
+                            endTime:
+                              durationEdit?.id === appt.id
+                                ? durationEdit.endTime
+                                : apiTimeToTimeInputValue(appt.end_time_iso || appt.end_time),
+                            onToggle: () =>
+                              setDurationEdit((prev) =>
+                                prev?.id === appt.id
+                                  ? null
+                                  : {
+                                      id: appt.id,
+                                      endTime: apiTimeToTimeInputValue(appt.end_time_iso || appt.end_time),
+                                    },
+                              ),
+                            onEndTimeChange: (endTime) => setDurationEdit({ id: appt.id, endTime }),
+                            onAddMinutes: (delta) => {
+                              const startMin = parseTimeToMinutes(appt.start_time_iso || appt.start_time);
+                              const currentEnd = parseTimeToMinutes(
+                                durationEdit?.id === appt.id
+                                  ? durationEdit.endTime
+                                  : appt.end_time_iso || appt.end_time,
+                              );
+                              const newEnd = Math.min(
+                                SCHEDULE_DESK_DAY_END_MIN,
+                                Math.max(startMin + 15, currentEnd + delta),
+                              );
+                              setDurationEdit({ id: appt.id, endTime: minutesToTimeInputValue(newEnd) });
+                            },
+                            onSave: () =>
+                              void saveVisitLength(
+                                appt,
+                                durationEdit?.id === appt.id
+                                  ? durationEdit.endTime
+                                  : apiTimeToTimeInputValue(appt.end_time_iso || appt.end_time),
+                              ),
+                          }}
+                        />
                       </>
                     )}
                     {(uiStatus === "awaiting_payment" ||

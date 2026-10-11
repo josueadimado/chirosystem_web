@@ -32,7 +32,7 @@ type RescheduleState = {
   onSave: () => void;
 };
 
-type AdjustDurationState = {
+export type AdjustDurationState = {
   open: boolean;
   startTimeDisplay: string;
   currentDurationMin: number;
@@ -42,6 +42,86 @@ type AdjustDurationState = {
   onAddMinutes: (delta: number) => void;
   onSave: () => void;
 };
+
+/** Same length control the admin schedule uses: keep the start time, change the end time. */
+export function VisitAdjustDurationControls({
+  adjustDuration,
+  saving,
+  className,
+}: {
+  adjustDuration: AdjustDurationState;
+  saving?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
+      <button
+        type="button"
+        onClick={adjustDuration.onToggle}
+        disabled={saving}
+        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+      >
+        {adjustDuration.open ? "Hide change length" : "Change length"}
+      </button>
+      {adjustDuration.open ? (
+        <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+          <p className="text-xs text-slate-600">
+            Start stays at <span className="font-semibold text-slate-800">{adjustDuration.startTimeDisplay}</span>.
+            Current block:{" "}
+            <span className="font-semibold text-slate-800">{adjustDuration.currentDurationMin} min</span>.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={saving || adjustDuration.currentDurationMin <= 15}
+              onClick={() => adjustDuration.onAddMinutes(-15)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              −15 min
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => adjustDuration.onAddMinutes(15)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              +15 min
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => adjustDuration.onAddMinutes(30)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              +30 min
+            </button>
+          </div>
+          <label className="block text-xs font-semibold text-slate-600">
+            End time
+            <input
+              type="time"
+              value={adjustDuration.endTime}
+              onChange={(e) => adjustDuration.onEndTimeChange(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={saving || !adjustDuration.endTime}
+            onClick={adjustDuration.onSave}
+            className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save length"}
+          </button>
+          <p className="text-[11px] text-slate-500">
+            Shorten or lengthen this visit. The start time stays the same. The server checks that the new time is not
+            already taken before saving.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 type BillingActionsState = {
   invoiceId: number | null;
@@ -421,72 +501,7 @@ export function VisitDeskActions({
       ) : null}
 
       {canReschedule(uiStatus) && adjustDuration ? (
-        <div className="space-y-2">
-          <button
-            type="button"
-            onClick={adjustDuration.onToggle}
-            disabled={savingDesk}
-            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-          >
-            {adjustDuration.open ? "Hide extend period" : "Extend period"}
-          </button>
-          {adjustDuration.open ? (
-            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-              <p className="text-xs text-slate-600">
-                Start stays at <span className="font-semibold text-slate-800">{adjustDuration.startTimeDisplay}</span>.
-                Current block:{" "}
-                <span className="font-semibold text-slate-800">{adjustDuration.currentDurationMin} min</span>.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={savingDesk || adjustDuration.currentDurationMin <= 15}
-                  onClick={() => adjustDuration.onAddMinutes(-15)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  −15 min
-                </button>
-                <button
-                  type="button"
-                  disabled={savingDesk}
-                  onClick={() => adjustDuration.onAddMinutes(15)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  +15 min
-                </button>
-                <button
-                  type="button"
-                  disabled={savingDesk}
-                  onClick={() => adjustDuration.onAddMinutes(30)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  +30 min
-                </button>
-              </div>
-              <label className="block text-xs font-semibold text-slate-600">
-                End time
-                <input
-                  type="time"
-                  value={adjustDuration.endTime}
-                  onChange={(e) => adjustDuration.onEndTimeChange(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
-                />
-              </label>
-              <button
-                type="button"
-                disabled={savingDesk || !adjustDuration.endTime}
-                onClick={adjustDuration.onSave}
-                className="w-full rounded-xl bg-[#16a349] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#13823d] disabled:opacity-50"
-              >
-                {savingDesk ? "Saving…" : "Save extension"}
-              </button>
-              <p className="text-[11px] text-slate-500">
-                Add time to this visit when it runs longer than booked. The server checks that the extended time is not
-                already taken before saving.
-              </p>
-            </div>
-          ) : null}
-        </div>
+        <VisitAdjustDurationControls adjustDuration={adjustDuration} saving={savingDesk} />
       ) : null}
 
       {canReschedule(uiStatus) ? (
