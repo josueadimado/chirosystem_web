@@ -169,34 +169,41 @@ export default function PatientCreditPage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-      <p className="text-sm text-slate-600">
-        Search for the patient, choose their name, enter the amount, then add the credit. Use{" "}
-        <strong>Add credit</strong> after cash is already collected. Use <strong>Charge card reader</strong> to take a
-        card on the Square reader.
-      </p>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[#e8e8e8] bg-white">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[#e8e8e8] bg-[#f7fbf8] px-3 py-2 text-xs text-slate-600">
+        <span>
+          <span className="font-semibold text-[#0d5c2e]">1.</span> Find the patient
+        </span>
+        <span>
+          <span className="font-semibold text-[#0d5c2e]">2.</span> Enter the amount
+        </span>
+        <span>
+          <span className="font-semibold text-[#0d5c2e]">3.</span> Add credit for cash already taken, or charge the card
+          reader
+        </span>
+      </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <section className="rounded-xl border border-[#e8e8e8] bg-white p-4">
-          <label className="block text-sm font-semibold text-slate-800">
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
+        <section className="flex min-h-0 flex-col border-b border-[#e8e8e8] lg:border-b-0 lg:border-r">
+          <label className="block px-3 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
             Find patient
-            <span className="relative mt-2 block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <span className="relative mt-1.5 block">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Type a name or phone"
-                className="w-full rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] py-2.5 pl-9 pr-3 text-sm"
+                placeholder="Name or phone"
+                className="w-full rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] py-2 pl-8 pr-2.5 text-sm"
               />
             </span>
           </label>
-          <div className="mt-3 max-h-[28rem] space-y-1 overflow-y-auto">
-            {searching ? <p className="px-1 py-3 text-sm text-slate-500">Searching…</p> : null}
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+            {searching ? <p className="px-1 py-2 text-sm text-slate-500">Searching…</p> : null}
             {!searching && query.trim().length < 2 ? (
-              <p className="px-1 py-6 text-sm text-slate-500">Type at least two letters of the name.</p>
+              <p className="px-1 py-2 text-sm text-slate-500">Type two letters of the name.</p>
             ) : null}
             {!searching && query.trim().length >= 2 && hits.length === 0 ? (
-              <p className="px-1 py-6 text-sm text-slate-500">No patient matches that search.</p>
+              <p className="px-1 py-2 text-sm text-slate-500">No match.</p>
             ) : null}
             {hits.map((patient) => {
               const active = selected?.id === patient.id;
@@ -207,17 +214,17 @@ export default function PatientCreditPage() {
                   onClick={() => choosePatient(patient)}
                   className={
                     active
-                      ? "flex w-full items-center justify-between gap-3 rounded-lg border border-[#16a349] bg-[#ecfdf5] px-3 py-2.5 text-left"
-                      : "flex w-full items-center justify-between gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left hover:bg-[#f5f5f5]"
+                      ? "mb-1 flex w-full items-center justify-between gap-2 rounded-lg bg-[#ecfdf5] px-2.5 py-2 text-left ring-1 ring-[#16a349]"
+                      : "mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-[#f5f5f5]"
                   }
                 >
-                  <span>
-                    <span className="block text-sm font-semibold text-slate-900">
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-900">
                       {patient.first_name} {patient.last_name}
                     </span>
-                    <span className="block text-xs text-slate-500">{patient.phone || "No phone"}</span>
+                    <span className="block truncate text-xs text-slate-500">{patient.phone || "No phone"}</span>
                   </span>
-                  <span className="text-sm font-semibold tabular-nums text-[#0d5c2e]">
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-[#0d5c2e]">
                     {money(patient.credit_balance || "0")}
                   </span>
                 </button>
@@ -226,50 +233,54 @@ export default function PatientCreditPage() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-[#e8e8e8] bg-white p-4">
+        <section className="min-h-0 overflow-y-auto px-3 py-3">
           {!selected ? (
-            <p className="py-10 text-center text-sm text-slate-500">Select a patient to add credit.</p>
+            <p className="py-8 text-center text-sm text-slate-500">Select a name on the left.</p>
           ) : (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-semibold text-[#0d5c2e]">
-                  {selected.first_name} {selected.last_name}
-                </h2>
-                <p className="text-sm text-slate-500">{selected.phone || "No phone on file"}</p>
-                <p className="mt-2 text-sm text-slate-700">
-                  Credit now:{" "}
-                  <span className="text-base font-semibold text-[#0d5c2e]">
+            <div className="mx-auto flex max-w-lg flex-col gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-semibold text-[#0d5c2e]">
+                    {selected.first_name} {selected.last_name}
+                  </h2>
+                  <p className="text-xs text-slate-500">{selected.phone || "No phone on file"}</p>
+                </div>
+                <p className="shrink-0 text-right text-sm text-slate-600">
+                  Credit
+                  <span className="block text-lg font-semibold leading-tight text-[#0d5c2e]">
                     {ledgerLoading ? "…" : money(ledger?.credit_balance || selected.credit_balance || "0")}
                   </span>
                 </p>
               </div>
 
-              <label className="block text-sm font-semibold text-slate-800">
-                Amount
-                <input
-                  value={amount}
-                  inputMode="decimal"
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="mt-1 w-full rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] px-3 py-2.5 text-sm"
-                />
-              </label>
-              <label className="block text-sm font-semibold text-slate-800">
-                Note (optional)
-                <input
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Example: cash at the desk"
-                  className="mt-1 w-full rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] px-3 py-2.5 text-sm"
-                />
-              </label>
+              <div className="grid gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Amount
+                  <input
+                    value={amount}
+                    inputMode="decimal"
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="mt-1 w-full rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] px-2.5 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Note, optional
+                  <input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Cash at the desk"
+                    className="mt-1 w-full rounded-lg border border-[#e8e8e8] bg-[#f8f8f7] px-2.5 py-2 text-sm"
+                  />
+                </label>
+              </div>
 
               <div className="grid gap-2 sm:grid-cols-2">
                 <button
                   type="button"
                   disabled={busy || !amountOk}
                   onClick={() => void addCredit()}
-                  className="rounded-xl bg-[#16a349] px-4 py-3 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
+                  className="rounded-lg bg-[#16a349] px-3 py-2 text-sm font-semibold text-white hover:bg-[#13823d] disabled:opacity-50"
                 >
                   {busy ? "Working…" : "Add credit"}
                 </button>
@@ -277,14 +288,14 @@ export default function PatientCreditPage() {
                   type="button"
                   disabled={busy || !amountOk}
                   onClick={() => void chargeReader()}
-                  className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                 >
                   Charge card reader
                 </button>
               </div>
-              <p className="text-xs text-slate-500">
-                Add credit does not charge a card. Charge card reader needs at least $1.00 and adds the credit only
-                after the reader says the payment went through.
+              <p className="text-[11px] leading-snug text-slate-500">
+                Add credit does not charge a card. The card reader needs at least $1 and adds the credit after the
+                payment goes through.
               </p>
 
               {terminalCheckoutId ? (
@@ -304,25 +315,29 @@ export default function PatientCreditPage() {
                 />
               ) : null}
 
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">Recent credit activity</h3>
+              <div className="border-t border-[#e8e8e8] pt-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recent activity</h3>
                 {ledgerLoading ? (
-                  <p className="mt-2 text-sm text-slate-500">Loading…</p>
+                  <p className="mt-1 text-sm text-slate-500">Loading…</p>
                 ) : (ledger?.transactions.length ?? 0) === 0 ? (
-                  <p className="mt-2 text-sm text-slate-500">No credit activity yet.</p>
+                  <p className="mt-1 text-sm text-slate-500">None yet.</p>
                 ) : (
-                  <ul className="mt-2 divide-y divide-[#e8e8e8]">
-                    {ledger?.transactions.slice(0, 8).map((txn) => (
-                      <li key={txn.id} className="flex items-start justify-between gap-3 py-2 text-sm">
-                        <span>
-                          <span className="block font-medium text-slate-800">{kindLabel(txn.kind, txn.note)}</span>
-                          <span className="block text-xs text-slate-500">
+                  <ul className="mt-1 divide-y divide-[#f0f0f0]">
+                    {ledger?.transactions.slice(0, 6).map((txn) => (
+                      <li key={txn.id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-slate-800">
+                            {kindLabel(txn.kind, txn.note)}
+                          </span>
+                          <span className="block text-[11px] text-slate-500">
                             {formatInstantMonthDayYearTime(txn.created_at)}
                           </span>
                         </span>
-                        <span className="text-right">
+                        <span className="shrink-0 text-right">
                           <span className="block font-semibold tabular-nums">{money(txn.amount)}</span>
-                          <span className="block text-xs text-slate-500">Balance {money(txn.balance_after)}</span>
+                          <span className="block text-[11px] text-slate-500">
+                            Balance {money(txn.balance_after)}
+                          </span>
                         </span>
                       </li>
                     ))}
