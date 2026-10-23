@@ -128,9 +128,8 @@ export function PatientCommunicationPrefsFields({
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Communication preferences</p>
         <p className="mt-1 text-xs leading-relaxed text-slate-600">
-          For each row, pick one: text only, email only, text and email (both), or{" "}
-          <span className="font-medium text-slate-700">none</span> (no automated messages for that category). New patients
-          start with text for booking/reminders, email for bills, and SMS reminders allowed until you change them.
+          New charts start with the left choice on each row: text for booking and reminders, email for receipts. Pick
+          None only if this patient should not get that message.
         </p>
       </div>
       <PrefChannelPicker

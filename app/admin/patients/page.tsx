@@ -3,6 +3,11 @@
 import { Loader } from "@/components/loader";
 import { PatientNoShowBadge } from "@/components/status-chip";
 import { PatientDetailModal } from "@/components/patient-detail-modal";
+import {
+  DEFAULT_COMM_PREFS,
+  PatientCommunicationPrefsFields,
+  type PatientCommunicationPrefs,
+} from "@/components/patient-communication-prefs";
 import { PatientNameWithProfile } from "@/components/patient-payment-profile";
 import { UsDateInput } from "@/components/us-date-input";
 import { Button } from "@/components/ui/button";
@@ -302,6 +307,7 @@ export default function AdminPatientsPage() {
   const [addEmergPhone, setAddEmergPhone] = useState<string | undefined>(undefined);
   const [addShowExtras, setAddShowExtras] = useState(false);
   const [addOnlineChiroWaived, setAddOnlineChiroWaived] = useState(false);
+  const [addCommPrefs, setAddCommPrefs] = useState<PatientCommunicationPrefs>(DEFAULT_COMM_PREFS);
   const [documentBodyReady, setDocumentBodyReady] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
@@ -466,6 +472,7 @@ export default function AdminPatientsPage() {
     setAddEmergPhone(undefined);
     setAddShowExtras(false);
     setAddOnlineChiroWaived(false);
+    setAddCommPrefs(DEFAULT_COMM_PREFS);
   }, []);
 
   useEffect(() => {
@@ -582,6 +589,10 @@ export default function AdminPatientsPage() {
       if (addEmergName.trim()) payload.emergency_contact_name = addEmergName.trim();
       if (addEmergPhone?.trim()) payload.emergency_contact_phone = addEmergPhone.trim();
       if (addOnlineChiroWaived) payload.online_chiro_intake_waived = true;
+      payload.notify_booking = addCommPrefs.notify_booking;
+      payload.notify_reminders = addCommPrefs.notify_reminders;
+      payload.notify_bills = addCommPrefs.notify_bills;
+      payload.sms_consent = true;
 
       const created = await apiPost<{ id: number }>("/patients/", payload);
       setShowAddModal(false);
@@ -1067,6 +1078,13 @@ export default function AdminPatientsPage() {
                   Type numbers only — slashes added automatically. Paste OK. Used with name and phone to block duplicate profiles.
                 </p>
               </label>
+
+              <PatientCommunicationPrefsFields
+                prefs={addCommPrefs}
+                onChange={setAddCommPrefs}
+                smsConsent
+                showSmsConsentNote={false}
+              />
 
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium text-slate-700">
