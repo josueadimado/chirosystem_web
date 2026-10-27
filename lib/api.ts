@@ -193,8 +193,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
 }
 
-/** `body` may be a plain object; fetchWithAuth JSON-stringifies it before calling fetch. */
-type AuthFetchOptions = Omit<RequestInit, "body"> & { body?: string | object | null };
+/** `body` may be a plain object (JSON) or FormData (multipart). */
+type AuthFetchOptions = Omit<RequestInit, "body"> & { body?: string | object | FormData | null };
 
 /**
  * Fetches with auth. On 401, tries to refresh the token and retries once.
@@ -206,8 +206,15 @@ async function fetchWithAuth(
   isRetry = false
 ): Promise<Response> {
   const headers = { ...getAuthHeaders(), ...(options.headers as Record<string, string>) };
-  const body =
-    typeof options.body === "object" && options.body !== null
+  // FormData must stay as FormData (and must NOT get Content-Type: application/json).
+  // JSON.stringify(FormData) becomes "{}" and breaks file uploads.
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (isFormData) {
+    delete headers["Content-Type"];
+  }
+  const body = isFormData
+    ? options.body
+    : typeof options.body === "object" && options.body !== null
       ? JSON.stringify(options.body)
       : options.body;
 

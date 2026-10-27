@@ -222,7 +222,7 @@ function PreviewModal({
 
 export function PatientDocumentsPanel({
   patientId,
-  /** "/admin/patient_documents" or "/doctor/patient_documents" */
+  /** API prefix: "/admin" or "/doctor" (upload/list paths are appended). */
   basePath,
 }: {
   patientId: number;
@@ -294,6 +294,10 @@ export function PatientDocumentsPanel({
   };
 
   const handleUpload = async () => {
+    if (!patientId || !Number.isFinite(patientId) || patientId <= 0) {
+      setUploadError("Patient is missing. Close this chart and open it again, then retry.");
+      return;
+    }
     if (!uploadFile) {
       setUploadError("Please choose a file.");
       return;
@@ -308,11 +312,16 @@ export function PatientDocumentsPanel({
     setUploadSuccess("");
     try {
       const form = new FormData();
+      // Include patient_id in the URL (query) and the form body so the API always receives it,
+      // even if a proxy or parser drops multipart text fields.
       form.append("patient_id", String(patientId));
       form.append("file", uploadFile);
       form.append("label", label);
       form.append("doc_type", uploadDocType);
-      await apiUploadAuth<PatientDoc>(`${basePath}/patient_document_upload/`, form);
+      await apiUploadAuth<PatientDoc>(
+        `${basePath}/patient_document_upload/?patient_id=${encodeURIComponent(String(patientId))}`,
+        form,
+      );
       setUploadFile(null);
       setUploadLabel("");
       setUploadDocType("other");
