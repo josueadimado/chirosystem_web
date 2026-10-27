@@ -1089,7 +1089,8 @@ export function PatientHistoryPage({
         {
           loadingMessage: "Charging saved card…",
           successMessage: (out) => out?.detail ?? "Card charged — invoice paid.",
-          errorFallback: "Could not charge the saved card.",
+          errorFallback:
+            "The patient's bank declined this card. Ask for another card, take cash, or use Square Terminal.",
         },
       );
       setChargingSavedCardInvoiceId(null);

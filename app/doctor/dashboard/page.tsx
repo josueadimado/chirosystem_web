@@ -2128,13 +2128,16 @@ export default function DoctorDashboardPage() {
     });
     if (!ok) return;
     setChargingSavedCardBanner(true);
-    await runWithFeedback(
+    const out = await runWithFeedback(
       async () => {
         const body: { invoice_id: number; saved_card_id?: number } = {
           invoice_id: paymentFollowUp.invoice_id,
         };
         if (bannerChargeSavedCardId) body.saved_card_id = bannerChargeSavedCardId;
-        const out = await apiPost<{ detail: string; charged?: boolean }>("/doctor/charge-saved-card/", body);
+        const result = await apiPost<{ detail: string; charged?: boolean; charge_error_message?: string }>(
+          "/doctor/charge-saved-card/",
+          body,
+        );
         setPaymentFollowUp((prev) =>
           prev
             ? {
@@ -2150,14 +2153,31 @@ export default function DoctorDashboardPage() {
             : prev,
         );
         await load();
-        return out;
+        return result;
       },
       {
         loadingMessage: "Charging saved card…",
         successMessage: (o) => o?.detail ?? "Card charged — invoice paid.",
-        errorFallback: "Could not charge the saved card.",
+        errorFallback:
+          "The patient's bank declined this card. Ask for another card, take cash, or use Square Terminal.",
       },
     );
+    if (!out) {
+      // Toast already showed the API message; also pin a clear note on the payment banner.
+      setPaymentFollowUp((prev) =>
+        prev && !prev.payment.charged
+          ? {
+              ...prev,
+              payment: {
+                ...prev.payment,
+                charge_error: prev.payment.charge_error || "card_charge_failed",
+                charge_error_message:
+                  "Card was not charged. Ask for another card, take cash, or use Square Terminal. If it keeps failing, the patient should call their bank.",
+              },
+            }
+          : prev,
+      );
+    }
     setChargingSavedCardBanner(false);
   };
 
@@ -3115,6 +3135,16 @@ export default function DoctorDashboardPage() {
                     "No chargeable card on file — use reader or desk pay screen."}
                 </p>
               )}
+              {!paymentFollowUp.payment.charged &&
+                paymentFollowUp.payment.charge_error === "card_charge_failed" &&
+                Boolean(paymentFollowUp.payment.charge_error_message) && (
+                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p className="font-semibold text-amber-950">Card was not charged</p>
+                    <p className="mt-1 leading-relaxed">
+                      {paymentFollowUp.payment.charge_error_message}
+                    </p>
+                  </div>
+                )}
             </div>
             <div className="flex flex-col items-end gap-2">
               {!paymentFollowUp.payment.charged && (
