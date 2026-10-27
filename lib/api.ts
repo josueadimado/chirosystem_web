@@ -212,11 +212,15 @@ async function fetchWithAuth(
   if (isFormData) {
     delete headers["Content-Type"];
   }
-  const body = isFormData
-    ? options.body
-    : typeof options.body === "object" && options.body !== null
-      ? JSON.stringify(options.body)
-      : options.body;
+
+  let body: BodyInit | null | undefined;
+  if (isFormData) {
+    body = options.body as FormData;
+  } else if (typeof options.body === "object" && options.body !== null) {
+    body = JSON.stringify(options.body);
+  } else {
+    body = options.body ?? undefined;
+  }
 
   const res = await fetch(url, {
     ...options,
@@ -227,6 +231,7 @@ async function fetchWithAuth(
   if (res.status === 401 && !isRetry) {
     const refreshed = await tryRefreshToken();
     if (refreshed) {
+      // Pass the already-prepared body (string or FormData), not the original object.
       return fetchWithAuth(url, { ...options, body }, true);
     }
     clearAuthAndRedirect();
