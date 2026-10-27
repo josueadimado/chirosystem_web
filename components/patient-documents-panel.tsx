@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, apiDelete, apiFetchBlobAuth, apiGetAuth, apiUploadAuth } from "@/lib/api";
+import { ApiError, apiDelete, apiFetchBlobAuth, apiGetAuth, apiPost } from "@/lib/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,20 @@ const DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
 const MAX_FILE_MB = 20;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Read a File as base64 (no data: prefix) — more reliable than multipart cross-origin. */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error("Could not read the file."));
+    reader.readAsDataURL(file);
+  });
+}
 
 function isImageFile(filename: string): boolean {
   return /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$/i.test(filename);
@@ -311,16 +325,18 @@ export function PatientDocumentsPanel({
     setUploadError("");
     setUploadSuccess("");
     try {
-      const form = new FormData();
-      // Include patient_id in the URL (query) and the form body so the API always receives it,
-      // even if a proxy or parser drops multipart text fields.
-      form.append("patient_id", String(patientId));
-      form.append("file", uploadFile);
-      form.append("label", label);
-      form.append("doc_type", uploadDocType);
-      await apiUploadAuth<PatientDoc>(
+      // Send as JSON (base64) — same path as other working admin API calls.
+      // Multipart FormData was arriving without the file on the live API host.
+      const file_base64 = await readFileAsBase64(uploadFile);
+      await apiPost<PatientDoc>(
         `${basePath}/patient_document_upload/?patient_id=${encodeURIComponent(String(patientId))}`,
-        form,
+        {
+          patient_id: patientId,
+          file_base64,
+          filename: uploadFile.name,
+          label,
+          doc_type: uploadDocType,
+        },
       );
       setUploadFile(null);
       setUploadLabel("");
