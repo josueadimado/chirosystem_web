@@ -30,6 +30,7 @@ type Service = {
   billing_code: string;
   is_active: boolean;
   show_in_public_booking?: boolean;
+  calendar_highlight?: boolean;
   visible_to_chiropractic_staff?: boolean;
   visible_to_massage_staff?: boolean;
   service_type?: ServiceType;
@@ -52,6 +53,7 @@ const emptyForm = {
   description: "",
   is_active: true,
   show_in_public_booking: true,
+  calendar_highlight: false,
   visible_to_chiropractic_staff: true,
   visible_to_massage_staff: true,
   service_type: "chiropractic" as ServiceType,
@@ -115,6 +117,7 @@ export default function AdminServicesPage() {
         data.map((s) => ({
           ...s,
           show_in_public_booking: s.show_in_public_booking !== false,
+          calendar_highlight: s.calendar_highlight === true,
           visible_to_chiropractic_staff: s.visible_to_chiropractic_staff !== false,
           visible_to_massage_staff: s.visible_to_massage_staff !== false,
           is_new_client_intake: s.is_new_client_intake === true,
@@ -191,6 +194,7 @@ export default function AdminServicesPage() {
       description: s.description || "",
       is_active: s.is_active !== false,
       show_in_public_booking: s.show_in_public_booking !== false,
+      calendar_highlight: s.calendar_highlight === true,
       visible_to_chiropractic_staff: s.visible_to_chiropractic_staff !== false,
       visible_to_massage_staff: s.visible_to_massage_staff !== false,
       service_type: s.service_type === "massage" ? "massage" : "chiropractic",
@@ -220,6 +224,7 @@ export default function AdminServicesPage() {
           description: form.description.trim(),
           is_active: form.is_active,
           show_in_public_booking: form.show_in_public_booking,
+          calendar_highlight: form.calendar_highlight,
           visible_to_chiropractic_staff: form.visible_to_chiropractic_staff,
           visible_to_massage_staff: form.visible_to_massage_staff,
           service_type: form.service_type,
@@ -685,7 +690,23 @@ export default function AdminServicesPage() {
               <span>
                 <span className="block text-sm font-medium text-[#0d1f14]">Show on public booking</span>
                 <span className="mt-0.5 block text-xs text-[#5a7a62]">
-                  Uncheck for bill-only codes doctors add in-room.
+                  Uncheck for staff-only slots (e.g. care plan / 2nd visit) or bill-only codes. Staff can still book
+                  staff-only visit types from Admin/Doctor schedule when providers are assigned.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-teal-200 bg-teal-50/80 p-3">
+              <input
+                type="checkbox"
+                checked={form.calendar_highlight}
+                onChange={(e) => setForm((f) => ({ ...f, calendar_highlight: e.target.checked }))}
+                className="mt-1 h-4 w-4 rounded border-teal-300 text-teal-700 focus:ring-teal-600"
+              />
+              <span>
+                <span className="block text-sm font-medium text-teal-950">Highlight on calendar (teal)</span>
+                <span className="mt-0.5 block text-xs text-teal-800/80">
+                  Use for special staff visits such as care plan / 2nd visit so they stand out on the schedule.
                 </span>
               </span>
             </label>

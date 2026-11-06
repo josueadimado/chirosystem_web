@@ -112,7 +112,8 @@ export function useBookNextVisit({
         setOptionsLoading(true);
         try {
           const [optsRes, ctx] = await Promise.all([
-            apiGet<BookingOptionsResponse>("/booking-options/"),
+            // Desk=1 so doctors can book staff-only care-plan / 2nd-visit slots.
+            apiGetAuth<BookingOptionsResponse>("/booking-options/?desk=1"),
             apiGetAuth<BookNextVisitContext>(`/appointments/${src.id}/book_next_context/`),
           ]);
           setBookingOptions(optsRes);

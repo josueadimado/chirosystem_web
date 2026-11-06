@@ -48,6 +48,8 @@ type BookingOptionsResponse = {
     duration_minutes: number;
     price: string;
     service_type: string;
+    staff_only?: boolean;
+    calendar_highlight?: boolean;
   }>;
   providers_by_service: Record<string, Array<{ id: number; provider_name: string }>>;
 };
@@ -223,7 +225,8 @@ export function AdminDeskBookFromSlotModal({
     setSlotTimes([]);
     let cancelled = false;
     setOptionsLoading(true);
-    void apiGet<BookingOptionsResponse>("/booking-options/")
+    // Desk=1 includes staff-only visit types (e.g. care plan / 2nd visit) hidden from public booking.
+    void apiGetAuth<BookingOptionsResponse>("/booking-options/?desk=1")
       .then((opts) => {
         if (cancelled) return;
         setOptions(opts);
@@ -702,6 +705,7 @@ export function AdminDeskBookFromSlotModal({
                 {bookableServices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name} — {s.duration_minutes} min
+                    {s.staff_only || s.calendar_highlight ? " · Staff only" : ""}
                     {s.service_type === "massage" ? ` (+${MASSAGE_DESK_BOOK_TAIL_MINUTES} min on schedule)` : ""}
                   </option>
                 ))}
@@ -709,7 +713,19 @@ export function AdminDeskBookFromSlotModal({
             </label>
 
             {selectedService ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-base leading-relaxed text-slate-800">
+              <div
+                className={cn(
+                  "rounded-xl border px-4 py-4 text-base leading-relaxed",
+                  selectedService.staff_only || selectedService.calendar_highlight
+                    ? "border-teal-300 bg-teal-50 text-teal-950"
+                    : "border-slate-200 bg-slate-50 text-slate-800",
+                )}
+              >
+                {selectedService.staff_only || selectedService.calendar_highlight ? (
+                  <p className="mb-2 text-sm font-semibold text-teal-900">
+                    Staff-only visit — not offered on the patient booking website. Shows in teal on the calendar.
+                  </p>
+                ) : null}
                 <p>
                   <span className="font-semibold text-slate-900">Patient visit:</span>{" "}
                   {selectedService.duration_minutes} minutes

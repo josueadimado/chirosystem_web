@@ -66,7 +66,12 @@ export type ScheduleAppointment = {
   patient_payment_profile?: string;
   /** Iris referral / nutrition patient — orange IRIS badge */
   patient_iris_tag?: boolean;
+  /** Staff-only special visits (e.g. care plan / 2nd visit) — teal calendar color */
+  calendar_highlight?: boolean;
 };
+
+/** Teal accent for care-plan / staff-special visit types on the schedule. */
+export const CARE_PLAN_CALENDAR_COLOR = "#0d9488";
 
 /** Status used for colors, labels, and desk rules on the schedule grid. */
 export function scheduleAppointmentUiStatus(a: ScheduleAppointment): string {
@@ -138,7 +143,13 @@ function blockBackground(status: string, baseColor: string): string {
   return baseColor;
 }
 
-function AppointmentStatusBanner({ status }: { status: string }) {
+function AppointmentStatusBanner({
+  status,
+  calendarHighlight,
+}: {
+  status: string;
+  calendarHighlight?: boolean;
+}) {
   if (status === "no_show") {
     return (
       <div className="shrink-0 border-b border-red-800/30 bg-red-700 px-1.5 py-0.5 text-center text-[10px] font-black uppercase tracking-wide text-white">
@@ -150,6 +161,13 @@ function AppointmentStatusBanner({ status }: { status: string }) {
     return (
       <div className="shrink-0 border-b border-rose-800/25 bg-rose-600 px-1.5 py-0.5 text-center text-[10px] font-black uppercase tracking-wide text-white">
         Cancelled
+      </div>
+    );
+  }
+  if (calendarHighlight) {
+    return (
+      <div className="shrink-0 border-b border-teal-900/25 bg-teal-800/90 px-1.5 py-0.5 text-center text-[10px] font-black uppercase tracking-wide text-white">
+        Care plan
       </div>
     );
   }
@@ -1280,7 +1298,8 @@ function DayProviderColumn({
               const { topPct, heightPct } = timePositionPercent(st, dur, dayEndMin);
               const uiStatus = scheduleAppointmentUiStatus(a);
               const styles = statusBlockStyles(uiStatus);
-              const bg = blockBackground(uiStatus, base);
+              const blockBase = a.calendar_highlight ? CARE_PLAN_CALENDAR_COLOR : base;
+              const bg = blockBackground(uiStatus, blockBase);
               const selected = selectedId === a.id;
               const startShown = a.start_time_display || formatTimeShort(a.start_time);
               const endShown = a.end_time_display || formatTimeShort(a.end_time);
@@ -1333,7 +1352,9 @@ function DayProviderColumn({
                           ? "#dc2626"
                           : selected
                             ? "#16a349"
-                            : "rgb(148 163 184 / 0.9)",
+                            : a.calendar_highlight
+                              ? "#0f766e"
+                              : "rgb(148 163 184 / 0.9)",
                   }}
                 >
                   <AppointmentBlockTooltip
@@ -1348,7 +1369,10 @@ function DayProviderColumn({
                     reasonForVisit={a.reason_for_visit}
                   >
                     <div className="flex min-h-0 flex-1 flex-col">
-                      <AppointmentStatusBanner status={uiStatus} />
+                      <AppointmentStatusBanner
+                        status={uiStatus}
+                        calendarHighlight={Boolean(a.calendar_highlight)}
+                      />
                       <ScheduleAppointmentTimeRow
                         startShown={startShown}
                         endShown={endShown}
@@ -1894,7 +1918,9 @@ function WeekDayStack({
           const dur = appointmentDurationMinutes(a.start_time, a.end_time);
           const { topPct, heightPct } = timePositionPercent(entry.start, dur, dayEndMin);
           const lane = laneByKey.get(entry.key) ?? 0;
-          const base = providerColorForId(a.provider);
+          const base = a.calendar_highlight
+            ? CARE_PLAN_CALENDAR_COLOR
+            : providerColorForId(a.provider);
           const bg = blockBackground(uiStatus, base);
           const styles = statusBlockStyles(uiStatus);
           const selected = selectedId === a.id;
@@ -1962,7 +1988,10 @@ function WeekDayStack({
                 reasonForVisit={a.reason_for_visit}
               >
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <AppointmentStatusBanner status={uiStatus} />
+                  <AppointmentStatusBanner
+                    status={uiStatus}
+                    calendarHighlight={Boolean(a.calendar_highlight)}
+                  />
                   <ScheduleAppointmentTimeRow
                     startShown={startShown}
                     endShown={endShown}
@@ -2077,8 +2106,13 @@ function MonthGrid({
                       return (
                         <li
                           key={a.id}
-                          className="truncate rounded-md border border-[#d1e8d8] bg-white px-1.5 py-1 text-[10px] font-medium leading-tight text-[#0d1f14]"
-                          title={`${a.patient_name}${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag) ? ` · ${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag)}` : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
+                          className={cn(
+                            "truncate rounded-md border px-1.5 py-1 text-[10px] font-medium leading-tight",
+                            a.calendar_highlight
+                              ? "border-teal-500 bg-teal-50 text-teal-950"
+                              : "border-[#d1e8d8] bg-white text-[#0d1f14]",
+                          )}
+                          title={`${a.patient_name}${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag) ? ` · ${patientScheduleLabels(a.patient_payment_profile, a.patient_iris_tag)}` : ""}${a.calendar_highlight ? " · Care plan" : ""} · ${formatTimeShort(a.start_time)} · ${appointmentTooltipStatus(ui)}`}
                         >
                           <span className="text-[#5a7a62]">{formatTimeShort(a.start_time)}</span>{" "}
                           <PatientNameWithProfile
