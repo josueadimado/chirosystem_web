@@ -7,21 +7,26 @@ import { NotificationBell } from "@/components/notification-bell";
 import { InstallAppCallout } from "@/components/install-app-callout";
 import { StaffSystemUpgradeNotice } from "@/components/staff-system-upgrade-notice";
 import {
-  IconBarChart,
+  IconActivity,
   IconAlertTriangle,
+  IconBarChart,
   IconBook,
   IconBot,
+  IconBuilding,
   IconCalendar,
+  IconCalendarX,
+  IconClipboardCheck,
   IconClipboardList,
   IconFileDollar,
-  IconFileText,
-  IconFilter,
   IconLayoutGrid,
   IconMenu,
+  IconScale,
   IconSettings,
   IconStethoscope,
+  IconTag,
   IconUserPlus,
   IconUsers,
+  IconWallet,
 } from "@/components/icons";
 import { getRoleCookie } from "@/lib/auth";
 import { formatWeekdayMonthDayYear } from "@/lib/format-date";
@@ -37,26 +42,26 @@ const mainItems: NavItem[] = [
   {
     label: "Intake forms",
     href: "/admin/intake",
-    icon: <IconFileText className="w-5 h-5" />,
+    icon: <IconClipboardCheck className="w-5 h-5" />,
     badge: isNewNavBadgeActive("/admin/intake") ? "new" : undefined,
   },
 ];
 
 const operationsItemsBase: NavItem[] = [
   { label: "Invoices & Billing", href: "/admin/billing", icon: <IconFileDollar className="w-5 h-5" /> },
-  { label: "Patient credit", href: "/admin/credit", icon: <IconFileDollar className="w-5 h-5" /> },
+  { label: "Patient credit", href: "/admin/credit", icon: <IconWallet className="w-5 h-5" /> },
   {
     label: "Payment reconciliation",
     href: "/admin/reconciliation",
-    icon: <IconClipboardList className="w-5 h-5" />,
+    icon: <IconScale className="w-5 h-5" />,
     badge: isNewNavBadgeActive("/admin/reconciliation") ? "new" : undefined,
   },
   { label: "Insurance claims", href: "/admin/insurance-claims", icon: <IconClipboardList className="w-5 h-5" /> },
-  { label: "Insurance companies", href: "/admin/insurance-companies", icon: <IconClipboardList className="w-5 h-5" /> },
-  { label: "Services & Codes", href: "/admin/services", icon: <IconFileText className="w-5 h-5" /> },
-  { label: "Diagnoses & codes", href: "/admin/diagnoses", icon: <IconFileText className="w-5 h-5" /> },
+  { label: "Insurance companies", href: "/admin/insurance-companies", icon: <IconBuilding className="w-5 h-5" /> },
+  { label: "Services & Codes", href: "/admin/services", icon: <IconTag className="w-5 h-5" /> },
+  { label: "Diagnoses & codes", href: "/admin/diagnoses", icon: <IconActivity className="w-5 h-5" /> },
   { label: "Doctors & providers", href: "/admin/providers", icon: <IconStethoscope className="w-5 h-5" /> },
-  { label: "Booking blocks", href: "/admin/booking-blocks", icon: <IconFilter className="w-5 h-5" /> },
+  { label: "Booking blocks", href: "/admin/booking-blocks", icon: <IconCalendarX className="w-5 h-5" /> },
 ];
 
 const toolsItemsBase = [
