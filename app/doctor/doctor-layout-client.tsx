@@ -55,9 +55,12 @@ export function DoctorLayoutClient({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const isUserGuide = pathname === "/doctor/manual";
 
-  /** Same full-height treatment as admin for list/table pages. */
+  /**
+   * Full-height (no page scroll) for dense list/calendar pages.
+   * Doctor dashboard is excluded — it has tall stacked sections and must
+   * scroll as one normal page (nested overflow felt like “scroll inside out”).
+   */
   const isFullBleed =
-    pathname === "/doctor/dashboard" ||
     pathname === "/doctor/analytics" ||
     pathname === "/doctor/schedule" ||
     pathname === "/doctor/patients" ||

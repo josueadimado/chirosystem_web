@@ -2738,7 +2738,7 @@ export default function DoctorDashboardPage() {
     revisingBillingForAppointmentId === activeAppt.id;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-y-contain pb-4">
+    <div className="flex flex-col gap-4 pb-4">
       <div className="space-y-3">
         <p className="text-base font-semibold text-[#0d1f14]">
           {doctorGreeting()}, {firstName}
