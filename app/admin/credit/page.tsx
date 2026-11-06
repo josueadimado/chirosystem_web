@@ -44,6 +44,15 @@ function kindLabel(kind: string, note: string): string {
   return "Added";
 }
 
+/** Human-readable note for the ledger (hide internal Square payment ids). */
+function displayNote(kind: string, note: string): string | null {
+  const raw = (note || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("square_payment:")) return "Card reader payment";
+  if (kind === "apply_to_invoice") return raw;
+  return raw;
+}
+
 export default function PatientCreditPage() {
   const { runWithFeedback, toast } = useAppFeedback();
   const [query, setQuery] = useState("");
@@ -323,24 +332,32 @@ export default function PatientCreditPage() {
                   <p className="mt-1 text-sm text-slate-500">None yet.</p>
                 ) : (
                   <ul className="mt-1 divide-y divide-[#f0f0f0]">
-                    {ledger?.transactions.slice(0, 6).map((txn) => (
-                      <li key={txn.id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium text-slate-800">
-                            {kindLabel(txn.kind, txn.note)}
+                    {ledger?.transactions.slice(0, 6).map((txn) => {
+                      // Show staff-written notes (e.g. "Cash at the desk"); skip internal Square ids.
+                      const isInternalSquare = (txn.note || "").startsWith("square_payment:");
+                      const noteText = isInternalSquare ? null : displayNote(txn.kind, txn.note);
+                      return (
+                        <li key={txn.id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium text-slate-800">
+                              {kindLabel(txn.kind, txn.note)}
+                            </span>
+                            {noteText ? (
+                              <span className="block truncate text-[11px] text-slate-600">{noteText}</span>
+                            ) : null}
+                            <span className="block text-[11px] text-slate-500">
+                              {formatInstantMonthDayYearTime(txn.created_at)}
+                            </span>
                           </span>
-                          <span className="block text-[11px] text-slate-500">
-                            {formatInstantMonthDayYearTime(txn.created_at)}
+                          <span className="shrink-0 text-right">
+                            <span className="block font-semibold tabular-nums">{money(txn.amount)}</span>
+                            <span className="block text-[11px] text-slate-500">
+                              Balance {money(txn.balance_after)}
+                            </span>
                           </span>
-                        </span>
-                        <span className="shrink-0 text-right">
-                          <span className="block font-semibold tabular-nums">{money(txn.amount)}</span>
-                          <span className="block text-[11px] text-slate-500">
-                            Balance {money(txn.balance_after)}
-                          </span>
-                        </span>
-                      </li>
-                    ))}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

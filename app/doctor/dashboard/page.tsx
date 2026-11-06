@@ -362,6 +362,8 @@ type PaymentFollowUp = {
   amount_due?: string;
   invoice_total?: string;
   patient_credit_balance?: string;
+  /** Recent top-up notes (what the credit was for). Optional — older APIs omit this. */
+  patient_credit_notes?: Array<{ amount: string; note: string; created_at?: string | null }>;
   /** Set when the server auto-sent the bill to the desk Terminal — UI polls until paid. */
   terminal_checkout_id?: string | null;
   payment: CompleteVisitPayment;
@@ -1507,6 +1509,7 @@ export default function DoctorDashboardPage() {
           invoice_number: string;
           total_amount: string;
           patient_credit_balance?: string;
+          patient_credit_notes?: Array<{ amount: string; note: string; created_at?: string | null }>;
           terminal_checkout_id?: string | null;
           payment: CompleteVisitPayment;
           pending_payment?: PendingPaymentContext;
@@ -1530,6 +1533,7 @@ export default function DoctorDashboardPage() {
           patient_id: activeAppt.patient_id,
           total_amount: result.total_amount,
           patient_credit_balance: result.patient_credit_balance,
+          patient_credit_notes: result.patient_credit_notes,
           terminal_checkout_id: result.terminal_checkout_id,
           payment: result.payment,
           pending_payment: result.pending_payment,
@@ -1740,6 +1744,7 @@ export default function DoctorDashboardPage() {
           applied_credit: string;
           remaining_due: string;
           patient_credit_balance: string;
+          patient_credit_notes?: Array<{ amount: string; note: string; created_at?: string | null }>;
           invoice_status: string;
           already_paid: boolean;
         }>(`/invoices/${paymentFollowUp.invoice_id}/apply_credit/`, {});
@@ -1751,6 +1756,7 @@ export default function DoctorDashboardPage() {
                 invoice_number: out.invoice_number,
                 total_amount: out.remaining_due,
                 patient_credit_balance: out.patient_credit_balance,
+                patient_credit_notes: out.patient_credit_notes ?? [],
                 payment: {
                   ...prev.payment,
                   charged: out.already_paid,
@@ -2073,6 +2079,7 @@ export default function DoctorDashboardPage() {
           invoice_number: string;
           total_amount: string;
           patient_credit_balance?: string;
+          patient_credit_notes?: Array<{ amount: string; note: string; created_at?: string | null }>;
           already_paid?: boolean;
           payment: CompleteVisitPayment;
           pending_payment?: PendingPaymentContext;
@@ -2096,6 +2103,7 @@ export default function DoctorDashboardPage() {
           patient_id: appt.patient_id,
           total_amount: out.total_amount,
           patient_credit_balance: out.patient_credit_balance,
+          patient_credit_notes: out.patient_credit_notes,
           payment: out.payment,
           pending_payment: out.pending_payment,
           ...mergeSavedCardHints(out, appt),
@@ -2924,9 +2932,22 @@ export default function DoctorDashboardPage() {
                 </div>
               ) : null}
               {paymentFollowUp.patient_credit_balance != null && (
-                <p className="mt-1 text-sm text-slate-600">
-                  Patient credit available: <span className="font-semibold">${paymentFollowUp.patient_credit_balance}</span>
-                </p>
+                <div className="mt-1 text-sm text-slate-600">
+                  <p>
+                    Patient credit available:{" "}
+                    <span className="font-semibold">${paymentFollowUp.patient_credit_balance}</span>
+                  </p>
+                  {(paymentFollowUp.patient_credit_notes?.length ?? 0) > 0 ? (
+                    <ul className="mt-1 space-y-0.5 text-xs leading-snug text-slate-500">
+                      {paymentFollowUp.patient_credit_notes!.map((row, idx) => (
+                        <li key={`${row.amount}-${row.note}-${idx}`}>
+                          ${row.amount}
+                          {row.note ? ` — ${row.note}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               )}
               {!paymentFollowUp.payment.charged && paymentBannerShowsSavedCard ? (
                 <div className="mt-4 rounded-xl border border-[#16a349]/30 bg-white/90 p-4 shadow-sm">
